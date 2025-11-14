@@ -102,7 +102,7 @@ impl<
         let mut tx_buffer = [0; TX_SIZE];
         let mut buf = [0; REQ_SIZE];
 
-
+        defmt::debug!("HTTP server started listening");
         loop {
             let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
             socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
@@ -112,6 +112,7 @@ impl<
                 Timer::after(Duration::from_millis(100)).await;
                 continue;
             }
+            defmt::trace!("New connection {:?}", socket.remote_endpoint());
 
             let n = match with_timeout(
                 Duration::from_secs(self.timeouts.read_timeout),
