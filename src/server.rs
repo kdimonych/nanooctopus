@@ -6,7 +6,10 @@ use crate::{
     response::{HttpResponse, ResponseBody},
     status_code::StatusCode,
 };
-use embassy_net::{Stack, tcp::TcpSocket};
+use embassy_net::{
+    Stack,
+    tcp::{State, TcpSocket},
+};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
 use heapless::Vec;
@@ -99,10 +102,14 @@ impl<
         let mut tx_buffer = [0; TX_SIZE];
         let mut buf = [0; REQ_SIZE];
 
-        loop {
-            let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-            socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
+        // Socket must outlive the loop iteration to have a chance to response properly.
+        // The socket is closed at the end of each loop iteration by starting a fin/ack handshake.
+        // If it was created inside the loop, it would be dropped immediately after the loop iteration,
+        // potentially before the response is fully sent or fin/ack done.
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
 
+        loop {
             if let Err(e) = socket.accept(self.port).await {
                 defmt::warn!("Accept error: {:?}", e);
                 Timer::after(Duration::from_millis(100)).await;
@@ -145,7 +152,21 @@ impl<
                 }
             }
 
+            // Make sure all data is sent before closing
+            socket.flush().await.ok();
             socket.close();
+            self.wait_socket_close(&socket).await;
+        }
+    }
+
+    /// Waits until the socket is fully closed with FIN/ACK handshake
+    async fn wait_socket_close<'a>(&self, socket: &TcpSocket<'a>) {
+        // Wait until the socket is fully closed
+        while socket.state() != State::FinWait2
+            && socket.state() != State::Closed
+            && socket.state() != State::TimeWait
+        {
+            Timer::after(Duration::from_millis(40)).await;
         }
     }
 
