@@ -102,14 +102,11 @@ impl<
         let mut tx_buffer = [0; TX_SIZE];
         let mut buf = [0; REQ_SIZE];
 
-        // Socket must outlive the loop iteration to have a chance to response properly.
-        // The socket is closed at the end of each loop iteration by starting a fin/ack handshake.
-        // If it was created inside the loop, it would be dropped immediately after the loop iteration,
-        // potentially before the response is fully sent or fin/ack done.
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
 
         loop {
+            let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+            socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
+
             if let Err(e) = socket.accept(self.port).await {
                 defmt::warn!("Accept error: {:?}", e);
                 Timer::after(Duration::from_millis(100)).await;
