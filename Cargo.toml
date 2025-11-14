@@ -25,7 +25,7 @@ embassy-net = { version = "0.7.1", features = [
 embassy-time = "0.5.0"
 embedded-io-async = "0.6.1"
 embedded-tls = { version = "0.17.0", default-features = false, optional = true }
-heapless = "0.9.1"
+heapless = "0.8"
 rand_chacha = { version = "0.3", default-features = false, optional = true }
 rand_core = { version = "0.6.4", optional = true }
 
