@@ -10,10 +10,10 @@ use crate::{
 #[allow(async_fn_in_trait)]
 pub trait HttpHandler {
     /// Handle an incoming HTTP request and return a response
-    async fn handle_request<'buf>(
+    async fn handle_request(
         &mut self,
         request: &HttpRequest<'_>,
-        response_buffer: HttpResponseBufferRef<'buf>,
+        response_buffer: HttpResponseBufferRef<'_>,
     ) -> Result<HttpResponse, Error>;
 }
 
@@ -22,10 +22,10 @@ pub trait HttpHandler {
 pub struct SimpleHandler;
 
 impl HttpHandler for SimpleHandler {
-    async fn handle_request<'buf>(
+    async fn handle_request(
         &mut self,
         request: &HttpRequest<'_>,
-        mut response_buffer: HttpResponseBufferRef<'buf>,
+        mut response_buffer: HttpResponseBufferRef<'_>,
     ) -> Result<HttpResponse, Error> {
         match request.path {
             "/" => HttpResponseBuilder::new(response_buffer.reborrow())
