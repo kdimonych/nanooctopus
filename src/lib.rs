@@ -18,8 +18,12 @@ pub mod options;
 pub mod request;
 /// HTTP response types and body handling.
 pub mod response;
+/// HTTP response builder utilities.
+pub mod response_builder;
 /// HTTP server implementation.
 pub mod server;
+/// Slice view utilities for HTTP responses.
+pub mod slice_view;
 /// Predefined HTTP status codes as per RFC 2616.
 pub mod status_code;
 
@@ -30,6 +34,6 @@ pub use header::{HttpHeader, headers, mime_types};
 pub use method::HttpMethod;
 pub use options::HttpClientOptions;
 pub use request::HttpRequest;
-pub use response::{HttpResponse, ResponseBody};
+pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 pub use server::{DefaultHttpServer, HttpServer, ServerTimeouts, SmallHttpServer};
 pub use status_code::StatusCode;

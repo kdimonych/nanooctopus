@@ -1,10 +1,8 @@
+use core::borrow;
+
 use crate::{
-    error::Error,
-    handler::HttpHandler,
-    header::HttpHeader,
-    request::HttpRequest,
-    response::{HttpResponse, ResponseBody},
-    status_code::StatusCode,
+    HttpResponse, HttpResponseBufferRef, HttpResponseBuilder, error::Error, handler::HttpHandler,
+    header::HttpHeader, request::HttpRequest, status_code::StatusCode,
 };
 use embassy_net::{
     Stack,
@@ -136,9 +134,18 @@ impl<
             };
 
             // Parse the request
-            match self.handle_connection(&buf[..n], &mut handler).await {
-                Ok(response_bytes) => {
-                    if let Err(e) = socket.write_all(&response_bytes).await {
+            let mut response_buffer = [0; MAX_RESPONSE_SIZE];
+
+            match self
+                .handle_connection(
+                    &buf[..n],
+                    HttpResponseBufferRef::bind(&mut response_buffer),
+                    &mut handler,
+                )
+                .await
+            {
+                Ok(response) => {
+                    if let Err(e) = socket.write_all(&response_buffer[..response.len()]).await {
                         defmt::warn!("Failed to write response: {:?}", e);
                     }
                 }
@@ -168,11 +175,12 @@ impl<
         }
     }
 
-    async fn handle_connection<H>(
+    async fn handle_connection<'buf, H>(
         &mut self,
         buffer: &[u8],
+        mut response_buffer: HttpResponseBufferRef<'buf>,
         handler: &mut H,
-    ) -> Result<Vec<u8, MAX_RESPONSE_SIZE>, Error>
+    ) -> Result<HttpResponse, Error>
     where
         H: HttpHandler,
     {
@@ -180,38 +188,25 @@ impl<
         let request = HttpRequest::try_from(buffer)?;
 
         // Handle the request
-        let response = match with_timeout(
+        match with_timeout(
             Duration::from_secs(self.timeouts.handler_timeout),
-            handler.handle_request(&request),
+            handler.handle_request(&request, response_buffer.reborrow()),
         )
         .await
         {
-            Ok(Ok(response)) => response,
+            Ok(Ok(response)) => return Ok(response),
             Ok(Err(e)) => {
                 defmt::warn!("Handler error: {:?}", e);
-                let mut headers = Vec::new();
-                let _ = headers.push(HttpHeader::new("Content-Type", "text/plain"));
-                let error_response = HttpResponse {
-                    status_code: StatusCode::InternalServerError,
-                    headers,
-                    body: ResponseBody::Text("Internal Server Error"),
-                };
-                return Ok(error_response.build_bytes::<MAX_RESPONSE_SIZE>());
+                HttpResponseBuilder::new(response_buffer.reborrow())
+                    .with_status(StatusCode::InternalServerError)?
+                    .with_header("Content-Type", "text/plain")?
+                    .with_body_from_str("Internal Server Error")
             }
-            Err(_) => {
-                defmt::warn!("Request handling timed out");
-                let mut headers = Vec::new();
-                let _ = headers.push(HttpHeader::new("Content-Type", "text/plain"));
-                let timeout_response = HttpResponse {
-                    status_code: StatusCode::BadRequest,
-                    headers,
-                    body: ResponseBody::Text("Request Timeout"),
-                };
-                return Ok(timeout_response.build_bytes::<MAX_RESPONSE_SIZE>());
-            }
-        };
-
-        Ok(response.build_bytes::<MAX_RESPONSE_SIZE>())
+            Err(_) => HttpResponseBuilder::new(response_buffer.reborrow())
+                .with_status(StatusCode::InternalServerError)?
+                .with_header("Content-Type", "text/plain")?
+                .with_body_from_str("Request Timeout"),
+        }
     }
 }
 
