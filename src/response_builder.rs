@@ -58,8 +58,174 @@ impl HttpResponse {
     }
 }
 
+impl<'a> HttpResponseBuilder<'a, NotCreated> {
+    /// Creates a new HttpResponseBuilder with the provided buffer.
+    pub fn new(buffer: HttpResponseBufferRef<'a>) -> HttpResponseBuilder<'a, BuildStatus> {
+        HttpResponseBuilder {
+            base: BuilderBase {
+                buffer: SliceView::new(buffer.inner),
+            },
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a> HttpResponseBuilder<'a, BuildStatus> {
+    /// Adds a header to the HTTP response.
+    pub fn with_status(
+        mut self,
+        status_code: StatusCode,
+    ) -> Result<HttpResponseBuilder<'a, BuildHaader>, Error> {
+        // Write "HTTP/1.1 "
+        self.base.extend_from_str("HTTP/1.1 ")?;
+
+        // Write status code as decimal
+        self.base
+            .extend_from_decimal(status_code.as_u16() as usize)?;
+
+        // Write " <reason>\r\n"
+        self.base.extend_from_str(" ")?;
+        self.base.extend_from_str(status_code.text())?;
+        self.base.new_line()?;
+
+        Ok(HttpResponseBuilder {
+            base: self.base,
+            _marker: core::marker::PhantomData,
+        })
+    }
+
+    /// Creates the response out of compressed HTML page
+    /// # Note:
+    /// The page data must be in HTML format compressed with gzip algorithm.
+    /// No check is performed to verify the format.
+    ///
+    pub fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_status(StatusCode::Ok)?
+            .with_header("Content-Encoding", "gzip")?
+            .with_header("Content-Type", "text/html; charset=utf-8")?
+            .with_body_from_slice(page_data)
+    }
+
+    /// Creates the response out of HTML page
+    /// # Note:
+    /// The page data must be in HTML format.
+    /// No check is performed to verify the format.
+    ///
+    pub fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_status(StatusCode::Ok)?
+            .with_header("Content-Type", "text/html; charset=utf-8")?
+            .with_body_from_slice(page_data)
+    }
+}
+
+impl<'a> HttpResponseBuilder<'a, BuildHaader> {
+    /// Adds a header to the HTTP response.
+    pub fn add_header(&mut self, name: &str, value: &str) -> Result<(), Error> {
+        // Write header name
+        self.write_header_name(name)?;
+        // Write header value
+        self.write_header_value(value)?;
+        // Finalize header line
+        self.new_line()?;
+
+        Ok(())
+    }
+
+    /// Adds a header to the HTTP response and returns self for chaining.
+    pub fn with_header(mut self, name: &str, value: &str) -> Result<Self, Error> {
+        self.add_header(name, value)?;
+        Ok(self)
+    }
+
+    /// Finalizes response.
+    #[inline(always)]
+    pub fn with_no_body(mut self) -> Result<HttpResponse, Error> {
+        self.add_header("Content-Length", "0")?;
+        self.new_line()?;
+        Ok(self.finalize())
+    }
+
+    /// Prepares the builder to add a body to the HTTP response.
+    pub fn with_body_filler<Filler>(mut self, filler: Filler) -> Result<HttpResponse, Error>
+    where
+        Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
+    {
+        const CONTENT_LENGTH_PLACEHOLDER_SIZE: usize = 10;
+        // Prepare space for Content-Length header
+        self.write_header_name("Content-Length")?;
+
+        // Prepare placeholder for content length
+        let placeholder_pos = self.base.buffer.len();
+
+        let value_buf = self
+            .base
+            .buffer
+            .try_allocate(CONTENT_LENGTH_PLACEHOLDER_SIZE)
+            .map_err(|_| Error::InvalidStatusCode)?;
+        value_buf.fill(b'0');
+        //value_buf.fill_with(f);
+        self.base.new_line()?;
+
+        self.base.new_line()?;
+
+        let content_length = self.base.buffer.fill_with(filler)?;
+        // Update Content-Length placeholder
+        self.base.buffer.modify_inner(|inner_buf| {
+            let placeholder_slice =
+                &mut inner_buf[placeholder_pos..placeholder_pos + CONTENT_LENGTH_PLACEHOLDER_SIZE];
+            write_decimal_to_placeholder(placeholder_slice, content_length).unwrap();
+        });
+
+        Ok(self.finalize())
+    }
+
+    /// Prepares the builder to add a binary body to the HTTP response.
+    pub fn with_body_from_slice(self, s: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_body_filler(|body_buf| {
+            if s.len() > body_buf.len() {
+                return Err(Error::InvalidStatusCode);
+            }
+            let len = s.len().min(body_buf.len());
+            body_buf[..len].copy_from_slice(&s[..len]);
+            Ok(len)
+        })
+    }
+
+    /// Prepares the builder to add a text body to the HTTP response.
+    pub fn with_body_from_str(self, s: &str) -> Result<HttpResponse, Error> {
+        self.with_body_from_slice(s.as_bytes())
+    }
+
+    /// Prepares the builder to add a plain text body to the HTTP response.
+    pub fn with_plain_text_body(self, s: &str) -> Result<HttpResponse, Error> {
+        self.with_header("Content-Type", "text/plain; charset=utf-8")?
+            .with_body_from_str(s)
+    }
+
+    fn write_header_name(&mut self, name: &str) -> Result<(), Error> {
+        self.base.extend_from_str(name)?;
+        self.base.extend_from_str(": ")
+    }
+
+    #[inline(always)]
+    fn write_header_value(&mut self, value: &str) -> Result<(), Error> {
+        self.base.extend_from_str(value)
+    }
+
+    #[inline(always)]
+    fn new_line(&mut self) -> Result<(), Error> {
+        self.base.new_line()
+    }
+
+    fn finalize(self) -> HttpResponse {
+        HttpResponse {
+            response_len: self.base.buffer.len(),
+        }
+    }
+}
+
 impl BuilderBase<'_> {
-    pub fn finalize_block(&mut self) -> Result<(), Error> {
+    pub fn new_line(&mut self) -> Result<(), Error> {
         self.buffer
             .extend_from_slice(b"\r\n")
             .map_err(|_| Error::InvalidStatusCode)
@@ -105,172 +271,6 @@ impl BuilderBase<'_> {
         }
 
         Ok(())
-    }
-}
-
-impl<'a> HttpResponseBuilder<'a, NotCreated> {
-    /// Creates a new HttpResponseBuilder with the provided buffer.
-    pub fn new(buffer: HttpResponseBufferRef<'a>) -> HttpResponseBuilder<'a, BuildStatus> {
-        HttpResponseBuilder {
-            base: BuilderBase {
-                buffer: SliceView::new(buffer.inner),
-            },
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<'a> HttpResponseBuilder<'a, BuildStatus> {
-    /// Adds a header to the HTTP response.
-    pub fn with_status(
-        mut self,
-        status_code: StatusCode,
-    ) -> Result<HttpResponseBuilder<'a, BuildHaader>, Error> {
-        // Write "HTTP/1.1 "
-        self.base.extend_from_str("HTTP/1.1 ")?;
-
-        // Write status code as decimal
-        self.base
-            .extend_from_decimal(status_code.as_u16() as usize)?;
-
-        // Write " <reason>\r\n"
-        self.base.extend_from_str(" ")?;
-        self.base.extend_from_str(status_code.text())?;
-        self.base.finalize_block()?;
-
-        Ok(HttpResponseBuilder {
-            base: self.base,
-            _marker: core::marker::PhantomData,
-        })
-    }
-
-    /// Creates the response out of compressed HTML page
-    /// # Note:
-    /// The page data must be in HTML format compressed with gzip algorithm.
-    /// No check is performed to verify the format.
-    ///
-    pub fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
-        self.with_status(StatusCode::Ok)?
-            .with_header("Content-Encoding", "gzip")?
-            .with_header("Content-Type", "text/html; charset=utf-8")?
-            .with_body_from_slice(page_data)
-    }
-
-    /// Creates the response out of HTML page
-    /// # Note:
-    /// The page data must be in HTML format.
-    /// No check is performed to verify the format.
-    ///
-    pub fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
-        self.with_status(StatusCode::Ok)?
-            .with_header("Content-Type", "text/html; charset=utf-8")?
-            .with_body_from_slice(page_data)
-    }
-}
-
-impl<'a> HttpResponseBuilder<'a, BuildHaader> {
-    /// Adds a header to the HTTP response.
-    pub fn add_header(&mut self, name: &str, value: &str) -> Result<(), Error> {
-        // Write header name
-        self.write_header_name(name)?;
-        // Write header value
-        self.write_header_value(value)?;
-        // Finalize header line
-        self.finalize_block()?;
-
-        Ok(())
-    }
-
-    /// Adds a header to the HTTP response and returns self for chaining.
-    pub fn with_header(mut self, name: &str, value: &str) -> Result<Self, Error> {
-        self.add_header(name, value)?;
-        Ok(self)
-    }
-
-    fn write_header_name(&mut self, name: &str) -> Result<(), Error> {
-        self.base.extend_from_str(name)?;
-        self.base.extend_from_str(": ")
-    }
-
-    #[inline(always)]
-    fn write_header_value(&mut self, value: &str) -> Result<(), Error> {
-        self.base.extend_from_str(value)
-    }
-
-    #[inline(always)]
-    fn finalize_block(&mut self) -> Result<(), Error> {
-        self.base.extend_from_str("\r\n")
-    }
-
-    /// Finalizes response.
-    #[inline(always)]
-    pub fn finalize(self) -> HttpResponse {
-        HttpResponse {
-            response_len: self.base.buffer.len(),
-        }
-    }
-
-    /// Prepares the builder to add a body to the HTTP response.
-    pub fn with_body_filler<Filler>(mut self, filler: Filler) -> Result<HttpResponse, Error>
-    where
-        Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
-    {
-        const CONTENT_LENGTH_PLACEHOLDER_SIZE: usize = 10;
-        //let mut buffer = self.take_buffer();
-        // Prepare space for Content-Length heade
-
-        self.base
-            .extend_from_slice(b"Content-Length")
-            .map_err(|_| Error::InvalidStatusCode)?;
-        self.base
-            .extend_from_slice(b": ")
-            .map_err(|_| Error::InvalidStatusCode)?;
-
-        // Prepare placeholder for content length
-        let placeholder_pos = self.base.buffer.len();
-
-        let value_buf = self
-            .base
-            .buffer
-            .try_allocate(CONTENT_LENGTH_PLACEHOLDER_SIZE)
-            .map_err(|_| Error::InvalidStatusCode)?;
-        value_buf.fill(b'0');
-        //value_buf.fill_with(f);
-
-        self.base.finalize_block()?;
-
-        let content_length = self.base.buffer.fill_with(filler)?;
-        // Update Content-Length placeholder
-        self.base.buffer.modify_inner(|inner_buf| {
-            let placeholder_slice =
-                &mut inner_buf[placeholder_pos..placeholder_pos + CONTENT_LENGTH_PLACEHOLDER_SIZE];
-            write_decimal_to_placeholder(placeholder_slice, content_length).unwrap();
-        });
-
-        Ok(self.finalize())
-    }
-
-    /// Prepares the builder to add a binary body to the HTTP response.
-    pub fn with_body_from_slice(self, s: &[u8]) -> Result<HttpResponse, Error> {
-        self.with_body_filler(|body_buf| {
-            if s.len() > body_buf.len() {
-                return Err(Error::InvalidStatusCode);
-            }
-            let len = s.len().min(body_buf.len());
-            body_buf[..len].copy_from_slice(&s[..len]);
-            Ok(len)
-        })
-    }
-
-    /// Prepares the builder to add a text body to the HTTP response.
-    pub fn with_body_from_str(self, s: &str) -> Result<HttpResponse, Error> {
-        self.with_body_from_slice(s.as_bytes())
-    }
-
-    /// Prepares the builder to add a plain text body to the HTTP response.
-    pub fn with_plain_text_body(self, s: &str) -> Result<HttpResponse, Error> {
-        self.with_header("Content-Type", "text/plain; charset=utf-8")?
-            .with_body_from_str(s)
     }
 }
 

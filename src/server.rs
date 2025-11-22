@@ -145,6 +145,16 @@ impl<
                 .await
             {
                 Ok(response) => {
+                    if response.len() < 256 {
+                        defmt::debug!(
+                            "Raw response: '{:?}'",
+                            core::str::from_utf8(&response_buffer[..response.len()])
+                                .unwrap_or("<invalid utf8>")
+                        );
+                    } else {
+                        defmt::debug!("Response length: {} bytes", response.len());
+                    }
+
                     if let Err(e) = socket.write_all(&response_buffer[..response.len()]).await {
                         defmt::warn!("Failed to write response: {:?}", e);
                     }
