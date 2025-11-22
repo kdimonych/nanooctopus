@@ -143,6 +143,29 @@ impl<'a> HttpResponseBuilder<'a, BuildStatus> {
             _marker: core::marker::PhantomData,
         })
     }
+
+    /// Creates the response out of compressed HTML page
+    /// # Note:
+    /// The page data must be in HTML format compressed with gzip algorithm.
+    /// No check is performed to verify the format.
+    ///
+    pub fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_status(StatusCode::Ok)?
+            .with_header("Content-Encoding", "gzip")?
+            .with_header("Content-Type", "text/html; charset=utf-8")?
+            .with_body_from_slice(page_data)
+    }
+
+    /// Creates the response out of HTML page
+    /// # Note:
+    /// The page data must be in HTML format.
+    /// No check is performed to verify the format.
+    ///
+    pub fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_status(StatusCode::Ok)?
+            .with_header("Content-Type", "text/html; charset=utf-8")?
+            .with_body_from_slice(page_data)
+    }
 }
 
 impl<'a> HttpResponseBuilder<'a, BuildHaader> {
@@ -242,6 +265,12 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
     /// Prepares the builder to add a text body to the HTTP response.
     pub fn with_body_from_str(self, s: &str) -> Result<HttpResponse, Error> {
         self.with_body_from_slice(s.as_bytes())
+    }
+
+    /// Prepares the builder to add a plain text body to the HTTP response.
+    pub fn with_plain_text_body(self, s: &str) -> Result<HttpResponse, Error> {
+        self.with_header("Content-Type", "text/plain; charset=utf-8")?
+            .with_body_from_str(s)
     }
 }
 
