@@ -94,27 +94,11 @@ impl<'a> HttpResponseBuilder<'a, BuildStatus> {
         })
     }
 
-    /// Creates the response out of compressed HTML page
-    /// # Note:
-    /// The page data must be in HTML format compressed with gzip algorithm.
-    /// No check is performed to verify the format.
-    ///
-    pub fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
-        self.with_status(StatusCode::Ok)?
-            .with_header("Content-Encoding", "gzip")?
-            .with_header("Content-Type", "text/html; charset=utf-8")?
-            .with_body_from_slice(page_data)
-    }
-
-    /// Creates the response out of HTML page
-    /// # Note:
-    /// The page data must be in HTML format.
-    /// No check is performed to verify the format.
-    ///
-    pub fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
-        self.with_status(StatusCode::Ok)?
-            .with_header("Content-Type", "text/html; charset=utf-8")?
-            .with_body_from_slice(page_data)
+    /// Creates a preflight response with CORS-like PNA headers.
+    pub fn preflight_response(self) -> Result<HttpResponse, Error> {
+        self.with_status(StatusCode::NoContent)?
+            .with_cors_like_pna_headers()?
+            .with_no_body()
     }
 }
 
@@ -200,6 +184,38 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
     pub fn with_plain_text_body(self, s: &str) -> Result<HttpResponse, Error> {
         self.with_header("Content-Type", "text/plain; charset=utf-8")?
             .with_body_from_str(s)
+    }
+
+    /// Adds CORS-like PNA headers to the HTTP response.
+    /// These headers allow cross-origin requests and private network access.
+    pub fn with_cors_like_pna_headers(self) -> Result<Self, Error> {
+        self.with_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")?
+            .with_header("Access-Control-Allow-Origin", "*")?
+            .with_header("Access-Control-Allow-Private-Network", "true")?
+            .with_header("Access-Control-Allow-Headers", "Content-Type")
+    }
+
+    /// Creates the response out of compressed HTML page
+    /// # Note:
+    /// The page data must be in HTML format compressed with gzip algorithm.
+    /// No check is performed to verify the format.
+    ///
+    pub fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_header("Content-Encoding", "gzip")?
+            .with_header("Content-Type", "text/html; charset=utf-8")?
+            .with_header("Connection", "close")?
+            .with_body_from_slice(page_data)
+    }
+
+    /// Creates the response out of HTML page
+    /// # Note:
+    /// The page data must be in HTML format.
+    /// No check is performed to verify the format.
+    ///
+    pub fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
+        self.with_header("Content-Type", "text/html; charset=utf-8")?
+            .with_header("Connection", "close")?
+            .with_body_from_slice(page_data)
     }
 
     fn write_header_name(&mut self, name: &str) -> Result<(), Error> {
