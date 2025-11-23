@@ -6,6 +6,7 @@ use crate::{
 };
 use embassy_net::{
     Stack,
+    dns::Socket,
     tcp::{State, TcpSocket},
 };
 use embassy_time::{Duration, Timer, with_timeout};
@@ -90,7 +91,7 @@ impl<
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<H>(&mut self, stack: Stack<'_>, mut handler: H) -> !
+    pub async fn serve<'a, H>(&mut self, stack: Stack<'a>, mut handler: H) -> !
     where
         H: HttpHandler,
     {
@@ -100,17 +101,27 @@ impl<
         let mut tx_buffer = [0; TX_SIZE];
         let mut buf = [0; REQ_SIZE];
 
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
+        socket.set_keep_alive(Some(Duration::from_secs(5)));
+
         defmt::debug!("HTTP server started listening");
         loop {
-            let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-            socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
-
-            if let Err(e) = socket.accept(self.port).await {
-                defmt::warn!("Accept error: {:?}", e);
-                Timer::after(Duration::from_millis(100)).await;
-                continue;
+            if (!socket.may_recv() || socket.remote_endpoint().is_none())
+                && socket.state() != State::Closed
+            {
+                defmt::info!("The closed connection detected, closing socket");
+                Self::close_connection(&mut socket).await;
             }
-            defmt::trace!("New connection {:?}", socket.remote_endpoint());
+
+            if socket.state() == State::Closed {
+                if let Err(e) = socket.accept(self.port).await {
+                    defmt::warn!("Accept error: {:?}", e);
+                    Timer::after(Duration::from_millis(100)).await;
+                    continue;
+                }
+                defmt::info!("New connection {:?}", socket.remote_endpoint());
+            }
 
             let n = match with_timeout(
                 Duration::from_secs(self.timeouts.read_timeout),
@@ -120,15 +131,19 @@ impl<
             {
                 Ok(Ok(0)) => {
                     // Connection closed
+                    defmt::info!("Remote side has closed the connection");
+                    Self::abort_connection(&mut socket).await;
                     continue;
                 }
                 Ok(Ok(n)) => n,
                 Ok(Err(e)) => {
                     defmt::warn!("Read error: {:?}", e);
+                    Self::close_connection(&mut socket).await;
                     continue;
                 }
                 Err(_) => {
                     defmt::warn!("Socket read timeout");
+                    Self::close_connection(&mut socket).await;
                     continue;
                 }
             };
@@ -147,7 +162,7 @@ impl<
                 Ok(response) => {
                     if response.len() < 256 {
                         defmt::debug!(
-                            "Raw response: '{:?}'",
+                            "Raw response: {:?}",
                             core::str::from_utf8(&response_buffer[..response.len()])
                                 .unwrap_or("<invalid utf8>")
                         );
@@ -164,25 +179,37 @@ impl<
                     // Send a 500 error response
                     let error_response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nInternal Server Error";
                     let _ = socket.write_all(error_response).await;
+                    Self::close_connection(&mut socket).await;
                 }
             }
-
-            // Make sure all data is sent before closing
-            socket.flush().await.ok();
-            socket.close();
-            self.wait_socket_close(&socket).await;
         }
     }
 
-    /// Waits until the socket is fully closed with FIN/ACK handshake
-    async fn wait_socket_close<'a>(&self, socket: &TcpSocket<'a>) {
-        // Wait until the socket is fully closed
-        while socket.state() != State::FinWait2
-            && socket.state() != State::Closed
-            && socket.state() != State::TimeWait
-        {
-            Timer::after(Duration::from_millis(40)).await;
-        }
+    /// Close the connection gracefully
+    async fn close_connection<'a>(socket: &mut TcpSocket<'a>) {
+        let remote_endpoint = socket.remote_endpoint();
+
+        // Close the write side of the connection
+        socket.close();
+        // Ensure all pending data is sent
+        socket.flush().await.ok();
+        // Close the socket
+        socket.abort();
+        // Ensure the RST is sent
+        socket.flush().await.ok();
+
+        defmt::info!("Connection closed {:?}", remote_endpoint);
+    }
+
+    async fn abort_connection<'a>(socket: &mut TcpSocket<'a>) {
+        let remote_endpoint = socket.remote_endpoint();
+
+        // Close the socket
+        socket.abort();
+        // Ensure the RST is sent
+        socket.flush().await.ok();
+
+        defmt::info!("Connection aborted {:?}", remote_endpoint);
     }
 
     async fn handle_connection<'buf, H>(
