@@ -1,3 +1,5 @@
+#[cfg(feature = "ws")]
+use crate::WebSocket;
 use crate::{
     HttpResponseBuilder,
     error::Error,
@@ -15,6 +17,19 @@ pub trait HttpHandler {
         request: &HttpRequest<'_>,
         response_buffer: HttpResponseBufferRef<'_>,
     ) -> Result<HttpResponse, Error>;
+
+    #[cfg(feature = "ws")]
+    /// Handle a WebSocket connection
+    ///
+    /// If the handler returns result Ok() the WebSocket connection will be automatically closed, but the TCP socket
+    /// will remain open and server will process further HTTP requests on it.
+    ///
+    /// If the handler returns Err() the TCP socket will be closed and the server will wait for a new connection.
+    async fn handle_websocket_connection(
+        &mut self,
+        request: &HttpRequest<'_>,
+        web_socket: WebSocket<'_, '_>,
+    ) -> Result<(), ()>;
 }
 
 /// A simple handler that serves basic endpoints for testing
@@ -41,6 +56,15 @@ impl HttpHandler for SimpleHandler {
                 .with_header("Content-Type", "text/plain")?
                 .with_body_from_str("404 Not Found"),
         }
+    }
+
+    #[cfg(feature = "ws")]
+    async fn handle_websocket_connection(
+        &mut self,
+        request: &HttpRequest<'_>,
+        web_socket: WebSocket<'_, '_>,
+    ) -> Result<(), ()> {
+        Err(()) // Close the connection immediately
     }
 }
 

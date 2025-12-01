@@ -24,8 +24,12 @@ pub mod response_builder;
 pub mod server;
 /// Slice view utilities for HTTP responses.
 pub mod slice_view;
+mod socket_wrapper;
 /// Predefined HTTP status codes as per RFC 2616.
 pub mod status_code;
+/// WebSocket support module
+#[cfg(feature = "ws")]
+pub mod ws;
 
 pub use client::{DefaultHttpClient, HttpClient, SmallHttpClient};
 pub use error::Error;
@@ -37,3 +41,5 @@ pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 pub use server::{DefaultHttpServer, HttpServer, ServerTimeouts, SmallHttpServer};
 pub use status_code::StatusCode;
+#[cfg(feature = "ws")]
+pub use ws::*;

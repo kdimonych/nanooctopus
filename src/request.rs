@@ -17,6 +17,10 @@ pub struct HttpRequest<'a> {
     pub headers: Vec<HttpHeader<'a>, MAX_HEADERS>,
     /// Request body (if present)
     pub body: &'a [u8],
+
+    /// WebSocket key if this is a WebSocket upgrade request
+    #[cfg(feature = "ws")]
+    pub web_socket_key: Option<&'a str>,
 }
 
 /// Find the position of the double CRLF sequence that separates headers from body
@@ -57,6 +61,7 @@ impl<'a> HttpRequest<'a> {
 
         // Parse headers
         let mut headers = Vec::new();
+
         for line in lines {
             if line.is_empty() {
                 break;
@@ -73,13 +78,44 @@ impl<'a> HttpRequest<'a> {
             }
         }
 
+        #[cfg(feature = "ws")]
+        let web_socket_key = Self::try_get_web_socket_key(&headers);
+
         Ok(HttpRequest {
             method,
             path,
             version,
             headers,
             body,
+            #[cfg(feature = "ws")]
+            web_socket_key,
         })
+    }
+
+    #[cfg(feature = "ws")]
+    fn try_get_web_socket_key(headers: &Vec<HttpHeader<'a>, 16>) -> Option<&'a str> {
+        // Find the Sec-WebSocket-Key header if present.
+        // This check is done first because it appears rarely in requests, so we can avoid unnecessary iterations.
+        let res = headers
+            .iter()
+            .find(|header| header.name.eq_ignore_ascii_case("Sec-WebSocket-Key"))
+            .map(|header| header.value);
+
+        if !headers.iter().any(|header| {
+            header.name.eq_ignore_ascii_case("Upgrade")
+                && header.value.eq_ignore_ascii_case("websocket")
+        }) {
+            return None;
+        };
+
+        if !headers.iter().any(|header| {
+            header.name.eq_ignore_ascii_case("Connection")
+                && header.value.eq_ignore_ascii_case("upgrade")
+        }) {
+            return None;
+        }
+
+        res
     }
 }
 

@@ -36,6 +36,10 @@ impl HttpResponseBufferRef<'_> {
     pub fn bind<'a>(buffer: &'a mut [u8]) -> HttpResponseBufferRef<'a> {
         HttpResponseBufferRef { inner: buffer }
     }
+
+    pub(crate) fn deref(&self) -> &[u8] {
+        self.inner
+    }
 }
 
 /// The HTTP response type.
@@ -113,6 +117,39 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
         self.new_line()?;
 
         Ok(())
+    }
+
+    /// Adds a header with value filled by a custom filler function.
+    pub fn add_header_value_from_filler<Filler>(
+        &mut self,
+        name: &str,
+        filler: Filler,
+    ) -> Result<(), Error>
+    where
+        Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
+    {
+        // Write header name
+        self.write_header_name(name)?;
+        // Write header value
+        self.base.buffer.fill_with(filler)?;
+        // Finalize header line
+        self.new_line()?;
+
+        Ok(())
+    }
+
+    /// Adds a header with value filled by a custom filler function and returns self for chaining.
+    pub fn with_header_value_from_filler<Filler>(
+        mut self,
+        name: &str,
+        filler: Filler,
+    ) -> Result<Self, Error>
+    where
+        Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
+    {
+        self.add_header_value_from_filler(name, filler)?;
+
+        Ok(self)
     }
 
     /// Adds a header to the HTTP response and returns self for chaining.
@@ -203,7 +240,6 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
     pub fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
         self.with_header("Content-Encoding", "gzip")?
             .with_header("Content-Type", "text/html; charset=utf-8")?
-            .with_header("Connection", "close")?
             .with_body_from_slice(page_data)
     }
 
@@ -214,7 +250,6 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
     ///
     pub fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
         self.with_header("Content-Type", "text/html; charset=utf-8")?
-            .with_header("Connection", "close")?
             .with_body_from_slice(page_data)
     }
 

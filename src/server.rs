@@ -1,5 +1,7 @@
 use core::borrow;
+use core::f32::consts::E;
 
+use crate::socket_wrapper::SocketWrapperRef;
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder, error::Error, handler::HttpHandler,
     header::HttpHeader, request::HttpRequest, status_code::StatusCode,
@@ -12,6 +14,9 @@ use embassy_net::{
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
 use heapless::Vec;
+
+#[cfg(feature = "ws")]
+use crate::ws::*;
 
 const SERVER_BUFFER_SIZE: usize = 4096;
 const MAX_REQUEST_SIZE: usize = 4096;
@@ -48,6 +53,10 @@ impl ServerTimeouts {
             handler_timeout,
         }
     }
+}
+enum HttpProcessResult<'a> {
+    Done,
+    WebSocketRequest(HttpRequest<'a>, &'a str),
 }
 
 /// Simple HTTP server implementation
@@ -97,92 +106,293 @@ impl<
     {
         defmt::info!("HTTP server started on port {}", self.port);
 
+        //The tcp socket life cycle
         let mut rx_buffer = [0; RX_SIZE];
         let mut tx_buffer = [0; TX_SIZE];
-        let mut buf = [0; REQ_SIZE];
 
         let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(Duration::from_secs(self.timeouts.accept_timeout)));
         socket.set_keep_alive(Some(Duration::from_secs(5)));
-
         defmt::debug!("HTTP server started listening");
+
         loop {
-            if (!socket.may_recv() || socket.remote_endpoint().is_none())
-                && socket.state() != State::Closed
-            {
-                defmt::info!("The closed connection detected, closing socket");
-                Self::close_connection(&mut socket).await;
+            // Opened socket lifecycle
+            if let Err(e) = socket.accept(self.port).await {
+                defmt::warn!("Accept error: {:?}", e);
+                Timer::after(Duration::from_millis(10)).await;
+                continue;
             }
+            defmt::info!("New connection {:?}", socket.remote_endpoint());
 
-            if socket.state() == State::Closed {
-                if let Err(e) = socket.accept(self.port).await {
-                    defmt::warn!("Accept error: {:?}", e);
-                    Timer::after(Duration::from_millis(100)).await;
-                    continue;
+            // The transaction life cycle
+            loop {
+                if (!socket.may_recv() || socket.remote_endpoint().is_none())
+                    && socket.state() != State::Closed
+                {
+                    // The connection is half-closed or not established
+                    defmt::info!("The half-closed connection detected, closing socket");
+                    break;
                 }
-                defmt::info!("New connection {:?}", socket.remote_endpoint());
-            }
 
-            let n = match with_timeout(
-                Duration::from_secs(self.timeouts.read_timeout),
-                socket.read(&mut buf),
-            )
-            .await
-            {
-                Ok(Ok(0)) => {
-                    // Connection closed
-                    defmt::info!("Remote side has closed the connection");
-                    Self::abort_connection(&mut socket).await;
-                    continue;
-                }
-                Ok(Ok(n)) => n,
-                Ok(Err(e)) => {
-                    defmt::warn!("Read error: {:?}", e);
-                    Self::close_connection(&mut socket).await;
-                    continue;
-                }
-                Err(_) => {
-                    defmt::warn!("Socket read timeout");
-                    Self::close_connection(&mut socket).await;
-                    continue;
-                }
-            };
-
-            // Parse the request
-            let mut response_buffer = [0; MAX_RESPONSE_SIZE];
-
-            match self
-                .handle_connection(
-                    &buf[..n],
-                    HttpResponseBufferRef::bind(&mut response_buffer),
-                    &mut handler,
+                // Receive request
+                let mut request_buf = [0; REQ_SIZE];
+                let n = match with_timeout(
+                    Duration::from_secs(self.timeouts.read_timeout),
+                    socket.read(&mut request_buf),
                 )
                 .await
-            {
-                Ok(response) => {
-                    if response.len() < 256 {
-                        defmt::debug!(
-                            "Raw response: {:?}",
-                            core::str::from_utf8(&response_buffer[..response.len()])
-                                .unwrap_or("<invalid utf8>")
-                        );
-                    } else {
-                        defmt::debug!("Response length: {} bytes", response.len());
+                {
+                    Ok(Ok(0)) => {
+                        // Connection closed
+                        defmt::info!("Remote side has closed the connection");
+                        break;
+                    }
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => {
+                        defmt::warn!("Read error: {:?}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        defmt::warn!("Socket read timeout");
+                        break;
+                    }
+                };
+
+                // Parse the request
+                let request = match HttpRequest::try_from(&request_buf[..n]) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        defmt::error!("Unable to parse HTTP request: {:?}", e);
+                        // Send a 500 error response
+                        Self::send_server_internal_error(&mut socket).await.ok();
+                        break;
+                    }
+                };
+
+                #[cfg(feature = "ws")]
+                if let Some(web_socket_key) = request.web_socket_key {
+                    if Self::web_socket_handshake(web_socket_key, &mut socket)
+                        .await
+                        .is_err()
+                    {
+                        // Handshake failed, close the connection
+                        break;
+                    }
+                    // Here we would normally transition to WebSocket handling
+                    let mut web_socket_state = WebSocketState::new();
+
+                    if handler
+                        .handle_websocket_connection(
+                            &request,
+                            WebSocket::new(&mut socket, &mut web_socket_state),
+                        )
+                        .await
+                        .is_err()
+                    {
+                        //
+                        web_socket_state.close(&mut socket).await.ok();
+                        break;
                     }
 
-                    if let Err(e) = socket.write_all(&response_buffer[..response.len()]).await {
-                        defmt::warn!("Failed to write response: {:?}", e);
+                    // After WebSocket handling is done, close the connection
+                    if web_socket_state.close(&mut socket).await.is_err() {
+                        break;
+                    }
+                    // Web Socket if properly closed, proceed to next request
+                    continue;
+                }
+
+                // Handle the regular request
+                let mut response_buffer = [0; MAX_RESPONSE_SIZE];
+
+                match self
+                    .handle_connection(
+                        &request,
+                        HttpResponseBufferRef::bind(&mut response_buffer),
+                        &mut handler,
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        if Self::send_response(&mut socket, &response_buffer[..response.len()])
+                            .await
+                            .is_err()
+                        {
+                            // Failed to send response, close the connection
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        defmt::error!("Error handling request: {:?}", e);
+                        // Send a 500 error response
+                        if Self::send_server_internal_error(&mut socket).await.is_ok() {
+                            // Successfully sent error response
+                            continue;
+                        } else {
+                            // Failed to send error response, close the connection
+                            break;
+                        }
                     }
                 }
-                Err(e) => {
-                    defmt::error!("Error handling request: {:?}", e);
-                    // Send a 500 error response
-                    let error_response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nInternal Server Error";
-                    let _ = socket.write_all(error_response).await;
-                    Self::close_connection(&mut socket).await;
-                }
+            }
+
+            // Close the connection after handling
+            Self::close_connection(&mut socket).await;
+        }
+    }
+
+    #[cfg(feature = "ws")]
+    async fn web_socket_handshake<'a>(
+        web_socket_key: &'a str,
+        tcp_socket: &mut TcpSocket<'_>,
+    ) -> Result<(), ()> {
+        defmt::info!("WebSocket upgrade request detected");
+        // TODO: Reduce buffer size to fit to the handshake response only.
+        let mut response_buffer = [0; MAX_RESPONSE_SIZE];
+        let res = try_handle_websocket_handshake(
+            HttpResponseBufferRef::bind(&mut response_buffer),
+            web_socket_key,
+        );
+
+        match res {
+            Ok(response) => {
+                defmt::info!("WebSocket handshake successful");
+                // Here you would typically hand off the WebSocket to a WebSocket handler
+                // For this example, we'll just close the connection
+                Self::send_response(tcp_socket, &response_buffer[..response.len()]).await
+            }
+            Err(e) => {
+                defmt::error!("WebSocket handshake error: {:?}", e);
+                // Send a 500 error response
+                Self::send_server_internal_error(tcp_socket).await
             }
         }
+    }
+
+    async fn process_http_connection<'a, 'b, H>(
+        &mut self,
+        buf: &'b mut [u8],
+        socket: &mut TcpSocket<'a>,
+        handler: &mut H,
+    ) -> Result<HttpProcessResult<'b>, ()>
+    where
+        H: HttpHandler,
+    {
+        // Placeholder for WebSocket connection processing logic
+
+        if (!socket.may_recv() || socket.remote_endpoint().is_none())
+            && socket.state() != State::Closed
+        {
+            // The connection is half-closed or not established
+            defmt::info!("The closed connection detected, closing socket");
+            Self::close_connection(socket).await;
+            return Ok(HttpProcessResult::Done);
+        }
+
+        if socket.state() == State::Closed {
+            if let Err(e) = socket.accept(self.port).await {
+                defmt::warn!("Accept error: {:?}", e);
+                Timer::after(Duration::from_millis(10)).await;
+                return Ok(HttpProcessResult::Done);
+            }
+            defmt::info!("New connection {:?}", socket.remote_endpoint());
+        }
+
+        let n = match with_timeout(
+            Duration::from_secs(self.timeouts.read_timeout),
+            socket.read(buf),
+        )
+        .await
+        {
+            Ok(Ok(0)) => {
+                // Connection closed
+                defmt::info!("Remote side has closed the connection");
+                Self::abort_connection(socket).await;
+                return Ok(HttpProcessResult::Done);
+            }
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => {
+                defmt::warn!("Read error: {:?}", e);
+                Self::close_connection(socket).await;
+                return Err(());
+            }
+            Err(_) => {
+                defmt::warn!("Socket read timeout");
+                Self::close_connection(socket).await;
+                return Err(());
+            }
+        };
+
+        // Parse the request
+        let mut response_buffer = [0; MAX_RESPONSE_SIZE];
+
+        // Parse the request
+        let request = match HttpRequest::try_from(&buf[..n]) {
+            Ok(req) => req,
+            Err(e) => {
+                defmt::error!("Unable to parse HTTP request: {:?}", e);
+                // Send a 500 error response
+                Self::send_server_internal_error(socket).await;
+                Self::close_connection(socket).await;
+                return Ok(HttpProcessResult::Done);
+            }
+        };
+
+        match self
+            .handle_connection(
+                &request,
+                HttpResponseBufferRef::bind(&mut response_buffer),
+                handler,
+            )
+            .await
+        {
+            Ok(response) => {
+                if response.len() < 256 {
+                    defmt::debug!(
+                        "Raw response: {:?}",
+                        core::str::from_utf8(&response_buffer[..response.len()])
+                            .unwrap_or("<invalid utf8>")
+                    );
+                } else {
+                    defmt::debug!("Response length: {} bytes", response.len());
+                }
+
+                if let Err(e) = socket.write_all(&response_buffer[..response.len()]).await {
+                    defmt::warn!("Failed to write response: {:?}", e);
+                }
+            }
+            Err(e) => {
+                defmt::error!("Error handling request: {:?}", e);
+                // Send a 500 error response
+                Self::send_server_internal_error(socket).await;
+                Self::close_connection(socket).await;
+            }
+        }
+        Ok(HttpProcessResult::Done)
+    }
+
+    async fn send_response<'socket>(
+        socket: &mut TcpSocket<'socket>,
+        response_bytes: &[u8],
+    ) -> Result<(), ()> {
+        if response_bytes.len() < 256 {
+            defmt::debug!(
+                "Raw response: {:?}",
+                core::str::from_utf8(&response_bytes[..response_bytes.len()])
+                    .unwrap_or("<invalid utf8>")
+            );
+        } else {
+            defmt::debug!("Response length: {} bytes", response_bytes.len());
+        }
+
+        socket.write_all(response_bytes).await.map_err(|e| {
+            defmt::warn!("Failed to write response: {:?}", e);
+        })
+    }
+
+    async fn send_server_internal_error<'a>(socket: &mut TcpSocket<'a>) -> Result<(), ()> {
+        let error_response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nInternal Server Error";
+        Self::send_response(socket, error_response).await
     }
 
     /// Close the connection gracefully
@@ -214,16 +424,13 @@ impl<
 
     async fn handle_connection<'buf, H>(
         &mut self,
-        buffer: &[u8],
+        request: &HttpRequest<'_>,
         mut response_buffer: HttpResponseBufferRef<'buf>,
         handler: &mut H,
     ) -> Result<HttpResponse, Error>
     where
         H: HttpHandler,
     {
-        // Parse the request
-        let request = HttpRequest::try_from(buffer)?;
-
         // Handle the request
         match with_timeout(
             Duration::from_secs(self.timeouts.handler_timeout),
