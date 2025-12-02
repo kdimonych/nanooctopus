@@ -1,8 +1,11 @@
+mod web_socket_proto;
+
 use crate::error::Error;
 use crate::response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 use embassy_net::tcp::TcpSocket;
 use modular_bitfield::prelude::*;
 use sha1::{Digest, Sha1};
+use web_socket_proto::*;
 
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -99,9 +102,9 @@ fn write_frame_header(
     }
 
     if let Some(mask) = masking_key {
-        let mut mask_key = MaskKey::new();
-        mask_key.set_length(mask as u64);
-        buffer[index..index + 4].copy_from_slice(&mask_key.into_bytes()[0..4]);
+        let mut masking_key = MaskKey::new();
+        masking_key.set_length(mask as u64);
+        buffer[index..index + 4].copy_from_slice(&masking_key.into_bytes()[0..4]);
         index += 4;
     }
 
@@ -160,14 +163,14 @@ fn read_frame_header(
         if buffer.len() < index + 4 {
             return Err(WebSocketError::TcpSocketError());
         }
-        let mask_key = u32::from_be_bytes([
+        let masking_key = u32::from_be_bytes([
             buffer[index],
             buffer[index + 1],
             buffer[index + 2],
             buffer[index + 3],
         ]);
         index += 4;
-        Some(mask_key)
+        Some(masking_key)
     } else {
         None
     };
@@ -180,14 +183,14 @@ fn read_frame_header(
             if buffer.len() < index + 4 {
                 return Err(WebSocketError::TcpSocketError());
             }
-            let mask_key = u32::from_be_bytes([
+            let masking_key = u32::from_be_bytes([
                 buffer[index],
                 buffer[index + 1],
                 buffer[index + 2],
                 buffer[index + 3],
             ]);
             index += 4;
-            Some(mask_key)
+            Some(masking_key)
         } else {
             None
         },
