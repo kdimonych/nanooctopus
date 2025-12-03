@@ -1,220 +1,68 @@
 mod web_socket_proto;
-
 use crate::error::Error;
 use crate::response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 use embassy_net::tcp::TcpSocket;
-use modular_bitfield::prelude::*;
 use sha1::{Digest, Sha1};
 use web_socket_proto::*;
 
-const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-#[derive(Specifier)]
-#[bits = 4]
-enum Opcode {
-    ContinuationFrame = 0x0,
-    Text = 0x1,
-    Binary = 0x2,
-    Close = 0x8,
-    Ping = 0x9,
-    Pong = 0xA,
-    //Reserved opcodes
-    Reserved3 = 0x3,
-    Reserved4 = 0x4,
-    Reserved5 = 0x5,
-    Reserved6 = 0x6,
-    Reserved7 = 0x7,
-    Reserved8 = 0xB,
-    ReservedC = 0xC,
-    ReservedD = 0xD,
-    ReservedE = 0xE,
-    ReservedF = 0xF,
-}
-
-#[bitfield]
-struct WebSocketFrameHeader {
-    fin: B1,
-    reserved123: B3,
-    #[bits = 4]
-    opcode: Opcode,
-    mask: B1,
-    payload_len: B7,
-}
-
-#[bitfield]
-struct ExtendedPayloadLength16 {
-    #[bits = 16]
-    length: u16,
-}
-
-#[bitfield]
-struct ExtendedPayloadLength64 {
-    #[bits = 64]
-    length: u64,
-}
-
-#[bitfield]
-struct MaskKey {
-    #[bits = 64]
-    length: u64,
-}
-
-fn write_frame_header(
-    fin: u8,
-    opcode: Opcode,
-    payload_len: usize,
-    masking_key: Option<u32>,
-    buffer: &mut [u8],
-) -> usize {
-    let mut index = 0;
-
-    let reserved123 = 0;
-    let mask_bit = if masking_key.is_some() { 1 } else { 0 };
-
-    let mut header = WebSocketFrameHeader::new();
-    header.set_fin(fin);
-    header.set_reserved123(reserved123);
-    header.set_opcode(opcode);
-    header.set_mask(mask_bit);
-
-    if payload_len <= 125 {
-        header.set_payload_len(payload_len as u8);
-        buffer[index..index + 2].copy_from_slice(&header.into_bytes());
-        index += 2;
-    } else if payload_len <= 65535 {
-        header.set_payload_len(126);
-        buffer[index..index + 2].copy_from_slice(&header.into_bytes());
-        index += 2;
-
-        let mut extended_length = ExtendedPayloadLength16::new();
-        extended_length.set_length(payload_len as u16);
-        buffer[index..index + 2].copy_from_slice(&extended_length.into_bytes());
-        index += 2;
-    } else {
-        header.set_payload_len(127);
-        buffer[index..index + 2].copy_from_slice(&header.into_bytes());
-        index += 2;
-
-        let mut extended_length = ExtendedPayloadLength64::new();
-        extended_length.set_length(payload_len as u64);
-        buffer[index..index + 8].copy_from_slice(&extended_length.into_bytes());
-        index += 8;
-    }
-
-    if let Some(mask) = masking_key {
-        let mut masking_key = MaskKey::new();
-        masking_key.set_length(mask as u64);
-        buffer[index..index + 4].copy_from_slice(&masking_key.into_bytes()[0..4]);
-        index += 4;
-    }
-
-    index
-}
-
-struct WebSocketFrameHeaderReading {
-    fin: u8,
-    opcode: Opcode,
-    payload_len: usize,
-    masking_key: Option<u32>,
-}
-
-fn read_frame_header(
-    buffer: &[u8],
-) -> Result<(WebSocketFrameHeaderReading, usize), WebSocketError> {
-    if buffer.len() < 2 {
-        return Err(WebSocketError::InvalidFrame());
-    }
-
-    let header = WebSocketFrameHeader::from_bytes([buffer[0], buffer[1]]);
-    let mut index = 2;
-
-    let payload_len = match header.payload_len() {
-        len @ 0..=125 => len as usize,
-        126 => {
-            if buffer.len() < index + 2 {
-                return Err(WebSocketError::TcpSocketError());
-            }
-            let extended_length =
-                ExtendedPayloadLength16::from_bytes([buffer[index], buffer[index + 1]]);
-            index += 2;
-            extended_length.length() as usize
-        }
-        127 => {
-            if buffer.len() < index + 8 {
-                return Err(WebSocketError::TcpSocketError());
-            }
-            let extended_length = ExtendedPayloadLength64::from_bytes([
-                buffer[index],
-                buffer[index + 1],
-                buffer[index + 2],
-                buffer[index + 3],
-                buffer[index + 4],
-                buffer[index + 5],
-                buffer[index + 6],
-                buffer[index + 7],
-            ]);
-            index += 8;
-            extended_length.length() as usize
-        }
-        _ => return Err(WebSocketError::TcpSocketError()),
-    };
-
-    let masking_key = if header.mask() == 1 {
-        if buffer.len() < index + 4 {
-            return Err(WebSocketError::TcpSocketError());
-        }
-        let masking_key = u32::from_be_bytes([
-            buffer[index],
-            buffer[index + 1],
-            buffer[index + 2],
-            buffer[index + 3],
-        ]);
-        index += 4;
-        Some(masking_key)
-    } else {
-        None
-    };
-
-    let reading = WebSocketFrameHeaderReading {
-        fin: header.fin(),
-        opcode: header.opcode(),
-        payload_len,
-        masking_key: if header.mask() == 1 {
-            if buffer.len() < index + 4 {
-                return Err(WebSocketError::TcpSocketError());
-            }
-            let masking_key = u32::from_be_bytes([
-                buffer[index],
-                buffer[index + 1],
-                buffer[index + 2],
-                buffer[index + 3],
-            ]);
-            index += 4;
-            Some(masking_key)
-        } else {
-            None
-        },
-    };
-
-    Ok((reading, index))
-}
-
+/// WebSocket-related errors.
 pub enum WebSocketError {
-    TcpSocketError(),
-    InvalidFrame(),
+    /// TCP socket error.
+    TcpSocketError,
+    /// Invalid WebSocket frame.
+    InvalidFrame,
+    Closed,
 }
 
+enum Reader {
+    ReadingHeader(WSHeaderReader),
+    ReadingPayload(WSPayloadReader),
+}
+
+impl From<WSHeaderReader> for Reader {
+    fn from(reader: WSHeaderReader) -> Self {
+        Reader::ReadingHeader(reader)
+    }
+}
+
+impl From<WSPayloadReader> for Reader {
+    fn from(reader: WSPayloadReader) -> Self {
+        Reader::ReadingPayload(reader)
+    }
+}
+
+impl Reader {
+    fn is_reading_header(&self) -> bool {
+        matches!(self, Reader::ReadingHeader(_))
+    }
+    fn is_reading_payload(&self) -> bool {
+        matches!(self, Reader::ReadingPayload(_))
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum WSConnectionState {
+    Open,
+    Closing,
+    ClosedRemotely,
+    Closed,
+}
 pub(crate) struct WebSocketState {
-    is_open: bool,
+    connection_state: WSConnectionState,
+
+    active_reader: Reader,
 }
 
 impl WebSocketState {
     pub fn new() -> Self {
-        Self { is_open: true }
+        Self {
+            connection_state: WSConnectionState::Closed,
+            active_reader: Reader::ReadingHeader(WSHeaderReader::new()),
+        }
     }
 
     pub fn is_open(&self) -> bool {
-        self.is_open
+        self.connection_state == WSConnectionState::Open
     }
 
     pub async fn flush<'socket>(
@@ -224,17 +72,17 @@ impl WebSocketState {
         socket
             .flush()
             .await
-            .map_err(|_| WebSocketError::TcpSocketError())
+            .map_err(|_| WebSocketError::TcpSocketError)?;
+        Ok(())
     }
 
     pub async fn close<'socket>(
         &mut self,
         socket: &mut TcpSocket<'socket>,
     ) -> Result<(), WebSocketError> {
-        self.is_open = false;
         self.flush(socket).await?;
         //TODO: Implement proper WebSocket closing handshake
-        self.is_open = false;
+        self.connection_state = WSConnectionState::Closed;
         Ok(())
     }
 }
@@ -251,6 +99,98 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
         state: &'state mut WebSocketState,
     ) -> Self {
         Self { socket, state }
+    }
+
+    async fn wait_header_ready(&mut self) -> Result<(), WebSocketError> {
+        if self.state.connection_state != WSConnectionState::Open {
+            return Err(WebSocketError::Closed);
+        }
+        if self.state.active_reader.is_reading_payload() {
+            return Ok(());
+        }
+        //Wait for header
+        let Reader::ReadingHeader(reader) = &mut self.state.active_reader else {
+            unreachable!();
+        };
+
+        let header = loop {
+            let read_result = self
+                .socket
+                .read_with(|src_buf| {
+                    let res = reader.try_read_header(src_buf);
+                    let read_size = match &res {
+                        WSHeaderState::Error(_) => {
+                            // Force close on error
+                            self.state.connection_state = WSConnectionState::Closing;
+                            0
+                        }
+                        WSHeaderState::PendingData(read_size) => *read_size,
+                        WSHeaderState::Ready(_, read_size) => *read_size,
+                    };
+                    (read_size, res)
+                })
+                .await
+                .map_err(|_| {
+                    self.state.connection_state = WSConnectionState::ClosedRemotely;
+                    WebSocketError::Closed
+                })?;
+            match read_result {
+                WSHeaderState::Error(_) => {
+                    self.state.connection_state = WSConnectionState::Closing;
+                    return Err(WebSocketError::InvalidFrame);
+                }
+                WSHeaderState::PendingData(_) => {
+                    // Need more data, continue reading
+                    continue;
+                }
+                WSHeaderState::Ready(header, _) => break header,
+            }
+        };
+
+        if header.opcode() == WSOpcode::Close {
+            if header.payload_len() == 0 {
+                // No payload to read, we're done
+                self.state.connection_state = WSConnectionState::ClosedRemotely;
+                return Err(WebSocketError::Closed);
+            } else {
+                self.state.connection_state = WSConnectionState::Closing;
+            }
+            // Continue to read close frame payload
+        }
+        self.state.active_reader = Reader::ReadingPayload(WSPayloadReader::from_header(header));
+        Ok(())
+    }
+
+    /// Reads the WebSocket frame payload using the provided closure.
+    pub async fn read_with<F, R>(&mut self, f: F) -> Result<R, WebSocketError>
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        self.wait_header_ready().await?;
+
+        let Reader::ReadingPayload(reader) = &mut self.state.active_reader else {
+            unreachable!();
+        };
+
+        let res = self
+            .socket
+            .read_with(|src_buf| {
+                let read_size = reader.decode_payload_in_place(src_buf);
+                let result = f(&mut src_buf[..read_size]);
+                (read_size, result)
+            })
+            .await
+            .map_err(|_| {
+                self.state.connection_state = WSConnectionState::ClosedRemotely;
+                WebSocketError::Closed
+            })?;
+
+        if reader.is_complete() {
+            // Move back to reading header
+            self.state.active_reader = Reader::ReadingHeader(WSHeaderReader::new());
+        }
+
+        Ok(res)
     }
 
     /// Reborrows the WebSocket for further operations.

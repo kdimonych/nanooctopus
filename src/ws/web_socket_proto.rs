@@ -26,7 +26,7 @@ pub enum WebSocketProtoError {
 
 #[derive(Specifier, Debug, Clone, Copy, PartialEq)]
 #[bits = 4]
-pub enum Opcode {
+pub enum WSOpcode {
     ContinuationFrame = 0x0,
     Text = 0x1,
     Binary = 0x2,
@@ -50,7 +50,7 @@ pub enum Opcode {
 struct WebSocketFrameHeaderPacked {
     // Byte 0
     #[bits = 4]
-    opcode: Opcode,
+    opcode: WSOpcode,
     #[skip]
     __: B3,
     fin: B1,
@@ -62,7 +62,7 @@ struct WebSocketFrameHeaderPacked {
 
 fn write_frame_header(
     fin: u8,
-    opcode: Opcode,
+    opcode: WSOpcode,
     payload_len: usize,
     masking_key: Option<MaskKey>,
     buffer: &mut [u8],
@@ -124,9 +124,27 @@ fn write_frame_header(
 
 pub struct WSFrameHeader {
     fin: u8,
-    opcode: Opcode,
+    opcode: WSOpcode,
     payload_len: usize,
     masking_key: Option<MaskKey>,
+}
+
+impl WSFrameHeader {
+    pub fn fin(&self) -> u8 {
+        self.fin
+    }
+
+    pub fn opcode(&self) -> WSOpcode {
+        self.opcode
+    }
+
+    pub fn payload_len(&self) -> usize {
+        self.payload_len
+    }
+
+    pub fn masking_key(&self) -> Option<MaskKey> {
+        self.masking_key
+    }
 }
 
 fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSocketProtoError> {
@@ -251,7 +269,7 @@ impl<MaskingType> WSStreamWriter<MaskingType> {
     pub fn new(
         out_buf: &mut [u8],
         fin: u8,
-        opcode: Opcode,
+        opcode: WSOpcode,
         payload_len: usize,
         masking_type: MaskingType,
     ) -> Result<(Self, usize), ()>
@@ -324,12 +342,7 @@ impl WSStreamPayloadEncoder for WSStreamWriter<WSMasked> {
     }
 }
 
-pub struct WSHeaderReader {
-    header_buf: heapless::Vec<u8, MAX_WS_FRAME_HEADER_SIZE>,
-    expected_bytes: usize,
-}
-
-pub enum WSHeaderReadState<E> {
+pub enum WSHeaderState<E> {
     /// Not enough data to read the complete header. Contains the number of bytes read from provided buffer.
     PendingData(usize),
     /// Successfully read the header. Contains the header and number of bytes read.
@@ -337,39 +350,44 @@ pub enum WSHeaderReadState<E> {
     Error(E),
 }
 
-impl<E> WSHeaderReadState<E> {
+impl<E> WSHeaderState<E> {
     pub fn is_ready(&self) -> bool {
-        matches!(self, WSHeaderReadState::Ready(_, _))
+        matches!(self, WSHeaderState::Ready(_, _))
     }
 
     pub fn is_pending(&self) -> bool {
-        matches!(self, WSHeaderReadState::PendingData(_))
+        matches!(self, WSHeaderState::PendingData(_))
     }
 
     pub fn is_error(&self) -> bool {
-        matches!(self, WSHeaderReadState::Error(_))
+        matches!(self, WSHeaderState::Error(_))
     }
 
     pub fn unwrap_ready(self) -> (WSFrameHeader, usize) {
         match self {
-            WSHeaderReadState::Ready(header, size) => (header, size),
+            WSHeaderState::Ready(header, size) => (header, size),
             _ => panic!("Called unwrap_ready on a non-ready state"),
         }
     }
 
     pub fn unwrap_pending(self) -> usize {
         match self {
-            WSHeaderReadState::PendingData(size) => size,
+            WSHeaderState::PendingData(size) => size,
             _ => panic!("Called unwrap_pending on a non-pending state"),
         }
     }
 
     pub fn unwrap_error(self) -> E {
         match self {
-            WSHeaderReadState::Error(e) => e,
+            WSHeaderState::Error(e) => e,
             _ => panic!("Called unwrap_error on a non-error state"),
         }
     }
+}
+
+pub struct WSHeaderReader {
+    header_buf: heapless::Vec<u8, MAX_WS_FRAME_HEADER_SIZE>,
+    expected_bytes: usize,
 }
 
 impl WSHeaderReader {
@@ -381,6 +399,11 @@ impl WSHeaderReader {
         }
     }
 
+    /// Checks if the reader is currently reading a header.
+    pub fn is_reading(&self) -> bool {
+        !self.header_buf.is_empty()
+    }
+
     /// Tries to read the WebSocket frame header from the provided source buffer.
     ///
     /// Note: This function may be called multiple times as more data becomes available.
@@ -388,9 +411,9 @@ impl WSHeaderReader {
     /// Returns the state of the read operation.
     /// # Returns
     /// - `WSHeaderReadState::Ready(WebSocketFrameHeader, usize)`: Successfully read the header.
-    /// Contains the header and number of bytes read.
+    /// Contains the header and number of bytes read during the last call.
     /// - `WSHeaderReadState::PendingData(usize)`: Not enough data to read the complete header.
-    /// Contains the number of bytes read so far.
+    /// Contains the number of bytes read during the last call.
     /// - `WSHeaderReadState::Error(WebSocketProtoError)`: Invalid header or other error.
     /// # Errors
     /// Returns `WSHeaderReadState::Error(WebSocketProtoError)` if an error occurs while reading the header.
@@ -416,30 +439,27 @@ impl WSHeaderReader {
     ///     }
     /// }
     /// ```
-    pub fn try_read_header(
-        &mut self,
-        mut src_buf: &[u8],
-    ) -> WSHeaderReadState<WebSocketProtoError> {
+    pub fn try_read_header(&mut self, mut src_buf: &[u8]) -> WSHeaderState<WebSocketProtoError> {
         // Try to reade as many bytes as needed
         loop {
             if self.header_buf.is_empty() {
                 // Fast path: try to read directly from src_buf if we have enough data
                 match read_frame_header(src_buf) {
-                    Ok((header, read_size)) => return WSHeaderReadState::Ready(header, read_size),
+                    Ok((header, read_size)) => return WSHeaderState::Ready(header, read_size),
                     Err(WebSocketProtoError::NotEnoughData(required_size)) => {
                         // Not enough data, copy what we have and update expected bytes
                         self.header_buf.extend_from_slice(src_buf).unwrap();
                         self.expected_bytes = required_size - src_buf.len();
-                        return WSHeaderReadState::PendingData(src_buf.len());
+                        return WSHeaderState::PendingData(src_buf.len());
                     }
-                    Err(e) => return WSHeaderReadState::Error(e),
+                    Err(e) => return WSHeaderState::Error(e),
                 }
             } else if self.header_buf.len() + src_buf.len() < self.expected_bytes {
-                // Still not enough data, copy all available data to internal buffer
+                // Stilll not enough data, copy all available data to internal buffer
                 self.header_buf.extend_from_slice(src_buf).unwrap();
                 // Update expected bytes
                 self.expected_bytes -= src_buf.len();
-                return WSHeaderReadState::PendingData(src_buf.len());
+                return WSHeaderState::PendingData(src_buf.len());
             } else {
                 // We probably have enough data to complete the header
                 self.header_buf
@@ -455,16 +475,16 @@ impl WSHeaderReader {
                         self.header_buf.clear();
                         self.expected_bytes = MIN_WS_FRAME_HEADER_SIZE;
                         // Return the read header
-                        return WSHeaderReadState::Ready(header, read_size);
+                        return WSHeaderState::Ready(header, read_size);
                     }
 
                     Err(WebSocketProtoError::NotEnoughData(new_required_size)) => {
-                        // Stil not enough data, update expected bytes
+                        // Still not enough data, update expected bytes
                         self.expected_bytes = new_required_size - self.header_buf.len();
                         // And make another try
                         continue;
                     }
-                    Err(e) => return WSHeaderReadState::Error(e),
+                    Err(e) => return WSHeaderState::Error(e),
                 }
             }
         }
@@ -488,7 +508,7 @@ impl WSPayloadReader {
         self.header.payload_len
     }
 
-    pub fn opcode(&self) -> Opcode {
+    pub fn opcode(&self) -> WSOpcode {
         self.header.opcode
     }
 
@@ -512,17 +532,14 @@ impl WSPayloadReader {
         self.read_idx
     }
 
-    pub fn decode_payload(
-        &mut self,
-        payload_dst: &mut [u8],
-        payload_src: &[u8],
-    ) -> Result<usize, ()> {
-        let free_space = self.header.payload_len - self.read_idx;
-        if payload_src.len() > free_space {
-            return Err(());
-        }
+    pub fn is_complete(&self) -> bool {
+        self.read_idx >= self.header.payload_len
+    }
 
-        let size = min(min(payload_src.len(), payload_dst.len()), free_space);
+    pub fn decode_payload(&mut self, payload_dst: &mut [u8], payload_src: &[u8]) -> usize {
+        let payload_rest = self.header.payload_len - self.read_idx;
+
+        let size = min(min(payload_src.len(), payload_dst.len()), payload_rest);
 
         if let Some(masking_key_bytes) = self.header.masking_key {
             for i in 0..size {
@@ -535,7 +552,23 @@ impl WSPayloadReader {
         }
 
         self.read_idx += size;
-        Ok(size)
+        size
+    }
+
+    pub fn decode_payload_in_place(&mut self, payload_src: &mut [u8]) -> usize {
+        let payload_rest = self.header.payload_len - self.read_idx;
+        let size = min(payload_src.len(), payload_rest);
+
+        if let Some(masking_key_bytes) = self.header.masking_key {
+            for i in 0..size {
+                let j = (self.read_idx + i) % masking_key_bytes.len();
+                let key_byte = masking_key_bytes[j];
+                payload_src[i] ^= key_byte;
+            }
+        }
+
+        self.read_idx += size;
+        size
     }
 }
 
@@ -555,7 +588,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&REAL_WS_PACKET).unwrap();
         assert_eq!(read_size, 6);
         assert_eq!(reading.fin, 1);
-        assert_eq!(reading.opcode, Opcode::Text);
+        assert_eq!(reading.opcode, WSOpcode::Text);
         assert_eq!(reading.payload_len, 17);
         assert_eq!(
             reading.masking_key,
@@ -574,7 +607,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&[0b0000_0000, 0b0000_0000]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE);
         assert_eq!(reading.fin, 0);
-        assert_eq!(reading.opcode, Opcode::ContinuationFrame);
+        assert_eq!(reading.opcode, WSOpcode::ContinuationFrame);
     }
 
     #[test]
@@ -582,7 +615,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&[0b0000_0001, 0b0000_0000]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE);
         assert_eq!(reading.fin, 0);
-        assert_eq!(reading.opcode, Opcode::Text);
+        assert_eq!(reading.opcode, WSOpcode::Text);
     }
 
     #[test]
@@ -590,7 +623,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&[0b0000_0010, 0b0000_0000]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE);
         assert_eq!(reading.fin, 0);
-        assert_eq!(reading.opcode, Opcode::Binary);
+        assert_eq!(reading.opcode, WSOpcode::Binary);
     }
 
     #[test]
@@ -598,7 +631,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&[0b0000_1000, 0b0000_0000]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE);
         assert_eq!(reading.fin, 0);
-        assert_eq!(reading.opcode, Opcode::Close);
+        assert_eq!(reading.opcode, WSOpcode::Close);
     }
 
     #[test]
@@ -606,7 +639,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&[0b0000_1001, 0b0000_0000]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE);
         assert_eq!(reading.fin, 0);
-        assert_eq!(reading.opcode, Opcode::Ping);
+        assert_eq!(reading.opcode, WSOpcode::Ping);
     }
 
     #[test]
@@ -614,7 +647,7 @@ mod tests {
         let (reading, read_size) = read_frame_header(&[0b0000_1010, 0b0000_0000]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE);
         assert_eq!(reading.fin, 0);
-        assert_eq!(reading.opcode, Opcode::Pong);
+        assert_eq!(reading.opcode, WSOpcode::Pong);
     }
 
     #[test]
@@ -788,7 +821,7 @@ mod tests {
     fn test_write_and_read_frame_header() {
         let mut buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
         let fin = 1;
-        let opcode = Opcode::Text;
+        let opcode = WSOpcode::Text;
         let payload_len = 300;
         let masking_key = Some(0xAABBCCDDu32.to_be_bytes());
 
@@ -822,7 +855,7 @@ mod tests {
         let (header, read_size) = reader.try_read_header(&data).unwrap_ready();
         assert_eq!(read_size, data.len());
         assert_eq!(header.fin, 1);
-        assert_eq!(header.opcode, Opcode::Text);
+        assert_eq!(header.opcode, WSOpcode::Text);
         assert_eq!(header.payload_len, 0x0123456789abcdefusize);
         assert_eq!(header.masking_key, Some(0x12345678u32.to_be_bytes()));
     }
@@ -848,7 +881,7 @@ mod tests {
 
         assert_eq!(read_size, data.len());
         assert_eq!(header.fin, 1);
-        assert_eq!(header.opcode, Opcode::Text);
+        assert_eq!(header.opcode, WSOpcode::Text);
         assert_eq!(header.payload_len, 0x0123456789abcdefusize);
         assert_eq!(header.masking_key, Some(0x12345678u32.to_be_bytes()));
     }
@@ -861,7 +894,7 @@ mod tests {
         let (header, read_size) = header_reader.try_read_header(src_buf).unwrap_ready();
         assert_eq!(read_size, 6);
         assert_eq!(header.fin, 1);
-        assert_eq!(header.opcode, Opcode::Text);
+        assert_eq!(header.opcode, WSOpcode::Text);
         assert_eq!(header.payload_len, 17);
         assert_eq!(
             header.masking_key.unwrap().as_slice(),
@@ -872,7 +905,7 @@ mod tests {
 
         let mut reader = WSPayloadReader::from_header(header);
         assert_eq!(reader.payload_len(), 17);
-        assert_eq!(reader.opcode(), Opcode::Text);
+        assert_eq!(reader.opcode(), WSOpcode::Text);
         assert_eq!(reader.fin(), 1);
         assert_eq!(reader.read_bytes(), 0);
         assert_eq!(reader.read_bytes_remaining(), 17);
@@ -883,7 +916,8 @@ mod tests {
         );
 
         let mut payload_buf = [0u8; 17];
-        let decoded_size = reader.decode_payload(&mut payload_buf, src_buf).unwrap();
+        let decoded_size = reader.decode_payload(&mut payload_buf, src_buf);
+        assert!(reader.is_complete());
         assert_eq!(decoded_size, 17);
         assert_eq!(decoded_size, reader.payload_len());
         assert_eq!(reader.read_bytes(), 17);
@@ -908,9 +942,8 @@ mod tests {
         src_buf = &src_buf[decoded_header_size..];
 
         let mut reader = WSPayloadReader::from_header(header);
-        let decoded_payload_size = reader
-            .decode_payload(&mut decoded_payload_buf, src_buf)
-            .unwrap();
+        let decoded_payload_size = reader.decode_payload(&mut decoded_payload_buf, src_buf);
+        assert!(reader.is_complete());
         assert_eq!(decoded_payload_size, 17);
         assert_eq!(decoded_payload_size, reader.payload_len());
 
