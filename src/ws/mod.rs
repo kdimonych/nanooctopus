@@ -1,10 +1,11 @@
-mod web_socket_proto;
+use core::cmp::min;
+
 use crate::error::Error;
 use crate::response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 use embassy_net::tcp::TcpSocket;
+#[cfg(feature = "ws")]
+use protocols::web_socket_proto::*;
 use sha1::{Digest, Sha1};
-use web_socket_proto::*;
-
 /// WebSocket-related errors.
 pub enum WebSocketError {
     /// TCP socket error.
@@ -162,7 +163,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
     }
 
     /// Reads the WebSocket frame payload using the provided closure.
-    pub async fn read_with<F, R>(&mut self, f: F) -> Result<R, WebSocketError>
+    pub async fn read_with<F, R>(&mut self, limit: usize, f: F) -> Result<R, WebSocketError>
     where
         F: FnOnce(&mut [u8]) -> R,
     {
@@ -175,6 +176,8 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
         let res = self
             .socket
             .read_with(|src_buf| {
+                let buf_limit = min(limit, src_buf.len());
+                let src_buf = &mut src_buf[..buf_limit];
                 let read_size = reader.decode_payload_in_place(src_buf);
                 let result = f(&mut src_buf[..read_size]);
                 (read_size, result)

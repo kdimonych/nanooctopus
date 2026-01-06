@@ -441,9 +441,11 @@ impl WSHeaderReader {
     /// ```
     pub fn try_read_header(&mut self, mut src_buf: &[u8]) -> WSHeaderState<WebSocketProtoError> {
         // Try to reade as many bytes as needed
+        let mut read_bytes = 0;
         loop {
             if self.header_buf.is_empty() {
-                // Fast path: try to read directly from src_buf if we have enough data
+                // Fast path: try to read directly from src_buf if we have enough data.
+                // This try will evaluate the minimum number of bytes needed to read the header.
                 match read_frame_header(src_buf) {
                     Ok((header, read_size)) => return WSHeaderState::Ready(header, read_size),
                     Err(WebSocketProtoError::NotEnoughData(required_size)) => {
@@ -454,17 +456,20 @@ impl WSHeaderReader {
                     }
                     Err(e) => return WSHeaderState::Error(e),
                 }
-            } else if self.header_buf.len() + src_buf.len() < self.expected_bytes {
+            } else if src_buf.len() < self.expected_bytes {
                 // Stilll not enough data, copy all available data to internal buffer
                 self.header_buf.extend_from_slice(src_buf).unwrap();
                 // Update expected bytes
                 self.expected_bytes -= src_buf.len();
-                return WSHeaderState::PendingData(src_buf.len());
+                read_bytes += src_buf.len();
+                return WSHeaderState::PendingData(read_bytes);
             } else {
                 // We probably have enough data to complete the header
                 self.header_buf
                     .extend_from_slice(&src_buf[..self.expected_bytes])
                     .unwrap();
+
+                read_bytes += src_buf.len();
                 // Remove consumed data from src_buf
                 src_buf = &src_buf[self.expected_bytes..];
 
@@ -871,7 +876,11 @@ mod tests {
         let mut it = data.into_iter();
         for _ in 0..data.len() - 1 {
             let byte = [it.next().unwrap()];
-            let read_bytes = reader.try_read_header(&byte).unwrap_pending();
+            let res = reader.try_read_header(&byte);
+            if res.is_ready() {
+                break;
+            }
+            let read_bytes = res.unwrap_pending();
             assert_eq!(read_bytes, 1);
         }
 
