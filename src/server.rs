@@ -72,6 +72,7 @@ pub struct HttpServer<
 > {
     port: u16,
     timeouts: ServerTimeouts,
+    auto_close_connection: bool,
 }
 
 impl<
@@ -87,13 +88,23 @@ impl<
         Self {
             port,
             timeouts: ServerTimeouts::default(),
+            auto_close_connection: false,
         }
     }
 
-    /// Create a new HTTP server with custom timeouts
+    /// Set custom timeouts
     #[must_use]
-    pub fn with_timeouts(port: u16, timeouts: ServerTimeouts) -> Self {
-        Self { port, timeouts }
+    pub fn with_timeouts(mut self, timeouts: ServerTimeouts) -> Self {
+        self.timeouts = timeouts;
+        self
+    }
+
+    /// Set whether to automatically close the connection after each response
+    #[must_use]
+    pub fn with_auto_close_connection(mut self, auto_close: bool) -> Self {
+        // Currently no-op, placeholder for future functionality
+        self.auto_close_connection = auto_close;
+        self
     }
 
     /// Start the HTTP server and handle incoming connections
@@ -115,23 +126,33 @@ impl<
         socket.set_keep_alive(Some(Duration::from_secs(5)));
         defmt::debug!("HTTP server started listening");
 
-        loop {
+        if self.auto_close_connection {
+            defmt::info!("Auto-close connection is enabled");
+        } else {
+            defmt::info!("Auto-close connection is disabled");
+        }
+
+        'socket_life_cycle: loop {
             // Opened socket lifecycle
             if let Err(e) = socket.accept(self.port).await {
                 defmt::warn!("Accept error: {:?}", e);
                 Timer::after(Duration::from_millis(10)).await;
-                continue;
+                continue 'socket_life_cycle;
             }
-            defmt::info!("New connection {:?}", socket.remote_endpoint());
+            defmt::info!(
+                "New connection {:?}, {:?}",
+                socket.remote_endpoint(),
+                self.auto_close_connection
+            );
 
             // The transaction life cycle
-            loop {
+            'transaction_cycle: loop {
                 if (!socket.may_recv() || socket.remote_endpoint().is_none())
                     && socket.state() != State::Closed
                 {
                     // The connection is half-closed or not established
                     defmt::info!("The half-closed connection detected, closing socket");
-                    break;
+                    break 'transaction_cycle;
                 }
 
                 // Receive request
@@ -144,28 +165,37 @@ impl<
                 {
                     Ok(Ok(0)) => {
                         // Connection closed
-                        defmt::info!("Remote side has closed the connection");
-                        break;
+                        defmt::info!(
+                            "Remote side has closed the connection, {:?}",
+                            socket.remote_endpoint()
+                        );
+                        break 'transaction_cycle;
                     }
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => {
-                        defmt::warn!("Read error: {:?}", e);
-                        break;
+                        defmt::warn!("Read error: {:?}, {:?}", e, socket.remote_endpoint());
+                        break 'transaction_cycle;
                     }
                     Err(_) => {
-                        defmt::warn!("Socket read timeout");
-                        break;
+                        defmt::warn!("Socket read timeout, {:?}", socket.remote_endpoint());
+                        break 'transaction_cycle;
                     }
                 };
+
+                defmt::info!("Process the request of, {:?}", socket.remote_endpoint());
 
                 // Parse the request
                 let request = match HttpRequest::try_from(&request_buf[..n]) {
                     Ok(req) => req,
                     Err(e) => {
-                        defmt::error!("Unable to parse HTTP request: {:?}", e);
+                        defmt::error!(
+                            "Unable to parse HTTP request: {:?}, {:?}",
+                            e,
+                            socket.remote_endpoint()
+                        );
                         // Send a 500 error response
                         Self::send_server_internal_error(&mut socket).await.ok();
-                        break;
+                        break 'transaction_cycle;
                     }
                 };
 
@@ -176,7 +206,7 @@ impl<
                         .is_err()
                     {
                         // Handshake failed, close the connection
-                        break;
+                        break 'transaction_cycle;
                     }
                     // Here we would normally transition to WebSocket handling
                     let mut web_socket_state = WebSocketState::new();
@@ -205,15 +235,20 @@ impl<
                     {
                         //
                         web_socket_state.close(&mut socket).await.ok();
-                        break;
+                        break 'transaction_cycle;
                     }
 
                     // After WebSocket handling is done, close the connection
                     if web_socket_state.close(&mut socket).await.is_err() {
-                        break;
+                        break 'transaction_cycle;
                     }
-                    // Web Socket if properly closed, proceed to next request
-                    continue;
+                    if !self.auto_close_connection {
+                        // Web Socket if properly closed, proceed to next request
+                        continue 'transaction_cycle;
+                    } else {
+                        // Auto-close connection is enabled, break the transaction cycle
+                        break 'transaction_cycle;
+                    }
                 }
 
                 // Handle the regular request
@@ -222,7 +257,10 @@ impl<
                 match self
                     .handle_connection(
                         &request,
-                        HttpResponseBufferRef::bind(&mut response_buffer),
+                        HttpResponseBufferRef::bind(
+                            &mut response_buffer,
+                            self.auto_close_connection,
+                        ),
                         &mut handler,
                     )
                     .await
@@ -233,20 +271,29 @@ impl<
                             .is_err()
                         {
                             // Failed to send response, close the connection
-                            break;
+                            defmt::debug!("Failed to send response, closing connection");
+                            break 'transaction_cycle;
                         }
                     }
                     Err(e) => {
                         defmt::error!("Error handling request: {:?}", e);
                         // Send a 500 error response
-                        if Self::send_server_internal_error(&mut socket).await.is_ok() {
-                            // Successfully sent error response
-                            continue;
-                        } else {
+                        if Self::send_server_internal_error(&mut socket).await.is_err() {
                             // Failed to send error response, close the connection
-                            break;
+                            defmt::error!("Failed to send internal server error response");
                         }
+                        break 'transaction_cycle;
                     }
+                }
+
+                defmt::debug!(
+                    "It is about to process following request... {:?}",
+                    socket.remote_endpoint()
+                );
+                if self.auto_close_connection {
+                    // Close the connection after each response
+                    defmt::debug!("Auto-closing connection as per configuration");
+                    break 'transaction_cycle;
                 }
             }
 
@@ -264,7 +311,7 @@ impl<
         // TODO: Reduce buffer size to fit to the handshake response only.
         let mut response_buffer = [0; MAX_RESPONSE_SIZE];
         let res = try_handle_websocket_handshake(
-            HttpResponseBufferRef::bind(&mut response_buffer),
+            HttpResponseBufferRef::bind(&mut response_buffer, false),
             web_socket_key,
         );
 
@@ -404,7 +451,7 @@ mod tests {
         assert_eq!(custom_timeouts.handler_timeout, 45);
 
         // Test server with custom timeouts
-        let server = HttpServer::<1024, 1024, 1024, 1024>::with_timeouts(8080, custom_timeouts);
+        let server = HttpServer::<1024, 1024, 1024, 1024>::new(8080).with_timeouts(custom_timeouts);
         assert_eq!(server.port, 8080);
         assert_eq!(server.timeouts.accept_timeout, 5);
         assert_eq!(server.timeouts.read_timeout, 15);

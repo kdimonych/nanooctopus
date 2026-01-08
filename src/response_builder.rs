@@ -17,6 +17,7 @@ pub struct HttpResponseBuilder<'a, Stage = NotCreated> {
 
 struct BuilderBase<'a> {
     buffer: SliceView<'a>,
+    auto_close_connection: bool,
 }
 
 /// A buffer wrapper for HTTP response building.
@@ -24,21 +25,27 @@ struct BuilderBase<'a> {
 /// This buffer is intended to use with `HttpResponseBuilder` only.
 pub struct HttpResponseBufferRef<'a> {
     inner: &'a mut [u8],
+    auto_close_connection: bool,
 }
 
 impl HttpResponseBufferRef<'_> {
     /// Returns HttpResponseBuffer with reborrowed inner buffer.
     pub fn reborrow(&mut self) -> HttpResponseBufferRef<'_> {
-        HttpResponseBufferRef { inner: self.inner }
+        HttpResponseBufferRef {
+            inner: self.inner,
+            auto_close_connection: self.auto_close_connection,
+        }
     }
 
     /// Binds a mutable byte slice to the HttpResponseBuffer.
-    pub fn bind<'a>(buffer: &'a mut [u8]) -> HttpResponseBufferRef<'a> {
-        HttpResponseBufferRef { inner: buffer }
-    }
-
-    pub(crate) fn deref(&self) -> &[u8] {
-        self.inner
+    pub fn bind<'a>(
+        buffer: &'a mut [u8],
+        auto_close_connection: bool,
+    ) -> HttpResponseBufferRef<'a> {
+        HttpResponseBufferRef {
+            inner: buffer,
+            auto_close_connection,
+        }
     }
 }
 
@@ -68,6 +75,7 @@ impl<'a> HttpResponseBuilder<'a, NotCreated> {
         HttpResponseBuilder {
             base: BuilderBase {
                 buffer: SliceView::new(buffer.inner),
+                auto_close_connection: buffer.auto_close_connection,
             },
             _marker: core::marker::PhantomData,
         }
@@ -91,6 +99,11 @@ impl<'a> HttpResponseBuilder<'a, BuildStatus> {
         self.base.extend_from_str(" ")?;
         self.base.extend_from_str(status_code.text())?;
         self.base.new_line()?;
+
+        // If auto-close connection is set, add the header
+        if self.base.auto_close_connection {
+            self.base.extend_from_str("Connection: close\r\n")?;
+        }
 
         Ok(HttpResponseBuilder {
             base: self.base,

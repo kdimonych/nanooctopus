@@ -60,7 +60,8 @@ struct WebSocketFrameHeaderPacked {
     mask: B1,
 }
 
-fn write_frame_header(
+/// Writes a WebSocket frame header into the provided buffer.
+pub fn write_frame_header(
     fin: u8,
     opcode: WSOpcode,
     payload_len: usize,
@@ -260,80 +261,85 @@ impl WSMaskKeyProvider for WSMasked {
     }
 }
 
-pub struct WSStreamWriter<MaskingType> {
+pub struct WSEncodeWriter {
     free_space: usize,
-    masking_type: MaskingType,
+    idx: usize,
+    masking_key: MaskKey,
 }
 
-impl<MaskingType> WSStreamWriter<MaskingType> {
+impl WSEncodeWriter {
     pub fn new(
         out_buf: &mut [u8],
         fin: u8,
         opcode: WSOpcode,
         payload_len: usize,
-        masking_type: MaskingType,
-    ) -> Result<(Self, usize), ()>
-    where
-        MaskingType: WSMaskKeyProvider,
-    {
+        masking_key: [u8; 4],
+    ) -> Result<(Self, usize), ()> {
+        let header_size = write_frame_header(fin, opcode, payload_len, Some(masking_key), out_buf)?;
+
         let result = Self {
             free_space: payload_len,
-            masking_type,
+            idx: 0,
+            masking_key,
         };
-
-        let header_size = write_frame_header(
-            fin,
-            opcode,
-            payload_len,
-            result.masking_type.masking_key(),
-            out_buf,
-        )?;
 
         Ok((result, header_size))
     }
-}
 
-pub trait WSStreamPayloadEncoder {
     /// Writes payload to the destination buffer, applying masking if necessary.
     /// This function assumes that the overall encoded_payload length does not exceed the allocated payload length in the header.
     /// Returns the number of bytes written to the payload_dst.
     /// # Errors
     /// Returns Err(()) if the payload_src length is greater than the allocated payload length that left.
     ///
-    fn encode_payload(&mut self, payload_dst: &mut [u8], payload_src: &[u8]) -> Result<usize, ()>;
-}
-
-impl WSStreamPayloadEncoder for WSStreamWriter<WSUnmasked> {
-    fn encode_payload(&mut self, payload_dst: &mut [u8], payload_src: &[u8]) -> Result<usize, ()> {
-        if payload_src.len() > self.free_space || payload_dst.len() < payload_src.len() {
-            return Err(());
-        }
-
-        let size = min(payload_src.len(), payload_dst.len());
-        payload_dst[..size].copy_from_slice(&payload_src[..size]);
-        self.free_space -= size;
-        Ok(size)
-    }
-}
-
-impl WSStreamPayloadEncoder for WSStreamWriter<WSMasked> {
-    fn encode_payload(&mut self, payload_dst: &mut [u8], payload_src: &[u8]) -> Result<usize, ()> {
+    pub fn encode_payload(
+        &mut self,
+        payload_dst: &mut [u8],
+        payload_src: &[u8],
+    ) -> Result<usize, ()> {
         if payload_src.len() > self.free_space {
             return Err(());
         }
 
         let mut dst = payload_dst[..payload_src.len()].iter_mut();
         let mut src = payload_src[..payload_src.len()].iter();
-        let masking_key = self.masking_type.masking_key;
+        let masking_key = self.masking_key;
         let mut transferred: usize = 0;
 
         while let Some(src_byte) = src.next()
             && let Some(dst_byte) = dst.next()
         {
-            let j = self.masking_type.idx % masking_key.len();
+            let j = self.idx % masking_key.len();
             let key_byte = masking_key[j];
             *dst_byte = *src_byte ^ key_byte;
-            self.masking_type.idx += 1;
+            self.idx += 1;
+            transferred += 1;
+        }
+
+        self.free_space -= transferred;
+        Ok(transferred)
+    }
+
+    /// Writes payload to the provided buffer in place, applying masking if necessary.
+    /// This function assumes that the overall encoded_payload length does not exceed the allocated payload length in the header.
+    /// Returns the number of bytes written to the payload_dst.
+    /// # Errors
+    /// Returns Err(()) if the payload_src length is greater than the allocated payload length that left.
+    ///
+    pub fn encode_payload_in_place(&mut self, payload_buf: &mut [u8]) -> Result<usize, ()> {
+        if payload_buf.len() > self.free_space {
+            return Err(());
+        }
+
+        let mut buf = payload_buf.iter_mut();
+        let masking_key = self.masking_key;
+        let mut transferred: usize = 0;
+
+        while let Some(buf_byte) = buf.next() {
+            let j = self.idx % masking_key.len();
+            let key_byte = masking_key[j];
+            *buf_byte = *buf_byte ^ key_byte;
+            self.idx += 1;
             transferred += 1;
         }
 
@@ -956,12 +962,12 @@ mod tests {
         assert_eq!(decoded_payload_size, 17);
         assert_eq!(decoded_payload_size, reader.payload_len());
 
-        let (mut writer, encoded_header_size) = WSStreamWriter::new(
+        let (mut writer, encoded_header_size) = WSEncodeWriter::new(
             &mut encoded_frame_buf,
             reader.fin(),
             reader.opcode(),
             reader.payload_len(),
-            WSMasked::with(reader.masking_key().unwrap().clone()),
+            reader.masking_key().unwrap().clone(),
         )
         .unwrap();
 

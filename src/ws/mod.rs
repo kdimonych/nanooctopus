@@ -3,6 +3,7 @@ use core::cmp::min;
 use crate::error::Error;
 use crate::response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 use embassy_net::tcp::TcpSocket;
+use embedded_io_async::Write;
 #[cfg(feature = "ws")]
 use protocols::web_socket_proto::*;
 use sha1::{Digest, Sha1};
@@ -57,7 +58,7 @@ pub(crate) struct WebSocketState {
 impl WebSocketState {
     pub fn new() -> Self {
         Self {
-            connection_state: WSConnectionState::Closed,
+            connection_state: WSConnectionState::Open,
             active_reader: Reader::ReadingHeader(WSHeaderReader::new()),
         }
     }
@@ -82,6 +83,20 @@ impl WebSocketState {
         socket: &mut TcpSocket<'socket>,
     ) -> Result<(), WebSocketError> {
         self.flush(socket).await?;
+
+        if self.connection_state == WSConnectionState::Open {
+            // Send close frame
+            let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
+            let header_size =
+                write_frame_header(1, WSOpcode::Close, 0, Option::None, &mut header_buffer)
+                    .map_err(|_| WebSocketError::InvalidFrame)?;
+
+            socket
+                .write_all(&header_buffer[..header_size])
+                .await
+                .map_err(|_| WebSocketError::TcpSocketError)?;
+        }
+
         //TODO: Implement proper WebSocket closing handshake
         self.connection_state = WSConnectionState::Closed;
         Ok(())
@@ -194,6 +209,95 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
         }
 
         Ok(res)
+    }
+
+    /// Writes a binary frame to the WebSocket.
+    /// The `fin` parameter indicates whether this is the final fragment in a message.
+    /// # Errors
+    /// Returns `WebSocketError::Closed` if the connection is not open.
+    /// Returns `WebSocketError::InvalidFrame` if there is an error writing the frame header.
+    /// Returns `WebSocketError::TcpSocketError` if there is an error writing to the socket.
+    ///
+    pub async fn write_binary_frame<'a>(
+        &mut self,
+        payload: &'a [u8],
+        fin: bool,
+    ) -> Result<(), WebSocketError> {
+        let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
+
+        if self.state.connection_state != WSConnectionState::Open {
+            return Err(WebSocketError::Closed);
+        }
+
+        let header_size = write_frame_header(
+            fin as u8,
+            WSOpcode::Binary,
+            payload.len(),
+            Option::None,
+            &mut header_buffer,
+        )
+        .map_err(|_| WebSocketError::InvalidFrame)?;
+
+        self.socket
+            .write_all(&header_buffer[..header_size])
+            .await
+            .map_err(|_| WebSocketError::TcpSocketError)?;
+
+        // Write header
+        self.socket
+            .write_all(payload)
+            .await
+            .map_err(|_| WebSocketError::TcpSocketError)?;
+
+        Ok(())
+    }
+
+    /// Writes a binary frame to the WebSocket, encoding the payload in place with masking.
+    /// The provided payload buffer will be modified in place.
+    /// The `fin` parameter indicates whether this is the final fragment in a message.
+    ///
+    /// # Errors
+    /// Returns `WebSocketError::Closed` if the connection is not open.
+    /// Returns `WebSocketError::InvalidFrame` if there is an error encoding the frame.
+    /// Returns `WebSocketError::TcpSocketError` if there is an error writing to the socket.
+    ///
+    pub async fn write_binary_frame_with_encode<'a>(
+        &mut self,
+        mut payload: &'a mut [u8],
+        fin: bool,
+        masking_key: [u8; 4],
+    ) -> Result<(), WebSocketError> {
+        let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
+
+        if self.state.connection_state != WSConnectionState::Open {
+            return Err(WebSocketError::Closed);
+        }
+
+        let (mut writer, header_size) = WSEncodeWriter::new(
+            &mut header_buffer,
+            fin as u8,
+            WSOpcode::Binary,
+            payload.len(),
+            masking_key,
+        )
+        .map_err(|_| WebSocketError::InvalidFrame)?;
+
+        self.socket
+            .write_all(&header_buffer[..header_size])
+            .await
+            .map_err(|_| WebSocketError::TcpSocketError)?;
+
+        writer
+            .encode_payload_in_place(&mut payload)
+            .map_err(|_| WebSocketError::InvalidFrame)?;
+
+        // Write header
+        self.socket
+            .write_all(payload)
+            .await
+            .map_err(|_| WebSocketError::TcpSocketError)?;
+
+        Ok(())
     }
 
     /// Reborrows the WebSocket for further operations.
