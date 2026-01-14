@@ -41,6 +41,40 @@ pub enum SocketPoolError {
     IOError(Error),
 }
 
+pub struct RoundRobinSocketPoolBuilder {
+    port: u16,
+    keep_alive_timeout: embassy_time::Duration,
+    socket_io_timeout: embassy_time::Duration,
+}
+
+impl RoundRobinSocketPoolBuilder {
+    pub const fn new(port: u16) -> Self {
+        Self {
+            port,
+            keep_alive_timeout: KEEP_ALIVE_TIMEOUT,
+            socket_io_timeout: SOCKET_IO_TIMEOUT,
+        }
+    }
+
+    pub const fn with_keep_alive_timeout(mut self, timeout: embassy_time::Duration) -> Self {
+        self.keep_alive_timeout = timeout;
+        self
+    }
+
+    pub const fn with_socket_io_timeout(mut self, timeout: embassy_time::Duration) -> Self {
+        self.socket_io_timeout = timeout;
+        self
+    }
+
+    pub fn build<'a, const POOL_SIZE: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
+        &self,
+        buffers: &'a mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
+        stack: Stack<'a>,
+    ) -> RoundRobinSocketPool<'a, POOL_SIZE> {
+        RoundRobinSocketPool::new(buffers, stack, self.port)
+    }
+}
+
 pub struct RoundRobinSocketPool<'a, const POOL_SIZE: usize> {
     sockets: [RefCell<TcpSocket<'a>>; POOL_SIZE],
     ready: Queue<RefMut<'a, TcpSocket<'a>>, POOL_SIZE>,
@@ -49,7 +83,7 @@ pub struct RoundRobinSocketPool<'a, const POOL_SIZE: usize> {
 
 impl<'a, const POOL_SIZE: usize> RoundRobinSocketPool<'a, POOL_SIZE> {
     /// Create a new SocketPool
-    pub fn new<const RX_SIZE: usize, const TX_SIZE: usize>(
+    fn new<const RX_SIZE: usize, const TX_SIZE: usize>(
         buffers: &'a mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
         stack: Stack<'a>,
         port: u16,
@@ -79,7 +113,7 @@ impl<'a, const POOL_SIZE: usize> RoundRobinSocketPool<'a, POOL_SIZE> {
 
     /// Accept the next incoming connection and wait until data is available.
     /// This function works as round-robin over the sockets in the pool.
-    pub async fn acquire_next(&'a mut self, shift: usize) -> Option<RefMut<'a, TcpSocket<'a>>> {
+    pub async fn acquire_next(&'a mut self) -> Option<RefMut<'a, TcpSocket<'a>>> {
         Self::collect_ready(&self.sockets, self.port, &mut self.ready).await;
         self.ready.dequeue()
     }
