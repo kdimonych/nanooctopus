@@ -1,19 +1,13 @@
-use core::borrow;
-use core::f32::consts::E;
-
-use crate::socket_wrapper::SocketWrapperRef;
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder, error::Error, handler::HttpHandler,
-    header::HttpHeader, request::HttpRequest, status_code::StatusCode,
+    request::HttpRequest, status_code::StatusCode,
 };
 use embassy_net::{
     Stack,
-    dns::Socket,
     tcp::{State, TcpSocket},
 };
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
-use heapless::Vec;
 
 #[cfg(feature = "ws")]
 use crate::ws::*;
@@ -146,13 +140,13 @@ impl<
             );
 
             // The transaction life cycle
-            'transaction_cycle: loop {
+            loop {
                 if (!socket.may_recv() || socket.remote_endpoint().is_none())
                     && socket.state() != State::Closed
                 {
                     // The connection is half-closed or not established
                     defmt::info!("The half-closed connection detected, closing socket");
-                    break 'transaction_cycle;
+                    break;
                 }
 
                 // Receive request
@@ -169,16 +163,16 @@ impl<
                             "Remote side has closed the connection, {:?}",
                             socket.remote_endpoint()
                         );
-                        break 'transaction_cycle;
+                        break;
                     }
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => {
                         defmt::warn!("Read error: {:?}, {:?}", e, socket.remote_endpoint());
-                        break 'transaction_cycle;
+                        break;
                     }
                     Err(_) => {
                         defmt::warn!("Socket read timeout, {:?}", socket.remote_endpoint());
-                        break 'transaction_cycle;
+                        break;
                     }
                 };
 
@@ -195,7 +189,7 @@ impl<
                         );
                         // Send a 500 error response
                         Self::send_server_internal_error(&mut socket).await.ok();
-                        break 'transaction_cycle;
+                        break;
                     }
                 };
 
@@ -206,7 +200,7 @@ impl<
                         .is_err()
                     {
                         // Handshake failed, close the connection
-                        break 'transaction_cycle;
+                        break;
                     }
                     // Here we would normally transition to WebSocket handling
                     let mut web_socket_state = WebSocketState::new();
@@ -235,19 +229,19 @@ impl<
                     {
                         //
                         web_socket_state.close(&mut socket).await.ok();
-                        break 'transaction_cycle;
+                        break;
                     }
 
                     // After WebSocket handling is done, close the connection
                     if web_socket_state.close(&mut socket).await.is_err() {
-                        break 'transaction_cycle;
+                        break;
                     }
                     if !self.auto_close_connection {
                         // Web Socket if properly closed, proceed to next request
-                        continue 'transaction_cycle;
+                        continue;
                     } else {
                         // Auto-close connection is enabled, break the transaction cycle
-                        break 'transaction_cycle;
+                        break;
                     }
                 }
 
@@ -272,7 +266,7 @@ impl<
                         {
                             // Failed to send response, close the connection
                             defmt::debug!("Failed to send response, closing connection");
-                            break 'transaction_cycle;
+                            break;
                         }
                     }
                     Err(e) => {
@@ -282,7 +276,7 @@ impl<
                             // Failed to send error response, close the connection
                             defmt::error!("Failed to send internal server error response");
                         }
-                        break 'transaction_cycle;
+                        break;
                     }
                 }
 
@@ -293,7 +287,7 @@ impl<
                 if self.auto_close_connection {
                     // Close the connection after each response
                     defmt::debug!("Auto-closing connection as per configuration");
-                    break 'transaction_cycle;
+                    break;
                 }
             }
 
