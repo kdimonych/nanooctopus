@@ -31,6 +31,8 @@ pub mod status_code;
 #[cfg(feature = "ws")]
 pub mod ws;
 
+mod round_robin_socket_pool;
+
 pub use client::{DefaultHttpClient, HttpClient, SmallHttpClient};
 pub use error::Error;
 pub use handler::{HttpHandler, SimpleHandler};
