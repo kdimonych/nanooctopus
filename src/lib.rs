@@ -41,7 +41,9 @@ pub use method::HttpMethod;
 pub use options::HttpClientOptions;
 pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
+pub use round_robin_socket_pool::SocketBuffers;
 pub use server::{DefaultHttpServer, HttpServer, ServerTimeouts, SmallHttpServer};
 pub use status_code::StatusCode;
+
 #[cfg(feature = "ws")]
 pub use ws::*;

@@ -14,6 +14,7 @@ use heapless::spsc::Queue;
 const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
 const SOCKET_IO_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 
+/// Type alias for socket buffers
 pub struct SocketBuffers<const RX_SIZE: usize, const TX_SIZE: usize> {
     rx_buffer: [u8; RX_SIZE],
     tx_buffer: [u8; TX_SIZE],
@@ -66,37 +67,46 @@ impl RoundRobinSocketPoolBuilder {
         self
     }
 
-    pub fn build<'a, const POOL_SIZE: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
+    pub fn build<
+        'socket,
+        'stack,
+        const POOL_SIZE: usize,
+        const RX_SIZE: usize,
+        const TX_SIZE: usize,
+    >(
         &self,
-        buffers: &'a mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
-        stack: Stack<'a>,
-    ) -> RoundRobinSocketPool<'a, POOL_SIZE> {
+        buffers: &'socket mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
+        stack: Stack<'stack>,
+    ) -> RoundRobinSocketPool<'stack, POOL_SIZE>
+    where
+        'socket: 'stack,
+    {
         RoundRobinSocketPool::new(buffers, stack, self.port)
     }
 }
 
-pub struct RoundRobinSocketPool<'a, const POOL_SIZE: usize> {
-    sockets: [RefCell<TcpSocket<'a>>; POOL_SIZE],
-    ready: Queue<RefMut<'a, TcpSocket<'a>>, POOL_SIZE>,
+pub struct RoundRobinSocketPool<'stack, const POOL_SIZE: usize> {
+    sockets: [RefCell<TcpSocket<'stack>>; POOL_SIZE],
     port: u16,
 }
 
-impl<'a, const POOL_SIZE: usize> RoundRobinSocketPool<'a, POOL_SIZE> {
+impl<'stack, const POOL_SIZE: usize> RoundRobinSocketPool<'stack, POOL_SIZE> {
     /// Create a new SocketPool
     fn new<const RX_SIZE: usize, const TX_SIZE: usize>(
-        buffers: &'a mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
-        stack: Stack<'a>,
+        buffers: &'stack mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
+        stack: Stack<'stack>,
         port: u16,
     ) -> Self {
         let mut it = buffers.iter_mut();
 
         Self {
             sockets: core::array::from_fn::<_, POOL_SIZE, _>(|_| {
+                let buffer = unsafe { it.next().unwrap_unchecked() };
                 let mut socket = TcpSocket::new(
                     stack,
                     // SAFETY: We have exactly POOL_SIZE buffers
-                    unsafe { &mut it.next().unwrap_unchecked().rx_buffer },
-                    unsafe { &mut it.next().unwrap_unchecked().tx_buffer },
+                    &mut buffer.rx_buffer,
+                    &mut buffer.tx_buffer,
                 );
 
                 // Set keep alive options (This must be set to prevent connections from being closed by NATs)
@@ -104,23 +114,25 @@ impl<'a, const POOL_SIZE: usize> RoundRobinSocketPool<'a, POOL_SIZE> {
                 // This must be set to prevent eternal pending on IO operations
                 socket.set_timeout(Some(SOCKET_IO_TIMEOUT));
 
+                defmt::trace!(
+                    "SocketPool: Created socket with RX size {} and TX size {}",
+                    RX_SIZE,
+                    TX_SIZE
+                );
                 RefCell::new(socket)
             }),
-            ready: Queue::new(),
             port,
         }
     }
 
     /// Accept the next incoming connection and wait until data is available.
     /// This function works as round-robin over the sockets in the pool.
-    pub async fn acquire_next(&'a mut self) -> Option<RefMut<'a, TcpSocket<'a>>> {
-        Self::collect_ready(&self.sockets, self.port, &mut self.ready).await;
-        self.ready.dequeue()
-    }
-
-    /// Get the number of ready sockets
-    pub fn ready(&self) -> usize {
-        self.ready.len()
+    pub async fn acquire_next<'b, const QUEUE_SIZE: usize>(
+        &'b self,
+        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, QUEUE_SIZE>,
+    ) {
+        //let mut ready: Queue<RefMut<'_, TcpSocket<'stack>>, POOL_SIZE> = Queue::new();
+        Self::collect_ready(&self.sockets, self.port, ready).await;
     }
 
     /// Get the capacity of the socket pool
@@ -128,15 +140,17 @@ impl<'a, const POOL_SIZE: usize> RoundRobinSocketPool<'a, POOL_SIZE> {
         POOL_SIZE
     }
 
-    async fn collect_ready(
-        sockets: &'a [RefCell<TcpSocket<'a>>],
+    async fn collect_ready<'a, 'b, const QUEUE_SIZE: usize>(
+        sockets: &'a [RefCell<TcpSocket<'stack>>],
         port: u16,
-        ready: &mut Queue<RefMut<'a, TcpSocket<'a>>, POOL_SIZE>,
-    ) {
+        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, QUEUE_SIZE>,
+    ) where
+        'a: 'b,
+    {
         poll_fn(|cx| -> Poll<()> {
             let mut ready_it = sockets
                 .iter()
-                .filter_map(|s: &'a RefCell<TcpSocket<'a>>| s.try_borrow_mut().ok())
+                .filter_map(|s| s.try_borrow_mut().ok())
                 .filter_map(|mut s| match s.poll_wait_next_request_once(cx, port) {
                     Poll::Ready(Ok(())) => Some(s),
                     Poll::Ready(Err(error)) => {
@@ -226,6 +240,11 @@ impl PollSocket for TcpSocket<'_> {
         cx: &mut Context<'_>,
         port: u16,
     ) -> Poll<Result<(), SocketPoolError>> {
+        defmt::trace!(
+            "SocketPool: Socket {:?} in state {:?}",
+            self.remote_endpoint(),
+            self.state()
+        );
         match self.state() {
             State::Established | State::SynSent | State::SynReceived => {
                 defmt::trace!(
@@ -238,41 +257,11 @@ impl PollSocket for TcpSocket<'_> {
 
             State::Closed | State::Listen => {
                 // In this case we can safelly poll just accept
-                match self.poll_accept_once(cx, port) {
-                    Poll::Ready(Ok(())) => self.poll_wait_read_ready_once(cx), // We got a new connection, start waiting for data
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => Poll::Pending,
-                }
-            }
-
-            State::TimeWait
-            | State::FinWait1
-            | State::Closing
-            | State::LastAck
-            | State::CloseWait => {
-                // In this case we have to gracefully bring the socket down first.
-
-                // Close the socket and accept a new connection
-                self.close();
-                defmt::trace!("SocketPool: Closed socket in state {:?}", self.state());
-                // Wait for previous operations to flush
-                match self.poll_flush_once(cx) {
-                    Poll::Ready(Ok(())) => {}
-                    Poll::Ready(Err(e)) => {
-                        defmt::error!(
-                            "SocketPool: flush error for socket in state {:?}",
-                            self.state()
-                        );
-                        return Poll::Ready(Err(e));
-                    }
-                    Poll::Pending => return Poll::Pending,
-                }
                 defmt::trace!(
-                    "SocketPool: Accept new connection at socket in state {:?}",
+                    "SocketPool: Accept new connection at socket {:?} in state {:?}",
+                    self.remote_endpoint(),
                     self.state()
                 );
-
-                // Previous operations succeeded, accept new connection on this socket
                 match self.poll_accept_once(cx, port) {
                     Poll::Ready(Ok(())) => {
                         defmt::debug!(
@@ -286,9 +275,67 @@ impl PollSocket for TcpSocket<'_> {
                 }
             }
 
+            State::TimeWait
+            | State::FinWait1
+            | State::Closing
+            | State::LastAck
+            | State::CloseWait => {
+                // In this case we have to gracefully bring the socket down first.
+                defmt::trace!(
+                    "SocketPool: Close socket {:?} in state {:?}",
+                    self.remote_endpoint(),
+                    self.state()
+                );
+                // Close the socket and accept a new connection
+                self.close();
+                defmt::trace!(
+                    "SocketPool: Closed socket {:?} in state {:?}",
+                    self.remote_endpoint(),
+                    self.state()
+                );
+                // Wait for previous operations to flush
+                match self.poll_flush_once(cx) {
+                    Poll::Ready(Ok(())) => {}
+                    Poll::Ready(Err(e)) => {
+                        defmt::error!(
+                            "SocketPool: flush error for socket {:?} in state {:?}",
+                            self.remote_endpoint(),
+                            self.state()
+                        );
+                        return Poll::Ready(Err(e));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                }
+                defmt::trace!(
+                    "SocketPool: Accept new connection at socket {:?} in state {:?}",
+                    self.remote_endpoint(),
+                    self.state()
+                );
+                // Previous operations succeeded, accept new connection on this socket
+                match self.poll_accept_once(cx, port) {
+                    Poll::Ready(Ok(())) => {
+                        defmt::debug!(
+                            "SocketPool: New connection at socket {:?} in state {:?}",
+                            self.remote_endpoint(),
+                            self.state()
+                        );
+                        self.poll_wait_read_ready_once(cx)
+                    } // We got a new connection, start waiting for data
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                    Poll::Pending => Poll::Pending,
+                }
+            }
+
             // In the FinWait2 state this function will always return Pending, hence setting up a waker to be woken later if
             // state changed (I hope so)
-            State::FinWait2 => self.poll_wait_write_ready_once(cx),
+            State::FinWait2 => {
+                defmt::debug!(
+                    "SocketPool: Wait at socket {:?} in state {:?} to be closed by remote",
+                    self.remote_endpoint(),
+                    self.state()
+                );
+                self.poll_wait_write_ready_once(cx)
+            }
         }
     }
 }
