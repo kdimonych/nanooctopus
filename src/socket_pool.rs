@@ -77,20 +77,20 @@ impl RoundRobinSocketPoolBuilder {
         &self,
         buffers: &'socket mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
         stack: Stack<'stack>,
-    ) -> RoundRobinSocketPool<'stack, POOL_SIZE>
+    ) -> SocketPool<'stack, POOL_SIZE>
     where
         'socket: 'stack,
     {
-        RoundRobinSocketPool::new(buffers, stack, self.port)
+        SocketPool::new(buffers, stack, self.port)
     }
 }
 
-pub struct RoundRobinSocketPool<'stack, const POOL_SIZE: usize> {
+pub struct SocketPool<'stack, const POOL_SIZE: usize> {
     sockets: [RefCell<TcpSocket<'stack>>; POOL_SIZE],
     port: u16,
 }
 
-impl<'stack, const POOL_SIZE: usize> RoundRobinSocketPool<'stack, POOL_SIZE> {
+impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     /// Create a new SocketPool
     fn new<const RX_SIZE: usize, const TX_SIZE: usize>(
         buffers: &'stack mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
@@ -125,9 +125,13 @@ impl<'stack, const POOL_SIZE: usize> RoundRobinSocketPool<'stack, POOL_SIZE> {
         }
     }
 
-    /// Accept the next incoming connection and wait until data is available.
-    /// This function works as round-robin over the sockets in the pool.
-    pub async fn acquire_next<'b, const QUEUE_SIZE: usize>(
+    /// Accepts the next incoming connection or/and wait until data is available on it then return the socket.
+    ///
+    /// This method polls all sockets in a loop until one is ready
+    /// (ready means has established stated and data is available for reading).
+    /// All ready sockets are enqueued into the provided `ready` queue.
+    ///
+    pub async fn acquire_next_request<'b, const QUEUE_SIZE: usize>(
         &'b self,
         ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, QUEUE_SIZE>,
     ) {

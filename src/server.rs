@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     handler::HttpHandler,
     request::HttpRequest,
-    round_robin_socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
+    socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
     status_code::StatusCode,
 };
 use embassy_net::{Stack, tcp::TcpSocket};
@@ -59,15 +59,44 @@ enum HttpProcessResult<'a> {
 /// **Note**: This server only supports HTTP connections, not HTTPS/TLS.
 /// For secure connections, consider using a reverse proxy or load balancer
 /// that handles TLS termination.
-pub struct HttpServer<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize> {
+pub struct HttpServer {
     port: u16,
     timeouts: ServerTimeouts,
     auto_close_connection: bool,
 }
 
-impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
-    HttpServer<REQ_SIZE, MAX_RESPONSE_SIZE>
+/// Resources required for the HTTP server
+pub struct HttpServerBuffers<
+    const SOCKETS: usize,
+    const RX_SIZE: usize,
+    const TX_SIZE: usize,
+    const REQ_SIZE: usize,
+    const MAX_RESPONSE_SIZE: usize,
+> {
+    socket_buffers: [SocketBuffers<RX_SIZE, TX_SIZE>; SOCKETS],
+    request_buf: [u8; REQ_SIZE],
+    response_buf: [u8; MAX_RESPONSE_SIZE],
+}
+
+impl<
+    const SOCKETS: usize,
+    const RX_SIZE: usize,
+    const TX_SIZE: usize,
+    const REQ_SIZE: usize,
+    const MAX_RESPONSE_SIZE: usize,
+> HttpServerBuffers<SOCKETS, RX_SIZE, TX_SIZE, REQ_SIZE, MAX_RESPONSE_SIZE>
 {
+    /// Create new HTTP server resources
+    pub const fn new() -> Self {
+        Self {
+            socket_buffers: [const { SocketBuffers::<RX_SIZE, TX_SIZE>::new() }; SOCKETS],
+            request_buf: [0; REQ_SIZE],
+            response_buf: [0; MAX_RESPONSE_SIZE],
+        }
+    }
+}
+
+impl HttpServer {
     /// Create a new HTTP server with default timeouts
     #[must_use]
     pub fn new(port: u16) -> Self {
@@ -97,10 +126,18 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<'a, const SOCKETS: usize, const RX_SIZE: usize, const TX_SIZE: usize, H>(
+    pub async fn serve<
+        'stack,
+        const SOCKETS: usize,
+        const RX_SIZE: usize,
+        const TX_SIZE: usize,
+        const REQ_SIZE: usize,
+        const MAX_RESPONSE_SIZE: usize,
+        H,
+    >(
         &mut self,
-        stack: Stack<'a>,
-        buffers: &mut [SocketBuffers<RX_SIZE, TX_SIZE>; SOCKETS],
+        stack: Stack<'stack>,
+        buffers: &mut HttpServerBuffers<SOCKETS, RX_SIZE, TX_SIZE, REQ_SIZE, MAX_RESPONSE_SIZE>,
         mut handler: H,
     ) -> !
     where
@@ -112,7 +149,7 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
         let socket_pool = RoundRobinSocketPoolBuilder::new(self.port)
             .with_socket_io_timeout(Duration::from_secs(self.timeouts.accept_timeout))
             .with_keep_alive_timeout(Duration::from_secs(5))
-            .build(buffers, stack);
+            .build(&mut buffers.socket_buffers, stack);
 
         defmt::debug!("HTTP server started listening");
 
@@ -121,10 +158,11 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
         } else {
             defmt::info!("Auto-close connection is disabled");
         }
-        let mut ready: Queue<_, 3> = Queue::new();
+
+        let mut ready: Queue<_, SOCKETS> = Queue::new();
 
         loop {
-            socket_pool.acquire_next(&mut ready).await;
+            socket_pool.acquire_next_request(&mut ready).await;
             if let Some(mut socket) = ready.dequeue() {
                 defmt::info!(
                     "New connection/request {:?}, {:?}",
@@ -132,11 +170,9 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
                     self.auto_close_connection
                 );
 
-                let mut request_buf = [0; REQ_SIZE];
-
                 let n = match with_timeout(
                     Duration::from_secs(self.timeouts.read_timeout),
-                    socket.read(&mut request_buf),
+                    socket.read(&mut buffers.request_buf),
                 )
                 .await
                 {
@@ -165,7 +201,7 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
                 defmt::info!("Process the request of, {:?}", socket.remote_endpoint());
 
                 // Parse the request
-                let request = match HttpRequest::try_from(&request_buf[..n]) {
+                let request = match HttpRequest::try_from(&buffers.request_buf[..n]) {
                     Ok(req) => req,
                     Err(e) => {
                         defmt::error!(
@@ -180,14 +216,11 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
                     }
                 };
 
-                // Handle the regular request
-                let mut response_buffer = [0; MAX_RESPONSE_SIZE];
-
                 match self
                     .handle_connection(
                         &request,
                         HttpResponseBufferRef::bind(
-                            &mut response_buffer,
+                            &mut buffers.response_buf,
                             self.auto_close_connection,
                         ),
                         &mut handler,
@@ -195,7 +228,7 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
                     .await
                 {
                     Ok(response) => {
-                        if Self::send_response(&mut socket, &response_buffer[..response.len()])
+                        if Self::send_response(&mut socket, &buffers.response_buf[..response.len()])
                             .await
                             .is_err()
                         {
@@ -406,7 +439,7 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
     ) -> Result<(), ()> {
         defmt::info!("WebSocket upgrade request detected");
         // TODO: Reduce buffer size to fit to the handshake response only.
-        let mut response_buffer = [0; MAX_RESPONSE_SIZE];
+        let mut response_buffer = [0; 1024];
         let res = try_handle_websocket_handshake(
             HttpResponseBufferRef::bind(&mut response_buffer, false),
             web_socket_key,
@@ -511,10 +544,10 @@ impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize>
 }
 
 /// Type alias for `HttpServer` with default buffer sizes (4KB each)
-pub type DefaultHttpServer = HttpServer<MAX_REQUEST_SIZE, DEFAULT_MAX_RESPONSE_SIZE>;
+pub type DefaultHttpServer = HttpServer;
 
 /// Type alias for `HttpServer` with small buffer sizes for memory-constrained environments (1KB each)
-pub type SmallHttpServer = HttpServer<1024, 1024>;
+pub type SmallHttpServer = HttpServer;
 
 #[cfg(test)]
 mod tests {
@@ -547,7 +580,7 @@ mod tests {
         assert_eq!(custom_timeouts.handler_timeout, 45);
 
         // Test server with custom timeouts
-        let server = HttpServer::<1024, 1024>::new(8080).with_timeouts(custom_timeouts);
+        let server = HttpServer::new(8080).with_timeouts(custom_timeouts);
         assert_eq!(server.port, 8080);
         assert_eq!(server.timeouts.accept_timeout, 5);
         assert_eq!(server.timeouts.read_timeout, 15);
