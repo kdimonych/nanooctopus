@@ -1,5 +1,7 @@
-use crate::{error::Error, header::HttpHeader, method::HttpMethod};
+use crate::error::Error;
 use heapless::Vec;
+use protocols::header::HttpHeader;
+use protocols::method::HttpMethod;
 
 /// Maximum number of headers allowed in a request
 pub const MAX_HEADERS: usize = 16;

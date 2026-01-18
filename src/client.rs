@@ -1,7 +1,5 @@
 use crate::{
     error::Error,
-    header::HttpHeader,
-    method::HttpMethod,
     options::HttpClientOptions,
     response::{HttpResponse, ResponseBody},
     status_code::StatusCode,
@@ -21,6 +19,8 @@ use embedded_io_async::Write as EmbeddedWrite;
 #[cfg(feature = "tls")]
 use embedded_tls::{Aes128GcmSha256, NoVerify, TlsConfig, TlsConnection, TlsContext};
 use heapless::Vec;
+use protocols::header::HttpHeader;
+use protocols::method::HttpMethod;
 #[cfg(feature = "tls")]
 use rand_chacha::ChaCha8Rng;
 #[cfg(feature = "tls")]

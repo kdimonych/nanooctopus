@@ -8,10 +8,6 @@ pub mod client;
 pub mod error;
 /// HTTP request handlers and traits.
 pub mod handler;
-/// HTTP header types and helpers.
-pub mod header;
-/// HTTP method enum and helpers.
-pub mod method;
 /// HTTP client configuration options.
 pub mod options;
 /// HTTP request types and parsing.
@@ -31,15 +27,14 @@ pub mod status_code;
 #[cfg(feature = "ws")]
 pub mod ws;
 
-
 mod socket_pool;
 
 pub use client::{DefaultHttpClient, HttpClient, SmallHttpClient};
 pub use error::Error;
 pub use handler::{HttpHandler, SimpleHandler};
-pub use header::{HttpHeader, headers, mime_types};
-pub use method::HttpMethod;
 pub use options::HttpClientOptions;
+pub use protocols::header::{HttpHeader, headers, mime_types};
+pub use protocols::method::HttpMethod;
 pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 pub use server::{
