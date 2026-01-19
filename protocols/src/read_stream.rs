@@ -228,6 +228,20 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn test_read_delimitter_only() {
+        let request_data = b"\r\n";
+        let mut stream = DummyReadStream::new(request_data);
+        let mut buffer = [0u8; 64];
+
+        let bytes_read = stream
+            .read_till_delimitter_sequence(b"\r\n", &mut buffer)
+            .await
+            .expect("Expect no error");
+
+        assert_eq!(&buffer[..bytes_read], b"\r\n");
+    }
+
+    #[tokio::test]
     async fn test_read_eof_when_no_dilimitter_found() {
         let request_data = b"Hello, World!";
         let mut stream = DummyReadStream::new(request_data);
