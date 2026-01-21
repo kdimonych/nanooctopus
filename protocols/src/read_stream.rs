@@ -30,15 +30,36 @@ pub trait ReadStream {
     /// ## Errors
     /// - Returns `Self::ReadError` if an error occurs while reading from the stream
     ///
-    fn read(
-        &mut self,
-        buf: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, Self::ReadError>> + Send {
+    fn read<'s>(
+        &'s mut self,
+        buf: &'s mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize, Self::ReadError>> + 's {
         self.read_with(|data: &mut [u8]| {
             let to_read = core::cmp::min(buf.len(), data.len());
             buf[..to_read].copy_from_slice(&data[..to_read]);
             (to_read, to_read)
         })
+    }
+
+    /// Read exactly `buf.len()` bytes from the stream into the provided buffer
+    ///     
+    /// ## Errors
+    /// - Returns `Self::ReadError` if an error occurs while reading from the stream
+    ///
+    fn read_exact<'s>(
+        &'s mut self,
+        buf: &'s mut [u8],
+    ) -> impl core::future::Future<Output = Result<(), Self::ReadError>> + 's {
+        async move {
+            let mut total_read = 0;
+
+            while total_read < buf.len() {
+                let bytes_read = self.read(&mut buf[total_read..]).await?;
+                total_read += bytes_read;
+            }
+
+            Ok(())
+        }
     }
 
     /// Read from the stream using the provided function
@@ -52,36 +73,88 @@ pub trait ReadStream {
     fn read_with<F, R>(
         &mut self,
         f: F,
-    ) -> impl core::future::Future<Output = Result<R, Self::ReadError>> + Send
+    ) -> impl core::future::Future<Output = Result<R, Self::ReadError>>
     where
-        F: FnMut(&mut [u8]) -> (usize, R) + Send;
+        F: FnMut(&mut [u8]) -> (usize, R);
+}
+
+/// Embassy-net based implementation of ReadStream for TcpSocket
+#[cfg(all(target_arch = "arm", target_os = "none", feature = "embassy_net"))]
+mod embassy_impl {
+    use super::*;
+    use embassy_net::tcp::{TcpReader, TcpSocket};
+
+    impl IntoHttpError for embassy_net::tcp::Error {}
+
+    // Embassy-net based ReadStream implementation for TcpReader
+    impl<'socket> ReadStream for TcpSocket<'socket> {
+        type ReadError = embassy_net::tcp::Error;
+
+        fn read_with<F, R>(
+            &mut self,
+            f: F,
+        ) -> impl core::future::Future<Output = Result<R, Self::ReadError>>
+        where
+            F: FnMut(&mut [u8]) -> (usize, R),
+        {
+            self.read_with(f)
+        }
+
+        fn read<'s>(
+            &'s mut self,
+            buf: &'s mut [u8],
+        ) -> impl core::future::Future<Output = Result<usize, Self::ReadError>> + 's {
+            self.read(buf)
+        }
+    }
+
+    // Embassy-net based implementation of ReadStream for TcpReader
+    impl<'socket> ReadStream for TcpReader<'socket> {
+        type ReadError = embassy_net::tcp::Error;
+
+        fn read_with<F, R>(
+            &mut self,
+            f: F,
+        ) -> impl core::future::Future<Output = Result<R, Self::ReadError>>
+        where
+            F: FnMut(&mut [u8]) -> (usize, R),
+        {
+            self.read_with(f)
+        }
+
+        fn read<'s>(
+            &'s mut self,
+            buf: &'s mut [u8],
+        ) -> impl core::future::Future<Output = Result<usize, Self::ReadError>> + 's {
+            self.read(buf)
+        }
+    }
 }
 
 pub trait ReadStreamExt: ReadStream {
-    /// This function reads from the stream to the buffer until the delimiter predicate returns true.
+    /// This function reads from the stream to the buffer until the stop predicate returns true.
     /// The read bytes are stored in the provided buffer.
     ///
     /// ## Note
-    /// The byte on which the delimiter predicate returns true is included in the read bytes.
+    /// The byte on which the stop predicate returns true is included in the read bytes.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the delimitter.
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.s
+    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop predicate.
+    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.
     ///
-    fn read_till_delimitter<Delimitter>(
+    fn read_till_stop<StopPredicate>(
         &mut self,
         buffer: &mut [u8],
-        mut delimitter: Delimitter,
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> + Send
+        mut stop_predicate: StopPredicate,
+    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>>
     where
-        Self: Send,
-        Delimitter: FnMut(u8) -> bool + Send,
+        StopPredicate: FnMut(u8) -> bool,
     {
         async move {
             let mut write_size = 0;
 
             while write_size < buffer.len() {
-                let delimitter_found = self
+                let stop_triggered = self
                     .read_with(|data: &mut [u8]| {
                         let to_read = core::cmp::min(buffer.len() - write_size, data.len());
 
@@ -92,9 +165,8 @@ pub trait ReadStreamExt: ReadStream {
                             buffer[write_size] = b;
                             write_size += 1;
 
-                            if delimitter(b) {
-                                // The delimitter has been found; stop reading further
-
+                            if stop_predicate(b) {
+                                // The stop predicate has been triggered; stop reading further
                                 return (actual_read, true);
                             }
                         }
@@ -103,7 +175,7 @@ pub trait ReadStreamExt: ReadStream {
                     })
                     .await?;
 
-                if delimitter_found {
+                if stop_triggered {
                     return Ok(write_size);
                 }
             }
@@ -112,53 +184,47 @@ pub trait ReadStreamExt: ReadStream {
         }
     }
 
-    /// This function reads from the stream to the buffer until the specified delimitter sequence is found.
+    /// This function reads from the stream to the buffer until the specified stop sequence is found.
     /// The read bytes are stored in the provided buffer.
     ///
     /// ## Note
-    /// The delimiter is included in the read bytes.
+    /// The stop sequence is included in the read bytes.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the delimiter.
+    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop sequence.
     /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.
     ///
-    fn read_till_delimitter_sequence(
+    fn read_till_stop_sequence(
         &mut self,
-        delimitter: &[u8],
+        stop_sequence: &[u8],
         buffer: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> + Send
-    where
-        Self: Send,
-    {
+    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
         async move {
-            let mut delimiter_finder = FindSequence::new(delimitter);
-            self.read_till_delimitter(buffer, |b| delimiter_finder.push_byte(b))
+            let mut stop_sequence_finder = FindSequence::new(stop_sequence);
+            self.read_till_stop(buffer, |b| stop_sequence_finder.push_byte(b))
                 .await
         }
     }
 
-    /// This function reads from the stream to the buffer until the specified delimitter byte is found.
+    /// This function reads from the stream to the buffer until the specified stop byte is found.
     /// The read bytes are stored in the provided buffer.
     ///
     /// ## Note
-    /// The delimiter byte is included in the read bytes.
+    /// The stop byte is included in the read bytes.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the delimiter.
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.s
+    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop byte.
+    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.
     ///
-    fn read_till_delimitter_byte(
+    fn read_till_stop_byte(
         &mut self,
-        delimitter: u8,
+        stop_byte: u8,
         buffer: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> + Send
-    where
-        Self: Send,
-    {
-        async move { self.read_till_delimitter(buffer, |b| b == delimitter).await }
+    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
+        async move { self.read_till_stop(buffer, |b| b == stop_byte).await }
     }
 
-    /// This function skips the specified number of bytes from the stream.
+    /// This function consumes the specified number of bytes from the stream.
     ///
     /// ## Errors
     /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
@@ -167,10 +233,7 @@ pub trait ReadStreamExt: ReadStream {
     fn consume(
         &mut self,
         size: usize,
-    ) -> impl core::future::Future<Output = Result<(), ReadStreamError<Self::ReadError>>> + Send
-    where
-        Self: Send,
-    {
+    ) -> impl core::future::Future<Output = Result<(), ReadStreamError<Self::ReadError>>> {
         async move {
             let mut bytes_to_consume = size;
 
@@ -188,79 +251,72 @@ pub trait ReadStreamExt: ReadStream {
         }
     }
 
-    /// This function consumes bytes from the stream until the delimitter predicate returns true.
+    /// This function consumes bytes from the stream until the stop predicate returns true.
     ///
-    /// ## Note: The byte on which the delimitter predicate returns true is also skipped.
+    /// ## Note: The byte on which the stop predicate returns true is also consumed.
     ///
     /// ## Errors
     /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
     /// the stream.
-    fn consume_till_delimitter<Delimitter>(
+    fn consume_till_stop<Stop>(
         &mut self,
-        mut delimitter: Delimitter,
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> + Send
+        mut stop: Stop,
+    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>>
     where
-        Self: Send,
-        Delimitter: FnMut(u8) -> bool + Send,
+        Stop: FnMut(u8) -> bool,
     {
         async move {
-            let mut total_skipped = 0;
+            let mut total_consumed = 0;
 
             while self
                 .read_with(|data: &mut [u8]| {
                     for (i, &b) in data.iter().enumerate() {
-                        if delimitter(b) {
-                            // The delimitter has been found; stop reading further
-                            let actually_skipped = i + 1;
-                            total_skipped += actually_skipped;
-                            return (actually_skipped, false);
+                        if stop(b) {
+                            // The stop point has been found; stop reading further
+                            let actually_consumed = i + 1;
+                            total_consumed += actually_consumed;
+                            return (actually_consumed, false);
                         }
                     }
 
-                    total_skipped += data.len();
+                    total_consumed += data.len();
                     (data.len(), true)
                 })
                 .await?
             {}
 
-            return Ok(total_skipped);
+            return Ok(total_consumed);
         }
     }
 
-    /// This function consumes bytes from the stream until the specified delimitter byte is found.
+    /// This function consumes bytes from the stream until the specified stop byte is found.
     ///
-    /// ## Note: The delimitter byte is also skipped.
+    /// ## Note: The stop byte is also consumed.
     ///
     /// ## Errors
     /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
     /// the stream.
-    fn consume_till_delimitter_byte(
+    fn consume_till_stop_byte(
         &mut self,
-        delimitter: u8,
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> + Send
-    where
-        Self: Send,
-    {
-        async move { self.consume_till_delimitter(|b| b == delimitter).await }
+        stop_byte: u8,
+    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
+        async move { self.consume_till_stop(|b| b == stop_byte).await }
     }
 
-    /// This function consumes bytes from the stream until the specified delimitter sequence is found.
+    /// This function consumes bytes from the stream until the specified stop sequence is found.
     ///     
-    /// ## Note: The delimitter sequence is also skipped.
+    /// ## Note: The stop sequence is also consumed.
     ///     
     /// ## Errors
     /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
     /// the stream.
-    fn consume_till_delimitter_sequence(
+    fn consume_till_stop_sequence(
         &mut self,
-        delimitter: &[u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> + Send
-    where
-        Self: Send,
-    {
+        stop_sequence: &[u8],
+    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
         async move {
-            let mut delimiter_finder = FindSequence::new(delimitter);
-            self.consume_till_delimitter(|b| delimiter_finder.push_byte(b))
+            let mut stop_sequence_finder = FindSequence::new(stop_sequence);
+            self.consume_till_stop(|b| stop_sequence_finder.push_byte(b))
                 .await
         }
     }
@@ -298,7 +354,7 @@ pub mod tests {
 
         async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::ReadError>
         where
-            F: FnMut(&mut [u8]) -> (usize, R) + Send,
+            F: FnMut(&mut [u8]) -> (usize, R),
         {
             if self.position >= self.buffer.len() {
                 return Err(EOF);
@@ -329,21 +385,21 @@ pub mod tests {
     }
 
     impl ReadStream for DummyMultipartReadStream {
-        type ReadError = ();
+        type ReadError = EOF;
 
         async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::ReadError>
         where
-            F: FnMut(&mut [u8]) -> (usize, R) + Send,
+            F: FnMut(&mut [u8]) -> (usize, R),
         {
             if self.part >= self.multipart_buffer.len() {
-                return Err(());
+                return Err(EOF);
             }
 
             if self.position >= self.multipart_buffer[self.part].len() {
                 self.part += 1;
                 self.position = 0;
                 if self.part >= self.multipart_buffer.len() {
-                    return Err(());
+                    return Err(EOF);
                 }
             }
 
@@ -353,6 +409,8 @@ pub mod tests {
             Ok(res)
         }
     }
+
+    //TODO: Add tests for DummyMultipartReadStream and DummyReadStream
 
     #[tokio::test]
     async fn test_default_read_implementation() {
@@ -365,41 +423,59 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_read() {
+    async fn test_default_read_exact_implementation() {
+        let mut request_data = b"Hello, World!\r\n".to_vec();
+        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut buffer = [0u8; 5];
+
+        stream
+            .read_exact(&mut buffer)
+            .await
+            .expect("Expect no error");
+        assert_eq!(&buffer, b"Hello");
+    }
+
+    #[tokio::test]
+    async fn test_read_till_stop_sequence() {
+        const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\nThis is a test.\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let bytes_read = stream
-            .read_till_delimitter_sequence(b"\r\n", &mut buffer)
+            .read_till_stop_sequence(STOP, &mut buffer)
             .await
             .expect("Expect no error");
 
+        assert_eq!(bytes_read, b"Hello, World!".len() + STOP.len());
         assert_eq!(&buffer[..bytes_read], b"Hello, World!\r\n");
     }
 
     #[tokio::test]
-    async fn test_read_delimitter_only() {
+    async fn test_read_stop_sequence_only() {
+        const STOP: &[u8] = b"\r\n";
         let mut request_data = b"\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let bytes_read = stream
-            .read_till_delimitter_sequence(b"\r\n", &mut buffer)
+            .read_till_stop_sequence(STOP, &mut buffer)
             .await
             .expect("Expect no error");
 
-        assert_eq!(&buffer[..bytes_read], b"\r\n");
+        assert_eq!(bytes_read, STOP.len());
+        assert_eq!(&buffer[..bytes_read], STOP);
     }
 
     #[tokio::test]
-    async fn test_read_eof_when_no_dilimitter_found() {
+    async fn test_read_eof_when_no_stop_found() {
+        const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let error = stream
-            .read_till_delimitter_sequence(b"\r\n", &mut buffer)
+            .read_till_stop_sequence(STOP, &mut buffer)
             .await
             .expect_err("Expect read error, due to read stream EOF");
 
@@ -408,12 +484,13 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_read_buffer_overflow() {
+        const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 4];
 
         let error = stream
-            .read_till_delimitter_sequence(b"\r\n", &mut buffer)
+            .read_till_stop_sequence(STOP, &mut buffer)
             .await
             .expect_err("Expect buffer overflow error");
 
@@ -421,7 +498,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_skip_bytes() {
+    async fn test_consume_bytes() {
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
@@ -433,32 +510,55 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_consume_delimitter() {
+    async fn test_consume_stop() {
+        const STOP: u8 = b',';
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
-        stream
-            .consume_till_delimitter(|b| b == b',')
+        let consumed = stream
+            .consume_till_stop(|b| b == STOP)
             .await
             .expect("Expect no error");
+        assert_eq!(consumed, b"Hello,".len());
 
         let read_bytes = stream.read(&mut buffer).await.expect("Expect no error");
         assert_eq!(&buffer[..read_bytes], b" World!\r\n");
     }
 
     #[tokio::test]
-    async fn test_consume_till_delimitter_sequence() {
+    async fn test_consume_till_stop_sequence() {
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
-        stream
-            .consume_till_delimitter_sequence(b", Wo")
+        let consumed = stream
+            .consume_till_stop_sequence(b", Wo")
             .await
             .expect("Expect no error");
+        assert_eq!(consumed, b"Hello, Wo".len());
 
         let read_bytes = stream.read(&mut buffer).await.expect("Expect no error");
         assert_eq!(&buffer[..read_bytes], b"rld!\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_consume_all_data_if_no_sequence_found() {
+        let mut request_data = b"Hello, World!\r\n".to_vec();
+        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut buffer = [0u8; 64];
+
+        let e = stream
+            .consume_till_stop_sequence(b"There is no such sequence")
+            .await
+            .expect_err("Expect error");
+
+        assert!(matches!(e, ReadStreamError::ReadError(EOF)));
+
+        let e = stream
+            .read(&mut buffer)
+            .await
+            .expect_err("Expect EOF error");
+        assert!(matches!(e, EOF));
     }
 }

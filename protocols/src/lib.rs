@@ -7,7 +7,7 @@ pub mod header;
 pub mod method;
 
 /// Stream-based HTTP request parser.
-pub mod stream_request_parser;
+pub mod http_header_parser;
 
 /// WebSocket protocol support.
 pub mod web_socket_proto;

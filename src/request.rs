@@ -140,6 +140,23 @@ impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
     }
 }
 
+use embassy_net::tcp::TcpReader;
+use protocols::http_header_parser::HttpHeaderParser;
+use protocols::read_stream::{IntoHttpError, ReadStream, ReadStreamError, ReadStreamExt};
+
+struct TcpRequestReader<'a> {
+    reader: TcpReader<'a>,
+}
+
+pub async fn try_parse_from_stream<'buf, Reader: ReadStream>(
+    stream: &mut Reader,
+    buf: &'buf mut [u8],
+) -> Result<HttpRequest<'buf>, Error> {
+    let mut parser = HttpHeaderParser::new(stream);
+
+    Err(Error::InvalidResponse("Not implemented"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
