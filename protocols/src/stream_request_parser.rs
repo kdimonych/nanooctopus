@@ -1,9 +1,9 @@
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use crate::read_stream::{HttpReadStreamError, ReadStream, ReadStreamError};
+use crate::read_stream::{IntoHttpError, ReadStream, ReadStreamError, ReadStreamExt};
 
 #[derive(Debug)]
-pub enum HttpParseError<ReadError: HttpReadStreamError> {
+pub enum HttpParseError<ReadError: IntoHttpError> {
     /// Error occurred while reading from the stream
     ReadError(ReadStreamError<ReadError>),
     /// Malformed HTTP request
@@ -12,9 +12,7 @@ pub enum HttpParseError<ReadError: HttpReadStreamError> {
     UnsupportedMethod,
 }
 
-impl<ReadError: HttpReadStreamError> From<ReadStreamError<ReadError>>
-    for HttpParseError<ReadError>
-{
+impl<ReadError: IntoHttpError> From<ReadStreamError<ReadError>> for HttpParseError<ReadError> {
     fn from(err: ReadStreamError<ReadError>) -> Self {
         HttpParseError::ReadError(err)
     }
@@ -224,18 +222,33 @@ impl StreamRequest<ReadHeaders> {
             buffer_tail,
         ))
     }
+
+    // pub async fn go_body<Reader>(
+    //     &mut self,
+    //     reader: &mut Reader,
+    // ) -> Result<
+    //     ( &'buf mut [u8], StreamRequest<ReadHeaders>),
+    //     HttpParseError<Reader::ReadError>,
+    // > {
+    //     while self.state.all_parsed == false {
+    //         let mut temp_buffer = [0u8; 64];
+    //         let (_header_opt, _tail) = self
+    //             .parse_next_header(reader, &mut temp_buffer)
+    //             .await?;
+    //     }
+    //     Ok(StreamRequest { state: ReadBody })
+    // }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::header::*;
     use crate::{header, read_stream::tests::*};
 
     #[test]
     fn test_all_method_at_once() {
-        let request_data = b"GET ";
-        let mut stream = DummyReadStream::new(request_data);
+        let mut request_data = b"GET ".to_vec();
+        let mut stream = DummyReadStream::new(&mut request_data);
         let parser = StreamRequest::new();
 
         let mut buffer = [0u8; 16];
@@ -253,8 +266,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_method_parse_part_by_part_no_filizing_space() {
-        let request_data = b"UPDATE";
-        let mut stream = DummyReadStream::new(request_data);
+        let mut request_data = b"UPDATE".to_vec();
+        let mut stream = DummyReadStream::new(&mut request_data);
         let parser = StreamRequest::new();
 
         let mut method_buffer = [0u8; 16];
@@ -273,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_method_parse_part_by_part_with_chunked_method() {
-        let request_data: [&[u8]; 2] = [&b"CONNE"[..], &b"CT "[..]];
+        let request_data: Vec<Vec<u8>> = vec![b"CONNE".to_vec(), b"CT ".to_vec()];
         let mut stream = DummyMultipartReadStream::new(&request_data);
         let parser = StreamRequest::new();
 
@@ -291,8 +304,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_method_parse_with_truly_invalid_method() {
-        let request_data = b"INVALID /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        let mut stream = DummyReadStream::new(request_data);
+        let mut request_data =
+            b"INVALID /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec();
+        let mut stream = DummyReadStream::new(&mut request_data);
         let parser = StreamRequest::new();
 
         let mut buffer = [0u8; 16];
@@ -307,9 +321,9 @@ mod tests {
         const EXPECTED_PATH: &str = "/index.html";
 
         // This test actually tests chunked method parsing across parts
-        let request_data: [&[u8]; 2] = [
-            &b"GE"[..],
-            &b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n"[..],
+        let request_data = vec![
+            b"GE".to_vec(),
+            b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
         ];
         let mut stream = DummyMultipartReadStream::new(&request_data);
         let parser = StreamRequest::new();
@@ -335,9 +349,9 @@ mod tests {
         const EXPECTED_VERSION: &str = "HTTP/1.1";
 
         // This test actually tests chunked method parsing across parts
-        let request_data: [&[u8]; 2] = [
-            &b"GE"[..],
-            &b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n"[..],
+        let request_data = vec![
+            b"GE".to_vec(),
+            b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
         ];
         let mut stream = DummyMultipartReadStream::new(&request_data);
         let parser = StreamRequest::new();
@@ -366,9 +380,9 @@ mod tests {
     #[tokio::test]
     async fn test_headers_parse() {
         // This test actually tests chunked method parsing across parts
-        let request_data: [&[u8]; 2] = [
-            &b"GE"[..],
-            &b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n"[..],
+        let request_data = vec![
+            b"GE".to_vec(),
+            b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
         ];
         let mut stream = DummyMultipartReadStream::new(&request_data);
         let parser = StreamRequest::new();
