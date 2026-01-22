@@ -1,3 +1,5 @@
+use abstarct_socket::read_stream_ext::ReadError;
+
 /// Errors that can occur during HTTP operations
 ///
 /// This enum represents all possible errors that can be returned by the HTTP client
@@ -14,8 +16,10 @@ pub enum Error {
     IpAddressEmpty,
     /// Failed to establish a TCP connection
     ConnectionError(embassy_net::tcp::ConnectError),
-    /// TCP communication error
-    TcpError(embassy_net::tcp::Error),
+    /// TCP read/write error
+    SocketError(embassy_net::tcp::Error),
+    /// Read buffer overflowed
+    ReadBufferOverflow,
     /// No response was received from the server
     NoResponse,
     /// The server's response could not be parsed
@@ -31,6 +35,7 @@ pub enum Error {
     InvalidStatusCode,
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for Error {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(fmt, "{:?}", defmt::Debug2Format(self));
@@ -51,7 +56,7 @@ impl From<embassy_net::tcp::ConnectError> for Error {
 
 impl From<embassy_net::tcp::Error> for Error {
     fn from(err: embassy_net::tcp::Error) -> Self {
-        Error::TcpError(err)
+        Error::SocketError(err)
     }
 }
 
@@ -62,6 +67,18 @@ impl From<embedded_tls::TlsError> for Error {
     }
 }
 
+impl<SocketReadErrorT> From<ReadError<SocketReadErrorT>> for Error
+where
+    Error: From<SocketReadErrorT>,
+{
+    fn from(err: ReadError<SocketReadErrorT>) -> Self {
+        match err {
+            ReadError::SocketReadError(e) => Error::from(e),
+            ReadError::TargetBufferOverflow => Error::ReadBufferOverflow,
+        }
+    }
+}
+
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -69,7 +86,8 @@ impl core::fmt::Display for Error {
             Error::DnsError(_) => write!(f, "DNS resolution failed"),
             Error::IpAddressEmpty => write!(f, "No IP addresses returned by DNS"),
             Error::ConnectionError(_) => write!(f, "Failed to establish TCP connection"),
-            Error::TcpError(_) => write!(f, "TCP communication error"),
+            Error::SocketError(_) => write!(f, "TCP communication error"),
+            Error::ReadBufferOverflow => write!(f, "Read buffer overflowed"),
             Error::NoResponse => write!(f, "No response received from server"),
             Error::InvalidResponse(msg) => write!(f, "Invalid response: {msg}"),
             #[cfg(feature = "tls")]
@@ -85,7 +103,20 @@ impl core::fmt::Display for Error {
 mod tests {
     use super::*;
     use embassy_net::dns;
-    use embassy_net::tcp;
+
+    #[test]
+    fn test_from_read_error() {
+        let mut read_error = ReadError::SocketReadError(embassy_net::tcp::Error::ConnectionReset);
+        let mut err: Error = read_error.into();
+        assert!(matches!(
+            err,
+            Error::SocketError(embassy_net::tcp::Error::ConnectionReset)
+        ));
+
+        read_error = ReadError::TargetBufferOverflow;
+        err = read_error.into();
+        assert!(matches!(err, Error::ReadBufferOverflow));
+    }
 
     #[test]
     fn test_error_display() {
@@ -116,12 +147,12 @@ mod tests {
     }
 
     #[test]
-    fn test_from_tcp_error() {
-        let tcp_err = tcp::Error::ConnectionReset;
+    fn test_from_socket_error() {
+        let tcp_err = embassy_net::tcp::Error::ConnectionReset;
         let err: Error = tcp_err.into();
         match err {
-            Error::TcpError(_) => {}
-            _ => panic!("Expected TcpError variant"),
+            Error::SocketError(_) => {}
+            _ => panic!("Expected SocketError variant"),
         }
     }
 }

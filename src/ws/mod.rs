@@ -1,9 +1,9 @@
 use core::cmp::min;
 
-use crate::error::Error;
 use crate::response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 use embassy_net::tcp::TcpSocket;
 use embedded_io_async::Write;
+use protocols::error::Error;
 #[cfg(feature = "ws")]
 use protocols::web_socket_proto::*;
 use sha1::{Digest, Sha1};

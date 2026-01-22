@@ -235,32 +235,6 @@ pub trait WSMaskKeyProvider {
     fn masking_key(&self) -> Option<MaskKey>;
 }
 
-pub struct WSUnmasked;
-pub struct WSMasked {
-    idx: usize,
-    masking_key: MaskKey,
-}
-impl WSMasked {
-    pub const fn with(masking_key: MaskKey) -> Self {
-        Self {
-            masking_key,
-            idx: 0,
-        }
-    }
-}
-
-impl WSMaskKeyProvider for WSUnmasked {
-    fn masking_key(&self) -> Option<MaskKey> {
-        None
-    }
-}
-
-impl WSMaskKeyProvider for WSMasked {
-    fn masking_key(&self) -> Option<MaskKey> {
-        Some(self.masking_key)
-    }
-}
-
 pub struct WSEncodeWriter {
     free_space: usize,
     idx: usize,

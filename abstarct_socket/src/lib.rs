@@ -11,3 +11,6 @@ pub mod find_sequence;
 
 /// Test mocks for read streams and related utilities.
 pub mod mocks;
+
+/// Implementations for various socket types.
+pub mod embassy_impls;

@@ -1,4 +1,4 @@
-pub use crate::mocks::eof::EOF;
+pub use crate::mocks::error::DummySocketError;
 pub use crate::read_stream::ReadStream;
 
 /// A dummy read stream for testing purposes
@@ -17,14 +17,13 @@ impl<'a> DummyReadStream<'a> {
 }
 
 impl<'a> ReadStream for DummyReadStream<'a> {
-    type ReadError = EOF;
-
-    async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::ReadError>
+    type Error = DummySocketError;
+    async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::Error>
     where
         F: FnMut(&mut [u8]) -> (usize, R),
     {
         if self.position >= self.buffer.len() {
-            return Err(EOF);
+            return Err(DummySocketError::ConnectionReset);
         }
 
         let data = &mut self.buffer[self.position..];
@@ -33,5 +32,3 @@ impl<'a> ReadStream for DummyReadStream<'a> {
         Ok(res)
     }
 }
-
-//TODO: Add tests for DummyReadStream

@@ -269,7 +269,7 @@ impl From<u16> for StatusCode {
 }
 
 impl TryFrom<&str> for StatusCode {
-    type Error = crate::Error;
+    type Error = crate::error::Error;
 
     /// Parse a status code from a string slice.
     ///
@@ -288,7 +288,7 @@ impl TryFrom<&str> for StatusCode {
         if let Ok(code) = value.parse::<u16>() {
             Ok(StatusCode::from(code))
         } else {
-            Err(crate::Error::InvalidStatusCode)
+            Err(crate::error::Error::InvalidStatusCode)
         }
     }
 }

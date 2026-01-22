@@ -1,5 +1,16 @@
 use crate::find_sequence::FindSequence;
-use crate::read_stream::{ReadStream, ReadStreamError};
+use crate::read_stream::ReadStream;
+
+/// Error returned by TcpSocket read/write functions.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ReadError<SocketReadErrorT> {
+    /// The connection was reset.
+    ///
+    /// This can happen on receiving a RST packet, or on timeout.
+    SocketReadError(SocketReadErrorT),
+    TargetBufferOverflow,
+}
 
 pub trait ReadStreamExt: ReadStream {
     /// This function reads from the stream to the buffer until the stop predicate returns true.
@@ -9,14 +20,14 @@ pub trait ReadStreamExt: ReadStream {
     /// The byte on which the stop predicate returns true is included in the read bytes.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop predicate.
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.
+    /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop predicate.
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
     ///
     fn read_till_stop<StopPredicate>(
         &mut self,
         buffer: &mut [u8],
         mut stop_predicate: StopPredicate,
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>>
+    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>>
     where
         StopPredicate: FnMut(u8) -> bool,
     {
@@ -43,14 +54,15 @@ pub trait ReadStreamExt: ReadStream {
 
                         (to_read, false)
                     })
-                    .await?;
+                    .await
+                    .map_err(|e| ReadError::SocketReadError(e))?;
 
                 if stop_triggered {
                     return Ok(write_size);
                 }
             }
 
-            Err(ReadStreamError::TargetBufferOverflow)
+            Err(ReadError::TargetBufferOverflow)
         }
     }
 
@@ -61,14 +73,14 @@ pub trait ReadStreamExt: ReadStream {
     /// The stop sequence is included in the read bytes.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop sequence.
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.
+    /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop sequence.
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
     ///
     fn read_till_stop_sequence(
         &mut self,
         stop_sequence: &[u8],
         buffer: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
+    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut stop_sequence_finder = FindSequence::new(stop_sequence);
             self.read_till_stop(buffer, |b| stop_sequence_finder.push_byte(b))
@@ -83,27 +95,27 @@ pub trait ReadStreamExt: ReadStream {
     /// The stop byte is included in the read bytes.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop byte.
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from the stream.
+    /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop byte.
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
     ///
     fn read_till_stop_byte(
         &mut self,
         stop_byte: u8,
         buffer: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
+    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move { self.read_till_stop(buffer, |b| b == stop_byte).await }
     }
 
     /// This function consumes the specified number of bytes from the stream.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from
     /// the stream.
     ///   
     fn consume(
         &mut self,
         size: usize,
-    ) -> impl core::future::Future<Output = Result<(), ReadStreamError<Self::ReadError>>> {
+    ) -> impl core::future::Future<Output = Result<(), ReadError<Self::Error>>> {
         async move {
             let mut bytes_to_consume = size;
 
@@ -113,7 +125,8 @@ pub trait ReadStreamExt: ReadStream {
                         let to_read = core::cmp::min(bytes_to_consume, data.len());
                         (to_read, to_read)
                     })
-                    .await?;
+                    .await
+                    .map_err(|e| ReadError::SocketReadError(e))?;
                 bytes_to_consume -= bytes_read;
             }
 
@@ -126,12 +139,12 @@ pub trait ReadStreamExt: ReadStream {
     /// ## Note: The byte on which the stop predicate returns true is also consumed.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from
     /// the stream.
     fn consume_till_stop<Stop>(
         &mut self,
         mut stop: Stop,
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>>
+    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>>
     where
         Stop: FnMut(u8) -> bool,
     {
@@ -152,7 +165,8 @@ pub trait ReadStreamExt: ReadStream {
                     total_consumed += data.len();
                     (data.len(), true)
                 })
-                .await?
+                .await
+                .map_err(|e| ReadError::SocketReadError(e))?
             {}
 
             return Ok(total_consumed);
@@ -164,12 +178,12 @@ pub trait ReadStreamExt: ReadStream {
     /// ## Note: The stop byte is also consumed.
     ///
     /// ## Errors
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from
     /// the stream.
     fn consume_till_stop_byte(
         &mut self,
         stop_byte: u8,
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
+    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move { self.consume_till_stop(|b| b == stop_byte).await }
     }
 
@@ -178,12 +192,12 @@ pub trait ReadStreamExt: ReadStream {
     /// ## Note: The stop sequence is also consumed.
     ///     
     /// ## Errors
-    /// - Returns `ReadStreamError::ReadError` if an error occurs while reading from
+    /// - Returns `ReadError::SocketReadError` if an error occurs while reading from
     /// the stream.
     fn consume_till_stop_sequence(
         &mut self,
         stop_sequence: &[u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadStreamError<Self::ReadError>>> {
+    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut stop_sequence_finder = FindSequence::new(stop_sequence);
             self.consume_till_stop(|b| stop_sequence_finder.push_byte(b))
@@ -197,8 +211,7 @@ impl<T: ReadStream + ?Sized> ReadStreamExt for T {}
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::mocks::dummy_read_stream::*;
-    use crate::mocks::eof::EOF;
+    use crate::mocks::read_stream::*;
 
     #[tokio::test]
     async fn test_read_till_stop_sequence() {
@@ -244,7 +257,7 @@ pub mod tests {
             .await
             .expect_err("Expect read error, due to read stream EOF");
 
-        assert!(matches!(error, ReadStreamError::ReadError(EOF)));
+        assert!(matches!(error, ReadError::SocketReadError(_)));
     }
 
     #[tokio::test]
@@ -259,7 +272,7 @@ pub mod tests {
             .await
             .expect_err("Expect buffer overflow error");
 
-        assert!(matches!(error, ReadStreamError::TargetBufferOverflow));
+        assert!(matches!(error, ReadError::TargetBufferOverflow));
     }
 
     #[tokio::test]
@@ -318,12 +331,12 @@ pub mod tests {
             .await
             .expect_err("Expect error");
 
-        assert!(matches!(e, ReadStreamError::ReadError(EOF)));
+        assert!(matches!(e, ReadError::SocketReadError(_)));
 
         let e = stream
             .read(&mut buffer)
             .await
             .expect_err("Expect EOF error");
-        assert!(matches!(e, EOF));
+        assert!(matches!(e, DummySocketError::ConnectionReset));
     }
 }

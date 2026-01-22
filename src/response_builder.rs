@@ -1,6 +1,6 @@
-use crate::StatusCode;
-use crate::error::Error;
 use crate::slice_view::SliceView;
+use protocols::error::Error;
+use protocols::status_code::StatusCode;
 
 /// Marker types for the builder stages
 pub struct NotCreated;

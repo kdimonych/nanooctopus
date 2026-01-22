@@ -2,11 +2,12 @@
 use crate::WebSocket;
 use crate::{
     HttpResponseBuilder,
-    error::Error,
     request::HttpRequest,
     response_builder::{HttpResponse, HttpResponseBufferRef},
-    status_code::StatusCode,
 };
+
+use protocols::error::Error;
+use protocols::status_code::StatusCode;
 
 /// Trait for handling HTTP requests
 #[allow(async_fn_in_trait)]

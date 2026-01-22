@@ -1,15 +1,15 @@
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
-    error::Error,
     handler::HttpHandler,
     request::HttpRequest,
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
-    status_code::StatusCode,
 };
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
 use heapless::spsc::Queue;
+use protocols::error::Error;
+use protocols::status_code::StatusCode;
 
 #[cfg(feature = "ws")]
 use crate::ws::*;

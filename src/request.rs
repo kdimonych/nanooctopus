@@ -1,5 +1,5 @@
-use crate::error::Error;
 use heapless::Vec;
+use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
@@ -140,9 +140,9 @@ impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
     }
 }
 
-use abstarct_socket::read_stream::{ReadStream, ReadStreamError};
-use abstarct_socket::read_stream_ext::ReadStreamExt;
-
+use abstarct_socket::embassy_impls::read_stream::*;
+use abstarct_socket::read_stream::ReadStream;
+use abstarct_socket::read_stream_ext::{ReadError, ReadStreamExt};
 use embassy_net::tcp::TcpReader;
 use protocols::http_header_parser::HttpHeaderParser;
 
@@ -150,11 +150,23 @@ struct TcpRequestReader<'a> {
     reader: TcpReader<'a>,
 }
 
-pub async fn try_parse_from_stream<'buf, Reader: ReadStream>(
-    stream: &mut Reader,
+/// Try to parse an HTTP request from a TCP stream asynchronously
+/// # Errors
+/// Returns an error if:
+/// - Reading from the stream fails
+/// - The request is malformed  
+///
+pub async fn try_parse_from_stream<'buf, Reader>(
+    stream: &'_ mut Reader,
     buf: &'buf mut [u8],
-) -> Result<HttpRequest<'buf>, Error> {
-    let mut parser = HttpHeaderParser::new(stream);
+) -> Result<HttpRequest<'buf>, Error>
+where
+    Reader: ReadStream,
+    Error: From<Reader::Error>,
+{
+    let parser = HttpHeaderParser::new(stream);
+
+    let (method, parser) = parser.parse_method(buf).await?;
 
     Err(Error::InvalidResponse("Not implemented"))
 }

@@ -17,7 +17,8 @@ path = "src/lib.rs"
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
-embassy-net = { version = "0.7.1", optional = true, features = ["tcp", "proto-ipv6", "medium-ethernet"] }
+embassy-net = { version = "0.7.1", features = ["tcp", "proto-ipv6", "medium-ethernet"] }
+defmt = { version = "1.0.1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -25,8 +26,9 @@ tokio-test = "0.4"
 
 [features]
 default = []
-std = ["embassy_net", "embassy-net/std"]
-embassy_net = ["dep:embassy-net"]
+std = ["embassy-net/std"]
+defmt = ["dep:defmt"]
+mocks = []
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]

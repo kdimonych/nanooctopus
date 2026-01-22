@@ -1,22 +1,36 @@
+use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use abstarct_socket::read_stream::{IntoReadError, ReadStream, ReadStreamError};
-use abstarct_socket::read_stream_ext::ReadStreamExt;
+use abstarct_socket::read_stream::ReadStream;
+use abstarct_socket::read_stream_ext::{ReadError, ReadStreamExt};
 
 /// Errors that can occur during HTTP header parsing
 #[derive(Debug)]
-pub enum HttpParseError<ReadError: IntoReadError> {
+pub enum HttpParseError<SocketReadErrorT> {
     /// Error occurred while reading from the stream
-    ReadError(ReadStreamError<ReadError>),
+    ReadError(ReadError<SocketReadErrorT>),
     /// Malformed HTTP request
     MalformedRequest,
     /// Unsupported HTTP method
     UnsupportedMethod,
 }
 
-impl<ReadError: IntoReadError> From<ReadStreamError<ReadError>> for HttpParseError<ReadError> {
-    fn from(err: ReadStreamError<ReadError>) -> Self {
+impl<SocketReadErrorT> From<ReadError<SocketReadErrorT>> for HttpParseError<SocketReadErrorT> {
+    fn from(err: ReadError<SocketReadErrorT>) -> Self {
         HttpParseError::ReadError(err)
+    }
+}
+
+impl<SocketReadErrorT> From<HttpParseError<SocketReadErrorT>> for Error
+where
+    Error: From<ReadError<SocketReadErrorT>>,
+{
+    fn from(err: HttpParseError<SocketReadErrorT>) -> Self {
+        match err {
+            HttpParseError::ReadError(e) => Error::from(e),
+            HttpParseError::MalformedRequest => Error::InvalidResponse("Malformed request"),
+            HttpParseError::UnsupportedMethod => Error::InvalidResponse("Unsupported method"),
+        }
     }
 }
 
@@ -31,12 +45,15 @@ pub struct ReadHeaders {
     all_parsed: bool,
 }
 /// Stream-based HTTP request parser
-pub struct HttpHeaderParser<'reader, Reader: ReadStream + ?Sized, ReadMethod> {
+pub struct HttpHeaderParser<'reader, Reader, ReadMethod>
+where
+    Reader: ?Sized,
+{
     reader: &'reader mut Reader,
     state: ReadMethod,
 }
 
-impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, ReadMethod> {
+impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadMethod> {
     /// Create a new StreamRequest parser in the given state
     #[must_use]
     pub fn new(reader: &'reader mut Reader) -> Self {
@@ -47,7 +64,7 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
     }
 }
 
-impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, ReadMethod> {
+impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadMethod> {
     /// Parse HTTP method from the stream
     ///
     /// The buffer is used to store the method string temporarily. It should be large enough to hold the method plus the following space.
@@ -69,10 +86,10 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
             (HttpMethod, &'buf mut [u8]),
             HttpHeaderParser<'reader, Reader, ReadPath>,
         ),
-        HttpParseError<Reader::ReadError>,
+        HttpParseError<Reader::Error>,
     >
     where
-        Reader: ReadStream + Send,
+        Reader: ReadStream,
     {
         const DELIMITTER: u8 = b' ';
         const DELIMITTER_SIZE: usize = core::mem::size_of::<u8>();
@@ -95,7 +112,7 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
     }
 }
 
-impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, ReadPath> {
+impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadPath> {
     /// Parse HTTP path from the stream
     ///
     /// The buffer is used to store the path string temporarily. It should be large enough to hold the path plus the following space.
@@ -118,10 +135,10 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
             (&'buf str, &'buf mut [u8]),
             HttpHeaderParser<'reader, Reader, ReadVersion>,
         ),
-        HttpParseError<Reader::ReadError>,
+        HttpParseError<Reader::Error>,
     >
     where
-        Reader: ReadStream + Send,
+        Reader: ReadStream,
     {
         const DELIMITTER: u8 = b' ';
         const DELIMITTER_SIZE: usize = core::mem::size_of::<u8>();
@@ -142,7 +159,7 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
     }
 }
 
-impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, ReadVersion> {
+impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadVersion> {
     /// Parse HTTP path from the stream
     ///
     /// The buffer is used to store the path string temporarily. It should be large enough to hold the path plus the following space.
@@ -165,10 +182,10 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
             (&'buf str, &'buf mut [u8]),
             HttpHeaderParser<'reader, Reader, ReadHeaders>,
         ),
-        HttpParseError<Reader::ReadError>,
+        HttpParseError<Reader::Error>,
     >
     where
-        Reader: ReadStream + Send,
+        Reader: ReadStream,
     {
         const DELIMITTER: &[u8; 2] = b"\r\n";
         const DELIMITTER_SIZE: usize = DELIMITTER.len();
@@ -192,7 +209,7 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
     }
 }
 
-impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
+impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     /// Parse HTTP path from the stream
     ///
     /// The buffer is used to store the path string temporarily. It should be large enough to hold the path plus the following space.
@@ -204,9 +221,9 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
     pub async fn parse_next_header<'buf>(
         &mut self,
         buffer: &'buf mut [u8],
-    ) -> Result<(Option<HttpHeader<'buf>>, &'buf [u8]), HttpParseError<Reader::ReadError>>
+    ) -> Result<(Option<HttpHeader<'buf>>, &'buf [u8]), HttpParseError<Reader::Error>>
     where
-        Reader: ReadStream + Send,
+        Reader: ReadStream,
     {
         const KEY_VALUE_DELIMITTER: char = ':';
         const LINE_DELIMITTER: &[u8; 2] = b"\r\n";
@@ -248,9 +265,9 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
     /// # Errors
     /// - Returns `HttpParseError::ReadError` if reading from the stream fails and releases the stream.
     ///
-    pub async fn finalize(self) -> Result<(), HttpParseError<Reader::ReadError>>
+    pub async fn finalize(self) -> Result<(), HttpParseError<Reader::Error>>
     where
-        Reader: ReadStream + Send,
+        Reader: ReadStream,
     {
         if self.state.all_parsed == false {
             // Consume everthing without integrity check till the double CRLF ocure.
@@ -266,23 +283,20 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
 mod tests {
     use super::*;
     use crate::header;
-    use abstarct_socket::mocks::dummy_multipart_read_stream::*;
-    use abstarct_socket::mocks::dummy_read_stream::*;
-    use abstarct_socket::test_mocks::eof::EOF;
+    use abstarct_socket::mocks::multipart_read_stream::*;
+    use abstarct_socket::mocks::read_stream::*;
 
-    #[test]
-    fn test_all_method_at_once() {
+    #[tokio::test]
+    async fn test_all_method_at_once() {
         let mut request_data = b"GET ".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
         let parser = HttpHeaderParser::new(&mut stream);
 
         let mut buffer = [0u8; 16];
         let buffer_len = buffer.len();
-        let parse_future = parser.parse_method(&mut buffer);
-
-        let ((method, tail), _) = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(parse_future)
+        let ((method, tail), _) = parser
+            .parse_method(&mut buffer)
+            .await
             .expect("Failed to parse method");
 
         assert_eq!(tail.len(), buffer_len - request_data.len());
@@ -305,7 +319,7 @@ mod tests {
         // Should fail because "UPDATE" without space is not a complete method line
         assert!(matches!(
             error,
-            HttpParseError::ReadError(ReadStreamError::ReadError(EOF))
+            HttpParseError::ReadError(ReadError::SocketReadError(_))
         ));
     }
 
@@ -549,6 +563,6 @@ mod tests {
             .await
             .expect_err("Stream should be at body start (in this case, stream EOF)");
 
-        assert!(matches!(e, EOF));
+        assert!(matches!(e, DummySocketError::ConnectionReset));
     }
 }
