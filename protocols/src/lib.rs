@@ -11,9 +11,3 @@ pub mod http_header_parser;
 
 /// WebSocket protocol support.
 pub mod web_socket_proto;
-
-/// HTTP read stream trait and error types.
-pub mod read_stream;
-
-/// Utility to find value sequences in a stream.
-pub mod find_sequence;

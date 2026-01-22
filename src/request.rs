@@ -140,9 +140,11 @@ impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
     }
 }
 
+use abstarct_socket::read_stream::{ReadStream, ReadStreamError};
+use abstarct_socket::read_stream_ext::ReadStreamExt;
+
 use embassy_net::tcp::TcpReader;
 use protocols::http_header_parser::HttpHeaderParser;
-use protocols::read_stream::{IntoHttpError, ReadStream, ReadStreamError, ReadStreamExt};
 
 struct TcpRequestReader<'a> {
     reader: TcpReader<'a>,

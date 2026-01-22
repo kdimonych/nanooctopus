@@ -22,6 +22,7 @@ sha1 = { version = "0.10", default-features = false, optional = true }
 binascii = { version = "0.1.4", default-features = false, features = ["encode"], optional = true }
 modular-bitfield = { version = "0.13.0", optional = true }
 embassy-net = { version = "0.7.1", optional = true, features = ["tcp"] }
+abstarct_socket = { path = "../abstarct_socket", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -29,9 +30,9 @@ tokio-test = "0.4"
 
 [features]
 default = ["std"]
-std = ["ws", "embassy_net", "embassy-net/std"]
+std = ["ws", "embassy_net", "embassy-net/std", "abstarct_socket/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
-embassy_net = ["dep:embassy-net"]
+embassy_net = ["dep:embassy-net",  "abstarct_socket/embassy_net"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]

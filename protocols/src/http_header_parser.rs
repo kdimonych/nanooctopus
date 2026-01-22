@@ -1,10 +1,11 @@
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use crate::read_stream::{IntoHttpError, ReadStream, ReadStreamError, ReadStreamExt};
+use abstarct_socket::read_stream::{IntoReadError, ReadStream, ReadStreamError};
+use abstarct_socket::read_stream_ext::ReadStreamExt;
 
 /// Errors that can occur during HTTP header parsing
 #[derive(Debug)]
-pub enum HttpParseError<ReadError: IntoHttpError> {
+pub enum HttpParseError<ReadError: IntoReadError> {
     /// Error occurred while reading from the stream
     ReadError(ReadStreamError<ReadError>),
     /// Malformed HTTP request
@@ -13,7 +14,7 @@ pub enum HttpParseError<ReadError: IntoHttpError> {
     UnsupportedMethod,
 }
 
-impl<ReadError: IntoHttpError> From<ReadStreamError<ReadError>> for HttpParseError<ReadError> {
+impl<ReadError: IntoReadError> From<ReadStreamError<ReadError>> for HttpParseError<ReadError> {
     fn from(err: ReadStreamError<ReadError>) -> Self {
         HttpParseError::ReadError(err)
     }
@@ -264,7 +265,10 @@ impl<'reader, Reader: ReadStream + ?Sized> HttpHeaderParser<'reader, Reader, Rea
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{header, read_stream::tests::*};
+    use crate::header;
+    use abstarct_socket::mocks::dummy_multipart_read_stream::*;
+    use abstarct_socket::mocks::dummy_read_stream::*;
+    use abstarct_socket::test_mocks::eof::EOF;
 
     #[test]
     fn test_all_method_at_once() {
