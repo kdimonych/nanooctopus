@@ -3,6 +3,14 @@ name = "protocols"
 version = "0.1.0"
 edition = "2024"
 publish = false
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+    "network-programming",
+    "http",
+    "embassy",
+]
 
 [lib]
 name = "protocols"
@@ -13,13 +21,7 @@ heapless = { version = "0.8", features = ["serde"] }
 sha1 = { version = "0.10", default-features = false, optional = true }
 binascii = { version = "0.1.4", default-features = false, features = ["encode"], optional = true }
 modular-bitfield = { version = "0.13.0", optional = true }
-embassy-net = { version = "0.7.1", optional = true, features = [
-    "defmt",
-    "dns",
-    "medium-ethernet",
-    "proto-ipv6",
-    "tcp",
-] }
+embassy-net = { version = "0.7.1", optional = true, features = ["tcp"] }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -27,7 +29,7 @@ tokio-test = "0.4"
 
 [features]
 default = ["std"]
-std = ["ws"]
+std = ["ws", "embassy_net", "embassy-net/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
 embassy_net = ["dep:embassy-net"]
 

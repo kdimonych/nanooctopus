@@ -79,7 +79,8 @@ pub trait ReadStream {
 }
 
 /// Embassy-net based implementation of ReadStream for TcpSocket
-#[cfg(all(target_arch = "arm", target_os = "none", feature = "embassy_net"))]
+//#[cfg(all(target_arch = "arm", target_os = "none", feature = "embassy_net"))]
+#[cfg(feature = "embassy_net")]
 mod embassy_impl {
     use super::*;
     use embassy_net::tcp::{TcpReader, TcpSocket};
