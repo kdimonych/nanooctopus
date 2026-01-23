@@ -32,9 +32,20 @@ fn find_double_crlf(data: &[u8]) -> Option<usize> {
 }
 
 impl<'a> HttpRequest<'a> {
+    fn new(method: HttpMethod, path: &'a str, version: &'a str) -> Self {
+        Self {
+            method,
+            path,
+            version,
+            headers: Vec::new(),
+            body: &[],
+            #[cfg(feature = "ws")]
+            web_socket_key: None,
+        }
+    }
     /// Parse an HTTP request from headers string and body bytes
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns an error if:
     /// - The request line is missing or malformed
@@ -161,10 +172,61 @@ where
     Error: From<Reader::Error>,
 {
     let parser = HttpHeaderParser::new(stream);
+    let buf_tail = buf;
 
-    let (method, parser) = parser.parse_method(buf).await?;
+    let ((method, _), parser) = parser.parse_method(buf_tail).await?;
+    let ((path, buf_tail), parser) = parser.parse_path(buf_tail).await?;
+    let ((version, buf_tail), mut parser) = parser.parse_version(buf_tail).await?;
 
-    Err(Error::InvalidData("Not implemented"))
+    let mut request = HttpRequest::new(method, path, version);
+
+    let (header, buf_tail) = parser.parse_next_header(buf_tail).await?;
+    if let Some(header) = header {
+        request
+            .headers
+            .push(header)
+            .map_err(|_| Error::InvalidData("Too many headers in request"))?;
+    }
+    let (header, buf_tail) = parser.parse_next_header(buf_tail).await?;
+    if let Some(header) = header {
+        request
+            .headers
+            .push(header)
+            .map_err(|_| Error::InvalidData("Too many headers in request"))?;
+    }
+
+    let mut buf = Some(buf_tail);
+    for _ in 0..MAX_HEADERS {
+        let (header, buf_tail) = parser
+            // SAFETY: buf is guaranteed to be Some in the loop
+            .parse_next_header(unsafe { buf.take().unwrap_unchecked() })
+            .await?;
+        buf = Some(buf_tail);
+
+        if let Some(header) = header {
+            request
+                .headers
+                .push(header)
+                .map_err(|_| Error::InvalidData("Too many headers"))?;
+        } else {
+            break;
+        }
+    }
+
+    let buf_tail = unsafe { buf.take().unwrap_unchecked() };
+
+    // Finalize the parser (e.g., read body if needed)
+    let body_size = parser.finalize(buf_tail).await?;
+
+    if buf_tail.len() >= body_size {
+        request.body = &buf_tail[..body_size];
+        return Err(Error::ReadBufferOverflow);
+    }
+
+    stream.read(&mut buf_tail[..body_size]).await?;
+    request.body = &buf_tail[..body_size];
+
+    Ok(request)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::header::HttpHeader;
+use crate::header::{HttpHeader, headers::*};
 use crate::method::HttpMethod;
 use abstarct_socket::read_stream::ReadStream;
 use abstarct_socket::read_stream_ext::{ReadError, ReadStreamExt};
@@ -13,6 +13,9 @@ pub enum HttpParseError<SocketReadErrorT> {
     MalformedRequest,
     /// Unsupported HTTP method
     UnsupportedMethod,
+    /// Parsing cannot continue due to no Content-Length header.
+    /// This error means that the stream is in an invalid state so it must be closed.
+    NoContentLength,
 }
 
 impl<SocketReadErrorT> From<ReadError<SocketReadErrorT>> for HttpParseError<SocketReadErrorT> {
@@ -30,6 +33,7 @@ where
             HttpParseError::ReadError(e) => Error::from(e),
             HttpParseError::MalformedRequest => Error::HeaderError("Malformed request"),
             HttpParseError::UnsupportedMethod => Error::UnsupportedScheme("Unsupported method"),
+            HttpParseError::NoContentLength => Error::InvalidData("No Content-Length header found"),
         }
     }
 }
@@ -43,6 +47,7 @@ pub struct ReadVersion;
 /// State markers for the different parts of the HTTP request being read
 pub struct ReadHeaders {
     all_parsed: bool,
+    content_length: Option<usize>,
 }
 /// Stream-based HTTP request parser
 pub struct HttpHeaderParser<'reader, Reader, ReadMethod>
@@ -203,7 +208,10 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadVersion> {
             (version_str, tail),
             HttpHeaderParser {
                 reader: self.reader,
-                state: ReadHeaders { all_parsed: false },
+                state: ReadHeaders {
+                    all_parsed: false,
+                    content_length: None,
+                },
             },
         ))
     }
@@ -214,14 +222,20 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     ///
     /// The buffer is used to store the path string temporarily. It should be large enough to hold the path plus the following space.
     ///
-    /// # Errors
+    /// ## Returns
+    ///
+    /// A tuple that contains: (`Option<HttpHeader>`, `buffer_tail`)
+    /// - HttpHeader - The parsed HTTP header if available. If None, it indicates the end of headers.
+    /// - buffer_tail - The remaining buffer after parsing the header.
+    ///
+    /// ## Errors
     /// - Returns `HttpParseError::ReadError` if reading from the stream fails
     /// - Returns `HttpParseError::MalformedRequest` if the method is not valid UTF-8
     /// - Returns `HttpParseError::UnsupportedMethod` if the method is not recognized
     pub async fn parse_next_header<'buf>(
         &mut self,
         buffer: &'buf mut [u8],
-    ) -> Result<(Option<HttpHeader<'buf>>, &'buf [u8]), HttpParseError<Reader::Error>>
+    ) -> Result<(Option<HttpHeader<'buf>>, &'buf mut [u8]), HttpParseError<Reader::Error>>
     where
         Reader: ReadStream,
     {
@@ -254,28 +268,76 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
             .split_once(KEY_VALUE_DELIMITTER)
             .ok_or(HttpParseError::MalformedRequest)?;
 
+        if key_str.eq_ignore_ascii_case(CONTENT_LENGTH) {
+            if self.state.content_length.is_some() {
+                // Duplicate Content-Length header
+                return Err(HttpParseError::MalformedRequest);
+            }
+
+            let content_length = value_str
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| HttpParseError::MalformedRequest)?;
+            self.state.content_length = Some(content_length);
+        }
+
         Ok((
             Some(HttpHeader::new(key_str.trim(), value_str.trim())),
             buffer_tail,
         ))
     }
 
+    /// Check if all headers have been parsed
+    fn no_pending_headers(&self) -> bool {
+        self.state.all_parsed
+    }
+
+    /// Get the content length if specified in headers
+    fn content_length(&self) -> Option<usize> {
+        self.state.content_length
+    }
+
+    /// Check if all headers have been parsed and stream is ready for body reading
+    fn body_ready(&self) -> bool {
+        self.no_pending_headers() && self.has_content_length()
+    }
+
+    /// Check if Content-Length header is present
+    fn has_content_length(&self) -> bool {
+        self.state.content_length.is_some()
+    }
+
     /// This method finalizes the header parsing process and release the stream so it can be used for reading the body directly.
+    /// It ensures that all headers are read and the Content-Length header is present.
     ///
-    /// # Errors
+    /// ## Returns
+    /// The content length specified in the headers.
+    ///
+    /// ## Errors
     /// - Returns `HttpParseError::ReadError` if reading from the stream fails and releases the stream.
+    /// - Returns `HttpParseError::NoContentLength` if the headers were not fully parsed or no Content-Length header was found during previous. This indicates
+    ///   that the http datagram is not fully read yet, so we return unrecoverable error to indicate
+    ///   that the stream is in invalid state.
+    ///   It is responsibility of the caller to close the stream in this case.
     ///
-    pub async fn finalize(self) -> Result<(), HttpParseError<Reader::Error>>
+    pub async fn finalize(
+        mut self,
+        buffer: &mut [u8],
+    ) -> Result<usize, HttpParseError<Reader::Error>>
     where
         Reader: ReadStream,
     {
-        if self.state.all_parsed == false {
-            // Consume everthing without integrity check till the double CRLF ocure.
-            // This is needed if the last header was partially read.
-            self.reader.consume_till_stop_sequence(b"\r\n\r\n").await?;
-        }
+        // Read out all remaining headers
+        while self.parse_next_header(buffer).await?.0.is_some() {}
 
-        Ok(())
+        let Some(content_length) = self.content_length() else {
+            // There is no Content-Length header, so we cannot proceed to read the body.
+            // We return unrecoverable error to indicate that the stream is in invalid state.
+            // It is responsibility of the caller to close the stream in this case.
+            return Err(HttpParseError::NoContentLength);
+        };
+
+        Ok(content_length)
     }
 }
 
@@ -416,6 +478,37 @@ mod tests {
         assert_eq!(version, EXPECTED_VERSION);
     }
 
+    async fn get_header_parser<'reader, 'buf, Stream>(
+        stream: &'reader mut Stream,
+        buffer: &'buf mut [u8],
+    ) -> (
+        HttpHeaderParser<'reader, Stream, ReadHeaders>,
+        &'buf mut [u8],
+    )
+    where
+        Stream: ReadStream,
+        Stream::Error: core::fmt::Debug,
+    {
+        let parser = HttpHeaderParser::new(stream);
+
+        let ((_, tail), path_parser) = parser
+            .parse_method(buffer)
+            .await
+            .expect("Failed to parse method");
+
+        let ((_, tail), version_parser) = path_parser
+            .parse_path(tail)
+            .await
+            .expect("Failed to parse path");
+
+        let ((_, tail), header_parser) = version_parser
+            .parse_version(tail)
+            .await
+            .expect("Failed to parse version");
+
+        (header_parser, tail)
+    }
+
     #[tokio::test]
     async fn test_headers_parse() {
         // This test actually tests chunked method parsing across parts
@@ -424,24 +517,11 @@ mod tests {
             b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
         ];
         let mut stream = DummyMultipartReadStream::new(&request_data);
-        let parser = HttpHeaderParser::new(&mut stream);
 
-        let mut buffer = [0u8; 32];
+        let mut buffer = [0u8; 512];
         let buffer_len = buffer.len();
-        let (_, path_parser) = parser
-            .parse_method(&mut buffer)
-            .await
-            .expect("Failed to parse method");
 
-        let (_, version_parser) = path_parser
-            .parse_path(&mut buffer)
-            .await
-            .expect("Failed to parse path");
-
-        let (_, mut header_parser) = version_parser
-            .parse_version(&mut buffer)
-            .await
-            .expect("Failed to parse version");
+        let (mut header_parser, _) = get_header_parser(&mut stream, &mut buffer).await;
 
         let (header_opt, tail) = header_parser
             .parse_next_header(&mut buffer)
@@ -468,27 +548,16 @@ mod tests {
         // This test actually tests chunked method parsing across parts
         let request_data = vec![
             b"GE".to_vec(),
-            b"T /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
+            b"T /index.html HTTP/1.1\r\nHost: example.com\r\nContent-Length: 6\r\n\r\n[body]"
+                .to_vec(),
         ];
+
         let mut stream = DummyMultipartReadStream::new(&request_data);
-        let parser = HttpHeaderParser::new(&mut stream);
 
-        let mut buffer = [0u8; 32];
+        let mut buffer = [0u8; 512];
         let buffer_len = buffer.len();
-        let (_, path_parser) = parser
-            .parse_method(&mut buffer)
-            .await
-            .expect("Failed to parse method");
 
-        let (_, version_parser) = path_parser
-            .parse_path(&mut buffer)
-            .await
-            .expect("Failed to parse path");
-
-        let (_, mut header_parser) = version_parser
-            .parse_version(&mut buffer)
-            .await
-            .expect("Failed to parse version");
+        let (mut header_parser, _) = get_header_parser(&mut stream, &mut buffer).await;
 
         let (header_opt, tail) = header_parser
             .parse_next_header(&mut buffer)
@@ -500,6 +569,22 @@ mod tests {
         let header = header_opt.expect("Expected a header");
         assert_eq!(header.name, header::headers::HOST);
         assert_eq!(header.value, "example.com");
+
+        let (header_opt, tail) = header_parser
+            .parse_next_header(&mut buffer)
+            .await
+            .expect("Failed to parse header");
+
+        assert_eq!(tail.len(), buffer_len - b"Content-Length: 6\r\n".len());
+
+        let header = header_opt.expect("Expected a header");
+        assert_eq!(header.name, header::headers::CONTENT_LENGTH);
+        assert_eq!(header.value, b"[body]".len().to_string());
+
+        assert!(header_parser.has_content_length());
+        assert!(header_parser.content_length() == Some(b"[body]".len()));
+        assert!(!header_parser.no_pending_headers());
+        assert!(!header_parser.body_ready());
 
         let (header_opt, tail) = header_parser
             .parse_next_header(&mut buffer)
@@ -508,11 +593,23 @@ mod tests {
 
         assert_eq!(tail.len(), buffer_len - b"\r\n".len());
         assert!(header_opt.is_none(), "Expected end of headers");
+        assert!(header_parser.no_pending_headers());
+        assert!(header_parser.has_content_length());
+        assert!(header_parser.body_ready());
 
-        header_parser
-            .finalize()
+        let content_length = header_parser
+            .finalize(&mut buffer)
             .await
             .expect("Failed to finalize header parser");
+
+        assert_eq!(content_length, b"[body]".len());
+
+        stream
+            .read_exact(&mut buffer[..content_length])
+            .await
+            .expect("Failed to read body");
+
+        assert_eq!(&buffer[..content_length], b"[body]");
     }
 
     #[tokio::test]
@@ -520,32 +617,21 @@ mod tests {
         // This test actually tests chunked method parsing across parts
         let request_data = vec![
             b"GE".to_vec(),
-            b"T /index.html HTTP/1.1\r\nHost: example.com\r\nContent-type: text\r\n\r\n".to_vec(),
+            b"T /index.html HTTP/1.1\r\nHost: example.com\r\nContent-Length: 0\r\n\r\n".to_vec(),
         ];
         let mut stream = DummyMultipartReadStream::new(&request_data);
-        let parser = HttpHeaderParser::new(&mut stream);
-
-        let mut buffer = [0u8; 32];
+        let mut buffer = [0u8; 512];
         let buffer_len = buffer.len();
-        let (_, path_parser) = parser
-            .parse_method(&mut buffer)
-            .await
-            .expect("Failed to parse method");
 
-        let (_, version_parser) = path_parser
-            .parse_path(&mut buffer)
-            .await
-            .expect("Failed to parse path");
-
-        let (_, mut header_parser) = version_parser
-            .parse_version(&mut buffer)
-            .await
-            .expect("Failed to parse version");
+        let (mut header_parser, _) = get_header_parser(&mut stream, &mut buffer).await;
 
         let (header_opt, tail) = header_parser
             .parse_next_header(&mut buffer)
             .await
             .expect("Failed to parse header");
+
+        assert!(header_parser.no_pending_headers() == false);
+        assert!(header_parser.has_content_length() == false);
 
         assert_eq!(tail.len(), buffer_len - b"Host: example.com\r\n".len());
 
@@ -553,13 +639,14 @@ mod tests {
         assert_eq!(header.name, header::headers::HOST);
         assert_eq!(header.value, "example.com");
 
-        header_parser
-            .finalize()
+        let content_length = header_parser
+            .finalize(&mut buffer)
             .await
             .expect("Failed to finalize header parser");
+        assert_eq!(content_length, 0);
 
         let e = stream
-            .read(&mut buffer)
+            .read_exact(&mut buffer)
             .await
             .expect_err("Stream should be at body start (in this case, stream EOF)");
 
