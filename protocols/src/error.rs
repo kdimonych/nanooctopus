@@ -22,8 +22,8 @@ pub enum Error {
     ReadBufferOverflow,
     /// No response was received from the server
     NoResponse,
-    /// The server's response could not be parsed
-    InvalidResponse(&'static str),
+    /// The response/request could not be parsed
+    InvalidData(&'static str),
     /// This error occurs when there is an issue with the TLS handshake or communication.
     #[cfg(feature = "tls")]
     TlsError(embedded_tls::TlsError),
@@ -89,7 +89,7 @@ impl core::fmt::Display for Error {
             Error::SocketError(_) => write!(f, "TCP communication error"),
             Error::ReadBufferOverflow => write!(f, "Read buffer overflowed"),
             Error::NoResponse => write!(f, "No response received from server"),
-            Error::InvalidResponse(msg) => write!(f, "Invalid response: {msg}"),
+            Error::InvalidData(msg) => write!(f, "Invalid response: {msg}"),
             #[cfg(feature = "tls")]
             Error::TlsError(_) => write!(f, "TLS error occurred"),
             Error::UnsupportedScheme(scheme) => write!(f, "Unsupported scheme: {scheme}"),
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(format!("{e}"), "No IP addresses returned by DNS");
         let e = Error::NoResponse;
         assert_eq!(format!("{e}"), "No response received from server");
-        let e = Error::InvalidResponse("bad");
+        let e = Error::InvalidData("bad");
         assert_eq!(format!("{e}"), "Invalid response: bad");
         let e = Error::UnsupportedScheme("ftp");
         assert_eq!(format!("{e}"), "Unsupported scheme: ftp");

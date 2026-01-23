@@ -54,7 +54,7 @@ pub type SmallHttpClient<'a> = HttpClient<
 macro_rules! try_push {
     ($expr:expr) => {
         if $expr.is_err() {
-            return Err(Error::InvalidResponse("Request buffer overflow"));
+            return Err(Error::InvalidData("Request buffer overflow"));
         }
     };
 }
@@ -651,23 +651,23 @@ impl<
     /// Parse HTTP response from raw data with zero-copy handling
     fn parse_http_response_zero_copy(data: &[u8]) -> Result<HttpResponse<'_>, Error> {
         let response_str = core::str::from_utf8(data)
-            .map_err(|_| Error::InvalidResponse("Invalid HTTP response encoding"))?;
+            .map_err(|_| Error::InvalidData("Invalid HTTP response encoding"))?;
 
         let status_line_end = response_str
             .find("\r\n")
-            .ok_or(Error::InvalidResponse("Invalid HTTP response format"))?;
+            .ok_or(Error::InvalidData("Invalid HTTP response format"))?;
 
         let status_line = &response_str[..status_line_end];
         let status_code_str = status_line
             .split_whitespace()
             .nth(1)
-            .ok_or(Error::InvalidResponse("Invalid HTTP status line"))?;
+            .ok_or(Error::InvalidData("Invalid HTTP status line"))?;
 
         let status_code: StatusCode = status_code_str.try_into()?;
 
         let headers_end = response_str
             .find("\r\n\r\n")
-            .ok_or(Error::InvalidResponse("Invalid HTTP response format"))?
+            .ok_or(Error::InvalidData("Invalid HTTP response format"))?
             + 4;
 
         let headers_section = &response_str[status_line_end + 2..headers_end - 4];
@@ -794,7 +794,7 @@ impl<
             )
             .is_err()
             {
-                return Err(Error::InvalidResponse("Failed to write content length"));
+                return Err(Error::InvalidData("Failed to write content length"));
             }
             try_push!(http_request.push_str(&len_str));
             try_push!(http_request.push_str("\r\n"));

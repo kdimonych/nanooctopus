@@ -47,19 +47,15 @@ impl<'a> HttpRequest<'a> {
         // Parse request line
         let request_line = lines
             .next()
-            .ok_or(Error::InvalidResponse("Missing request line"))?;
+            .ok_or(Error::InvalidData("Missing request line"))?;
         let mut parts = request_line.split_whitespace();
 
-        let method_str = parts
-            .next()
-            .ok_or(Error::InvalidResponse("Missing method"))?;
-        let path = parts.next().ok_or(Error::InvalidResponse("Missing path"))?;
-        let version = parts
-            .next()
-            .ok_or(Error::InvalidResponse("Missing version"))?;
+        let method_str = parts.next().ok_or(Error::InvalidData("Missing method"))?;
+        let path = parts.next().ok_or(Error::InvalidData("Missing path"))?;
+        let version = parts.next().ok_or(Error::InvalidData("Missing version"))?;
 
         let method = HttpMethod::try_from(method_str)
-            .map_err(|_| Error::InvalidResponse("Unknown HTTP method"))?;
+            .map_err(|_| Error::InvalidData("Unknown HTTP method"))?;
 
         // Parse headers
         let mut headers = Vec::new();
@@ -76,7 +72,7 @@ impl<'a> HttpRequest<'a> {
                 let header = HttpHeader::new(name, value);
                 headers
                     .push(header)
-                    .map_err(|_| Error::InvalidResponse("Too many headers"))?;
+                    .map_err(|_| Error::InvalidData("Too many headers"))?;
             }
         }
 
@@ -127,11 +123,11 @@ impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
     fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
         // Find the end of headers (double CRLF)
         let end_of_headers =
-            find_double_crlf(buffer).ok_or(Error::InvalidResponse("Incomplete request headers"))?;
+            find_double_crlf(buffer).ok_or(Error::InvalidData("Incomplete request headers"))?;
 
         // Parse the headers string
         let headers_str = core::str::from_utf8(&buffer[..end_of_headers])
-            .map_err(|_| Error::InvalidResponse("Invalid UTF-8 in request"))?;
+            .map_err(|_| Error::InvalidData("Invalid UTF-8 in request"))?;
 
         // Body starts after the double CRLF
         let body = &buffer[end_of_headers + 4..];
@@ -168,7 +164,7 @@ where
 
     let (method, parser) = parser.parse_method(buf).await?;
 
-    Err(Error::InvalidResponse("Not implemented"))
+    Err(Error::InvalidData("Not implemented"))
 }
 
 #[cfg(test)]

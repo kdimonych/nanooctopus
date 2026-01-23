@@ -338,7 +338,7 @@ pub(crate) fn try_handle_websocket_handshake<'a>(
         .with_header_value_from_filler("Sec-WebSocket-Accept", |buf| {
             // Encode the hash in base64 directly into the provided response buffer
             let encoded = binascii::b64encode(&hash, buf)
-                .map_err(|_| Error::InvalidResponse("Failed to encode Sec-WebSocket-Accept"))?;
+                .map_err(|_| Error::InvalidData("Failed to encode Sec-WebSocket-Accept"))?;
             Ok(encoded.len())
         })?
         .with_no_body()

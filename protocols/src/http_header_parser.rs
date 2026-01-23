@@ -28,8 +28,8 @@ where
     fn from(err: HttpParseError<SocketReadErrorT>) -> Self {
         match err {
             HttpParseError::ReadError(e) => Error::from(e),
-            HttpParseError::MalformedRequest => Error::InvalidResponse("Malformed request"),
-            HttpParseError::UnsupportedMethod => Error::InvalidResponse("Unsupported method"),
+            HttpParseError::MalformedRequest => Error::HeaderError("Malformed request"),
+            HttpParseError::UnsupportedMethod => Error::UnsupportedScheme("Unsupported method"),
         }
     }
 }
