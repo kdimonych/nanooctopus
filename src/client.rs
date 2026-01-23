@@ -4,6 +4,7 @@ use crate::{
 };
 #[cfg(feature = "tls")]
 use defmt::debug;
+#[cfg(feature = "defmt")]
 use defmt::error;
 use embassy_net::{
     Stack,
@@ -386,6 +387,7 @@ impl<
                     }
                 }
                 Err(e) => {
+                    #[cfg(feature = "defmt")]
                     error!("Socket read error: {:?}", defmt::Debug2Format(&e));
                     retries -= 1;
                     if retries > 0 {

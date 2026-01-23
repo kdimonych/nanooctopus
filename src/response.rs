@@ -190,8 +190,8 @@ fn write_decimal_to_buffer<const MAX_RESPONSE_SIZE: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::header::HttpHeader;
     use heapless::Vec;
+    use protocols::header::HttpHeader;
 
     #[test]
     fn test_response_body_as_str_and_bytes() {

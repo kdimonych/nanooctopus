@@ -14,12 +14,12 @@ authors = ["rttf <contact@rttf.dev>"]
 default = []
 tls = ["dep:embedded-tls", "dep:rand_core", "dep:rand_chacha", "protocols/tls"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
+defmt = ["dep:defmt", "embassy-net/defmt", "protocols/defmt", "abstarct_socket/defmt"]
 
 
 [dependencies]
-defmt = "1.0.1"
+defmt = {version = "1.0.1", optional = true }
 embassy-net = { version = "0.7.1", features = [
-    "defmt",
     "dns",
     "medium-ethernet",
     "proto-ipv6",
@@ -35,8 +35,8 @@ rand_core = { version = "0.6.4", optional = true }
 sha1 = { version = "0.10", default-features = false, optional = true }
 binascii = { version = "0.1.4", default-features = false, features = ["encode"], optional = true }
 modular-bitfield = { version = "0.13.0", optional = true }
-protocols = { path = "./protocols", features = ["ws", "defmt"] }
-abstarct_socket = { path = "./abstarct_socket", features = ["defmt"] }
+protocols = { path = "./protocols", features = ["ws"] }
+abstarct_socket = { path = "./abstarct_socket" }
 
 [dev-dependencies]
 futures-lite = "2.0"
