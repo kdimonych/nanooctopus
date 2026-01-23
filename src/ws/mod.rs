@@ -213,7 +213,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
 
     /// Writes a binary frame to the WebSocket.
     /// The `fin` parameter indicates whether this is the final fragment in a message.
-    /// # Errors
+    /// ## Errors
     /// Returns `WebSocketError::Closed` if the connection is not open.
     /// Returns `WebSocketError::InvalidFrame` if there is an error writing the frame header.
     /// Returns `WebSocketError::TcpSocketError` if there is an error writing to the socket.
@@ -256,7 +256,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
     /// The provided payload buffer will be modified in place.
     /// The `fin` parameter indicates whether this is the final fragment in a message.
     ///
-    /// # Errors
+    /// ## Errors
     /// Returns `WebSocketError::Closed` if the connection is not open.
     /// Returns `WebSocketError::InvalidFrame` if there is an error encoding the frame.
     /// Returns `WebSocketError::TcpSocketError` if there is an error writing to the socket.

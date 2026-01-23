@@ -128,12 +128,12 @@ impl<
     /// * `body` - Optional request body data (required for POST/PUT requests)
     /// * `response_buffer` - A mutable buffer to store the response data
     ///
-    /// # Returns
+    /// ## Returns
     ///
     /// * `Ok((HttpResponse, usize))` - Response with zero-copy body and bytes read
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// This function will return an error if:
     /// * The URL is malformed or cannot be parsed
@@ -412,11 +412,11 @@ impl<
     /// * `headers` - A slice of HTTP headers to include in the request
     /// * `body` - The request body data
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn patch<'b>(
@@ -442,11 +442,11 @@ impl<
     /// * `endpoint` - The URL to request (e.g., <http://example.com/api>)
     /// * `headers` - A slice of HTTP headers to include in the request
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn head<'b>(
@@ -465,11 +465,11 @@ impl<
     /// * `endpoint` - The URL to request (e.g., <http://example.com/api>)
     /// * `headers` - A slice of HTTP headers to include in the request
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn options<'b>(
@@ -494,11 +494,11 @@ impl<
     /// * `endpoint` - The URL to request (e.g., <http://example.com/api>)
     /// * `headers` - A slice of HTTP headers to include in the request
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn trace<'b>(
@@ -517,11 +517,11 @@ impl<
     /// * `endpoint` - The URL to request (e.g., <http://example.com/api>)
     /// * `headers` - A slice of HTTP headers to include in the request
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn connect<'b>(
@@ -546,11 +546,11 @@ impl<
     /// * `endpoint` - The URL to request (e.g., <http://example.com/api>)
     /// * `headers` - A slice of HTTP headers to include in the request
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn get<'b>(
@@ -570,11 +570,11 @@ impl<
     /// * `headers` - A slice of HTTP headers to include in the request
     /// * `body` - The request body data
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn post<'b>(
@@ -601,11 +601,11 @@ impl<
     /// * `headers` - A slice of HTTP headers to include in the request
     /// * `body` - The request body data
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn put<'b>(
@@ -631,11 +631,11 @@ impl<
     /// * `endpoint` - The URL to request (e.g., <http://example.com/api>)
     /// * `headers` - A slice of HTTP headers to include in the request
     ///
-    /// # Returns
+    /// ## Returns
     /// * `Ok(HttpResponse)` - Successful response
     /// * `Err(Error)` - Error occurred during the request process
     ///
-    /// # Errors
+    /// ## Errors
     ///
     /// Returns the same errors as [`HttpClient::request`].
     pub async fn delete<'b>(

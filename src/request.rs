@@ -147,7 +147,7 @@ struct TcpRequestReader<'a> {
 }
 
 /// Try to parse an HTTP request from a TCP stream asynchronously
-/// # Errors
+/// ## Errors
 /// Returns an error if:
 /// - Reading from the stream fails
 /// - The request is malformed  

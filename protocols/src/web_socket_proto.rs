@@ -263,7 +263,7 @@ impl WSEncodeWriter {
     /// Writes payload to the destination buffer, applying masking if necessary.
     /// This function assumes that the overall encoded_payload length does not exceed the allocated payload length in the header.
     /// Returns the number of bytes written to the payload_dst.
-    /// # Errors
+    /// ## Errors
     /// Returns Err(()) if the payload_src length is greater than the allocated payload length that left.
     ///
     pub fn encode_payload(
@@ -297,7 +297,7 @@ impl WSEncodeWriter {
     /// Writes payload to the provided buffer in place, applying masking if necessary.
     /// This function assumes that the overall encoded_payload length does not exceed the allocated payload length in the header.
     /// Returns the number of bytes written to the payload_dst.
-    /// # Errors
+    /// ## Errors
     /// Returns Err(()) if the payload_src length is greater than the allocated payload length that left.
     ///
     pub fn encode_payload_in_place(&mut self, payload_buf: &mut [u8]) -> Result<usize, ()> {
@@ -389,13 +389,13 @@ impl WSHeaderReader {
     /// Note: This function may be called multiple times as more data becomes available.
     /// It accumulates data internally until the complete header is read.
     /// Returns the state of the read operation.
-    /// # Returns
+    /// ## Returns
     /// - `WSHeaderReadState::Ready(WebSocketFrameHeader, usize)`: Successfully read the header.
     /// Contains the header and number of bytes read during the last call.
     /// - `WSHeaderReadState::PendingData(usize)`: Not enough data to read the complete header.
     /// Contains the number of bytes read during the last call.
     /// - `WSHeaderReadState::Error(WebSocketProtoError)`: Invalid header or other error.
-    /// # Errors
+    /// ## Errors
     /// Returns `WSHeaderReadState::Error(WebSocketProtoError)` if an error occurs while reading the header.
     ///
     /// # Examples
