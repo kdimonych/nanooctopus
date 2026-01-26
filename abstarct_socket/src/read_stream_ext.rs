@@ -83,7 +83,7 @@ pub trait ReadStreamExt: ReadStream {
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut stop_sequence_finder = FindSequence::new(stop_sequence);
-            self.read_till_stop(buffer, |b| stop_sequence_finder.push_byte(b))
+            self.read_till_stop(buffer, |b| stop_sequence_finder.check_next_byte(b))
                 .await
         }
     }
@@ -200,7 +200,7 @@ pub trait ReadStreamExt: ReadStream {
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut stop_sequence_finder = FindSequence::new(stop_sequence);
-            self.consume_till_stop(|b| stop_sequence_finder.push_byte(b))
+            self.consume_till_stop(|b| stop_sequence_finder.check_next_byte(b))
                 .await
         }
     }
