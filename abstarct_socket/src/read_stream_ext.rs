@@ -13,56 +13,68 @@ pub enum ReadError<SocketReadErrorT> {
 }
 
 pub trait ReadStreamExt: ReadStream {
-    /// This function reads from the stream to the buffer until the stop predicate returns true.
-    /// The read bytes are stored in the provided buffer.
+    /// This function repeatadly call stop_predicate with next chank from the stream until the stop_predicate
+    /// returns Some(actually processed bytes out of chank). The read bytes are stored in the provided buffer
+    /// (including the last one that triggered the stop predicate).
     ///
-    /// ## Note
-    /// The byte on which the stop predicate returns true is included in the read bytes.
+    /// ## Returns
+    /// - Returns the total number of bytes read out of stream when the stop predicate is triggered.
     ///
     /// ## Errors
-    /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop predicate.
     /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
+    /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop condition.
     ///
-    fn read_till_stop<StopPredicate>(
+    fn read_untill<StopPredicate>(
         &mut self,
         buffer: &mut [u8],
         mut stop_predicate: StopPredicate,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>>
     where
-        StopPredicate: FnMut(u8) -> bool,
+        StopPredicate: FnMut(&mut [u8]) -> Option<usize>,
     {
         async move {
-            let mut write_size = 0;
+            let mut read_size = 0;
+            let mut result = Ok(());
 
-            while write_size < buffer.len() {
+            //let mut read_bytes: usize = 0;
+            let mut buf = Some(buffer);
+            let mut append_from_slice = |src: &[u8]| {
+                // SAFETY: buf is guaranteed to be Some when this function is called
+                let mut b = unsafe { buf.take().unwrap_unchecked() };
+
+                let to_copy = core::cmp::min(b.len(), src.len());
+                b = &mut b[..to_copy];
+                b.copy_from_slice(&src[..to_copy]);
+                buf.replace(b);
+                to_copy
+            };
+
+            loop {
                 let stop_triggered = self
-                    .read_with(|data: &mut [u8]| {
-                        let to_read = core::cmp::min(buffer.len() - write_size, data.len());
-
-                        let mut actual_read: usize = 0;
-
-                        for &b in &data[..to_read] {
-                            actual_read += 1;
-                            buffer[write_size] = b;
-                            write_size += 1;
-
-                            if stop_predicate(b) {
-                                // The stop predicate has been triggered; stop reading further
-                                return (actual_read, true);
-                            }
+                    .read_with(|mut chank: &mut [u8]| {
+                        let mut stoped = false;
+                        if let Some(actuall_chank) = stop_predicate(chank) {
+                            // SAFETY: actuall_chank is guaranteed to be <= chank.len()
+                            chank = unsafe { chank.split_at_mut_unchecked(actuall_chank).0 };
+                            stoped = true;
                         }
 
-                        (to_read, false)
+                        let actually_appended = append_from_slice(&mut chank);
+                        if actually_appended < chank.len() {
+                            result = Err(ReadError::TargetBufferOverflow);
+                            stoped = true;
+                        }
+
+                        read_size += actually_appended;
+                        (actually_appended, stoped)
                     })
                     .await
                     .map_err(|e| ReadError::SocketReadError(e))?;
 
                 if stop_triggered {
-                    return Ok(write_size);
+                    return result.map(|_| read_size);
                 }
             }
-
-            Err(ReadError::TargetBufferOverflow)
         }
     }
 
@@ -82,8 +94,8 @@ pub trait ReadStreamExt: ReadStream {
         buffer: &mut [u8],
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
-            let mut stop_sequence_finder = FindSequence::new(stop_sequence);
-            self.read_till_stop(buffer, |b| stop_sequence_finder.check_next_byte(b))
+            let mut finder = FindSequence::new(stop_sequence);
+            self.read_untill(buffer, |chank| finder.check_next_slice(chank))
                 .await
         }
     }
@@ -103,7 +115,15 @@ pub trait ReadStreamExt: ReadStream {
         stop_byte: u8,
         buffer: &mut [u8],
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
-        async move { self.read_till_stop(buffer, |b| b == stop_byte).await }
+        async move {
+            self.read_untill(buffer, |chank| {
+                chank
+                    .iter()
+                    .position(|&b| b == stop_byte)
+                    .map(|pos| pos + 1)
+            })
+            .await
+        }
     }
 
     /// This function consumes the specified number of bytes from the stream.
@@ -141,27 +161,23 @@ pub trait ReadStreamExt: ReadStream {
     /// ## Errors
     /// - Returns `ReadError::SocketReadError` if an error occurs while reading from
     /// the stream.
-    fn consume_till_stop<Stop>(
+    fn consume_till_stop<StopF>(
         &mut self,
-        mut stop: Stop,
+        mut stop: StopF,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>>
     where
-        Stop: FnMut(u8) -> bool,
+        StopF: FnMut(&[u8]) -> Option<usize>,
     {
         async move {
             let mut total_consumed = 0;
 
             while self
                 .read_with(|data: &mut [u8]| {
-                    for (i, &b) in data.iter().enumerate() {
-                        if stop(b) {
-                            // The stop point has been found; stop reading further
-                            let actually_consumed = i + 1;
-                            total_consumed += actually_consumed;
-                            return (actually_consumed, false);
-                        }
+                    if let Some(pos) = stop(data) {
+                        // The stop point has been found; stop reading further
+                        total_consumed += pos;
+                        return (pos, false);
                     }
-
                     total_consumed += data.len();
                     (data.len(), true)
                 })
@@ -184,7 +200,15 @@ pub trait ReadStreamExt: ReadStream {
         &mut self,
         stop_byte: u8,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
-        async move { self.consume_till_stop(|b| b == stop_byte).await }
+        async move {
+            self.consume_till_stop(|chank| {
+                chank
+                    .iter()
+                    .position(|&b| b == stop_byte)
+                    .map(|pos| pos + 1)
+            })
+            .await
+        }
     }
 
     /// This function consumes bytes from the stream until the specified stop sequence is found.
@@ -200,7 +224,7 @@ pub trait ReadStreamExt: ReadStream {
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut stop_sequence_finder = FindSequence::new(stop_sequence);
-            self.consume_till_stop(|b| stop_sequence_finder.check_next_byte(b))
+            self.consume_till_stop(|chank| stop_sequence_finder.check_next_slice(chank))
                 .await
         }
     }
@@ -295,7 +319,7 @@ pub mod tests {
         let mut buffer = [0u8; 64];
 
         let consumed = stream
-            .consume_till_stop(|b| b == STOP)
+            .consume_till_stop(|chank| chank.iter().position(|&b| b == STOP).map(|pos| pos + 1))
             .await
             .expect("Expect no error");
         assert_eq!(consumed, b"Hello,".len());
