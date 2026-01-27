@@ -1,3 +1,4 @@
+use crate::borrowed_buffer::BorrowedBuffer;
 use crate::find_sequence::FindSequence;
 use crate::read_stream::ReadStream;
 
@@ -26,7 +27,7 @@ pub trait ReadStreamExt: ReadStream {
     ///
     fn read_untill<StopPredicate>(
         &mut self,
-        buffer: &mut [u8],
+        buffer: &mut BorrowedBuffer<'_>,
         mut stop_predicate: StopPredicate,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>>
     where
@@ -35,19 +36,6 @@ pub trait ReadStreamExt: ReadStream {
         async move {
             let mut read_size = 0;
             let mut result = Ok(());
-
-            //let mut read_bytes: usize = 0;
-            let mut buf = Some(buffer);
-            let mut append_from_slice = |src: &[u8]| {
-                // SAFETY: buf is guaranteed to be Some when this function is called
-                let mut b = unsafe { buf.take().unwrap_unchecked() };
-
-                let to_copy = core::cmp::min(b.len(), src.len());
-                b = &mut b[..to_copy];
-                b.copy_from_slice(&src[..to_copy]);
-                buf.replace(b);
-                to_copy
-            };
 
             loop {
                 let stop_triggered = self
@@ -59,7 +47,7 @@ pub trait ReadStreamExt: ReadStream {
                             stoped = true;
                         }
 
-                        let actually_appended = append_from_slice(&mut chank);
+                        let actually_appended = buffer.append_from_slice(&mut chank);
                         if actually_appended < chank.len() {
                             result = Err(ReadError::TargetBufferOverflow);
                             stoped = true;
@@ -91,7 +79,7 @@ pub trait ReadStreamExt: ReadStream {
     fn read_till_stop_sequence(
         &mut self,
         stop_sequence: &[u8],
-        buffer: &mut [u8],
+        buffer: &mut BorrowedBuffer<'_>,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut finder = FindSequence::new(stop_sequence);
@@ -113,7 +101,7 @@ pub trait ReadStreamExt: ReadStream {
     fn read_till_stop_byte(
         &mut self,
         stop_byte: u8,
-        buffer: &mut [u8],
+        buffer: &mut BorrowedBuffer<'_>,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             self.read_untill(buffer, |chank| {
@@ -242,7 +230,8 @@ pub mod tests {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\nThis is a test.\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
-        let mut buffer = [0u8; 64];
+        let mut buffer_array = [0u8; 64];
+        let mut buffer = BorrowedBuffer::new(&mut buffer_array);
 
         let bytes_read = stream
             .read_till_stop_sequence(STOP, &mut buffer)
@@ -250,7 +239,7 @@ pub mod tests {
             .expect("Expect no error");
 
         assert_eq!(bytes_read, b"Hello, World!".len() + STOP.len());
-        assert_eq!(&buffer[..bytes_read], b"Hello, World!\r\n");
+        assert_eq!(buffer.as_slice(), b"Hello, World!\r\n");
     }
 
     #[tokio::test]
@@ -258,7 +247,8 @@ pub mod tests {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
-        let mut buffer = [0u8; 64];
+        let mut buffer_array = [0u8; 64];
+        let mut buffer = BorrowedBuffer::new(&mut buffer_array);
 
         let bytes_read = stream
             .read_till_stop_sequence(STOP, &mut buffer)
@@ -266,7 +256,7 @@ pub mod tests {
             .expect("Expect no error");
 
         assert_eq!(bytes_read, STOP.len());
-        assert_eq!(&buffer[..bytes_read], STOP);
+        assert_eq!(buffer.as_slice(), STOP);
     }
 
     #[tokio::test]
@@ -274,7 +264,8 @@ pub mod tests {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
-        let mut buffer = [0u8; 64];
+        let mut buffer_array = [0u8; 64];
+        let mut buffer = BorrowedBuffer::new(&mut buffer_array);
 
         let error = stream
             .read_till_stop_sequence(STOP, &mut buffer)
@@ -289,7 +280,8 @@ pub mod tests {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = DummyReadStream::new(&mut request_data);
-        let mut buffer = [0u8; 4];
+        let mut buffer_array = [0u8; 4];
+        let mut buffer = BorrowedBuffer::new(&mut buffer_array);
 
         let error = stream
             .read_till_stop_sequence(STOP, &mut buffer)
