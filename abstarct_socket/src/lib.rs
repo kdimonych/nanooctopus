@@ -14,3 +14,6 @@ pub mod mocks;
 
 /// Implementations for various socket types.
 pub mod embassy_impls;
+
+/// Buffer types for borrowed data.
+pub mod borrowed_buffer;
