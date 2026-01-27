@@ -1,3 +1,4 @@
+use crate::borrowed_buffer::BorrowedBuffer;
 use crate::find_sequence::FindSequence;
 use crate::read_stream::ReadStream;
 
@@ -37,17 +38,7 @@ pub trait ReadStreamExt: ReadStream {
             let mut result = Ok(());
 
             //let mut read_bytes: usize = 0;
-            let mut buf = Some(buffer);
-            let mut append_from_slice = |src: &[u8]| {
-                // SAFETY: buf is guaranteed to be Some when this function is called
-                let mut b = unsafe { buf.take().unwrap_unchecked() };
-
-                let to_copy = core::cmp::min(b.len(), src.len());
-                b = &mut b[..to_copy];
-                b.copy_from_slice(&src[..to_copy]);
-                buf.replace(b);
-                to_copy
-            };
+            let mut buffer = BorrowedBuffer::new(buffer);
 
             loop {
                 let stop_triggered = self
@@ -59,7 +50,7 @@ pub trait ReadStreamExt: ReadStream {
                             stoped = true;
                         }
 
-                        let actually_appended = append_from_slice(&mut chank);
+                        let actually_appended = buffer.append_from_slice(&mut chank);
                         if actually_appended < chank.len() {
                             result = Err(ReadError::TargetBufferOverflow);
                             stoped = true;
