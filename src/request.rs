@@ -147,15 +147,9 @@ impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
     }
 }
 
-use abstarct_socket::embassy_impls::read_stream::*;
+use abstarct_socket::detachable_buffer::DetachableBuffer;
 use abstarct_socket::read_stream::ReadStream;
-use abstarct_socket::read_stream_ext::{ReadError, ReadStreamExt};
-use embassy_net::tcp::TcpReader;
 use protocols::http_header_parser::HttpHeaderParser;
-
-struct TcpRequestReader<'a> {
-    reader: TcpReader<'a>,
-}
 
 /// Try to parse an HTTP request from a TCP stream asynchronously
 /// ## Errors
@@ -172,36 +166,13 @@ where
     Error: From<Reader::Error>,
 {
     let parser = HttpHeaderParser::new(stream);
-    let buf_tail = buf;
+    let mut buffer = DetachableBuffer::new(buf);
 
-    let ((method, _), parser) = parser.parse_method(buf_tail).await?;
-    let ((path, buf_tail), parser) = parser.parse_path(buf_tail).await?;
-    let ((version, buf_tail), mut parser) = parser.parse_version(buf_tail).await?;
+    let (first_line, mut parser) = parser.parse_first_line(&mut buffer).await?;
+    let mut request = HttpRequest::new(first_line.method, first_line.path, first_line.version);
 
-    let mut request = HttpRequest::new(method, path, version);
-
-    let (header, buf_tail) = parser.parse_next_header(buf_tail).await?;
-    if let Some(header) = header {
-        request
-            .headers
-            .push(header)
-            .map_err(|_| Error::InvalidData("Too many headers in request"))?;
-    }
-    let (header, buf_tail) = parser.parse_next_header(buf_tail).await?;
-    if let Some(header) = header {
-        request
-            .headers
-            .push(header)
-            .map_err(|_| Error::InvalidData("Too many headers in request"))?;
-    }
-
-    let mut buf = Some(buf_tail);
     for _ in 0..MAX_HEADERS {
-        let (header, buf_tail) = parser
-            // SAFETY: buf is guaranteed to be Some in the loop
-            .parse_next_header(unsafe { buf.take().unwrap_unchecked() })
-            .await?;
-        buf = Some(buf_tail);
+        let header = parser.parse_next_header(&mut buffer).await?;
 
         if let Some(header) = header {
             request
@@ -213,18 +184,17 @@ where
         }
     }
 
-    let buf_tail = unsafe { buf.take().unwrap_unchecked() };
-
     // Finalize the parser (e.g., read body if needed)
-    let body_size = parser.finalize(buf_tail).await?;
-
-    if buf_tail.len() >= body_size {
-        request.body = &buf_tail[..body_size];
+    let body_size = parser.finalize(&mut buffer).await?;
+    if buffer.len() < body_size {
+        // Not enough buffer to receive body
         return Err(Error::ReadBufferOverflow);
     }
 
-    stream.read(&mut buf_tail[..body_size]).await?;
-    request.body = &buf_tail[..body_size];
+    stream
+        .read_exact(&mut buffer.as_mut_slice()[..body_size])
+        .await?;
+    request.body = buffer.detach(body_size);
 
     Ok(request)
 }
