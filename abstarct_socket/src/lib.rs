@@ -17,3 +17,6 @@ pub mod embassy_impls;
 
 /// Buffer types for borrowed data.
 pub mod borrowed_buffer;
+
+/// A bump allocator based on the principle of play all-in, then gather the cream.
+pub mod detachable_buffer;
