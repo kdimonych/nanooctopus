@@ -191,10 +191,10 @@ where
         return Err(Error::ReadBufferOverflow);
     }
 
-    stream
+    let actually_read = stream
         .read_exact(&mut buffer.as_mut_slice()[..body_size])
         .await?;
-    request.body = buffer.detach(body_size);
+    request.body = buffer.detach(actually_read);
 
     Ok(request)
 }
@@ -203,6 +203,13 @@ where
 mod tests {
     use super::*;
     use crate::HttpMethod;
+    use abstarct_socket::mocks::read_stream::DummyReadStream;
+
+    fn create_mock_stream(data: &mut [u8]) -> DummyReadStream {
+        let mut stream = DummyReadStream::new(data);
+        stream.add_read_data(data);
+        stream
+    }
 
     #[test]
     fn test_parse_request_get() {

@@ -21,6 +21,26 @@ impl<'socket> ReadStream for TcpSocket<'socket> {
     ) -> impl core::future::Future<Output = Result<usize, Self::Error>> + 's {
         self.read(buf)
     }
+
+    fn read_exact<'s>(
+        &'s mut self,
+        buf: &'s mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize, Self::Error>> + 's {
+        async move {
+            let mut total_read = 0;
+
+            while total_read < buf.len() {
+                let bytes_read = self.read(&mut buf[total_read..]).await?;
+                if bytes_read == 0 {
+                    // EOF reached before filling the buffer
+                    break;
+                }
+                total_read += bytes_read;
+            }
+
+            Ok(total_read)
+        }
+    }
 }
 
 // Embassy-net based implementation of ReadStream for TcpReader
@@ -41,5 +61,25 @@ impl<'socket> ReadStream for TcpReader<'socket> {
         buf: &'s mut [u8],
     ) -> impl core::future::Future<Output = Result<usize, Self::Error>> + 's {
         self.read(buf)
+    }
+
+    fn read_exact<'s>(
+        &'s mut self,
+        buf: &'s mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize, Self::Error>> + 's {
+        async move {
+            let mut total_read = 0;
+
+            while total_read < buf.len() {
+                let bytes_read = self.read(&mut buf[total_read..]).await?;
+                if bytes_read == 0 {
+                    // EOF reached before filling the buffer
+                    break;
+                }
+                total_read += bytes_read;
+            }
+
+            Ok(total_read)
+        }
     }
 }

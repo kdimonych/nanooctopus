@@ -1,7 +1,7 @@
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
     handler::HttpHandler,
-    request::{self, HttpRequest, try_parse_from_stream},
+    request::{HttpRequest, try_parse_from_stream},
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
 };
 //use abstarct_socket::embassy_impls::read_stream::*;
@@ -452,16 +452,15 @@ impl HttpServer {
         socket: &mut TcpSocket<'socket>,
         response_bytes: &[u8],
     ) -> Result<(), ()> {
+        #[cfg(feature = "defmt")]
         if response_bytes.len() < 256 {
-            #[cfg(feature = "defmt")]
-            defmt::debug!(
+            defmt::trace!(
                 "Raw response: {:?}",
                 core::str::from_utf8(&response_bytes[..response_bytes.len()])
                     .unwrap_or("<invalid utf8>")
             );
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::debug!("Response length: {} bytes", response_bytes.len());
+            defmt::trace!("Response length: {} bytes", response_bytes.len());
         }
 
         socket.write_all(response_bytes).await.map_err(|e| {

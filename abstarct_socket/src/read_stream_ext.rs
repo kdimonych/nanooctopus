@@ -348,10 +348,10 @@ pub mod tests {
 
         assert!(matches!(e, ReadError::SocketReadError(_)));
 
-        let e = stream
+        let res = stream
             .read(&mut buffer)
             .await
-            .expect_err("Expect EOF error");
-        assert!(matches!(e, DummySocketError::ConnectionReset));
+            .expect("Expect Ok(0) due to EOF");
+        assert_eq!(res, 0);
     }
 }
