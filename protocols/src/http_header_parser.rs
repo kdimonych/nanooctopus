@@ -241,11 +241,6 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
         self.state.content_length
     }
 
-    /// Check if all headers have been parsed and stream is ready for body reading
-    fn body_ready(&self) -> bool {
-        self.no_pending_headers() && self.has_content_length()
-    }
-
     /// Check if Content-Length header is present
     fn has_content_length(&self) -> bool {
         self.state.content_length.is_some()
@@ -274,14 +269,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
         // Read out all remaining headers
         while self.parse_next_header(buffer).await?.is_some() {}
 
-        let Some(content_length) = self.content_length() else {
-            // There is no Content-Length header, so we cannot proceed to read the body.
-            // We return unrecoverable error to indicate that the stream is in invalid state.
-            // It is responsibility of the caller to close the stream in this case.
-            return Err(HttpParseError::NoContentLength);
-        };
-
-        Ok(content_length)
+        Ok(self.state.content_length.unwrap_or(0))
     }
 }
 
@@ -478,7 +466,6 @@ mod tests {
         assert_eq!(header.value, EXPECTED_HEADER_VALUE);
 
         assert!(!parser.no_pending_headers());
-        assert!(!parser.body_ready());
         assert!(!parser.has_content_length());
         assert!(parser.content_length() == None);
 
@@ -512,7 +499,6 @@ mod tests {
         assert!(opt.is_none());
 
         assert!(parser.no_pending_headers());
-        assert!(!parser.body_ready());
         assert!(!parser.has_content_length());
         assert!(parser.content_length() == None);
 
@@ -545,7 +531,6 @@ mod tests {
         assert_eq!(header.value, EXPECTED_HEADER_VALUE);
 
         assert!(!parser.no_pending_headers());
-        assert!(!parser.body_ready());
         assert!(parser.has_content_length());
         assert!(parser.content_length() == Some(123));
 
@@ -577,9 +562,63 @@ mod tests {
             .expect("Expected header");
 
         assert!(parser.no_pending_headers());
-        assert!(parser.body_ready());
         assert!(parser.has_content_length());
         assert!(parser.content_length() == Some(123));
+
+        assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
+    }
+
+    #[tokio::test]
+    async fn test_finalize() {
+        const FIRST_LINE: &str = "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
+        const EXPECTED_PARSED_PART: &str =
+            "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
+        assert_eq!(FIRST_LINE, EXPECTED_PARSED_PART);
+
+        let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
+
+        let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
+        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+
+        let parser = get_header_parser(&mut stream, &mut buffer).await;
+
+        assert!(!parser.no_pending_headers());
+        assert!(!parser.has_content_length());
+        assert!(parser.content_length() == None);
+
+        let content_length = parser
+            .finalize(&mut buffer)
+            .await
+            .expect("Failed to finalize header parsing");
+
+        assert_eq!(content_length, 123);
+
+        assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
+    }
+
+    #[tokio::test]
+    async fn test_finalize_with_no_content_length() {
+        const FIRST_LINE: &str = "GET /index.html HTTP/1.1\r\n\r\n";
+        const EXPECTED_PARSED_PART: &str = "GET /index.html HTTP/1.1\r\n\r\n";
+        assert_eq!(FIRST_LINE, EXPECTED_PARSED_PART);
+
+        let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
+
+        let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
+        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+
+        let parser = get_header_parser(&mut stream, &mut buffer).await;
+
+        assert!(!parser.no_pending_headers());
+        assert!(!parser.has_content_length());
+        assert!(parser.content_length() == None);
+
+        let content_length = parser
+            .finalize(&mut buffer)
+            .await
+            .expect("Failed to finalize header parsing");
+
+        assert_eq!(content_length, 0);
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
