@@ -3,7 +3,7 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
-use abstarct_socket::detachable_buffer::DetachableBuffer;
+use abstarct_socket::head_arena::HeadArena;
 use abstarct_socket::read_stream::ReadStream;
 use protocols::http_header_parser::HttpHeaderParser;
 
@@ -63,7 +63,7 @@ impl<'a> HttpRequest<'a> {
         Error: From<Reader::Error>,
     {
         let parser = HttpHeaderParser::new(stream);
-        let mut buffer = DetachableBuffer::new(buf);
+        let mut buffer = HeadArena::new(buf);
 
         let (first_line, mut parser) = parser.parse_first_line(&mut buffer).await?;
         let mut request = HttpRequest::new(first_line.method, first_line.path, first_line.version);
@@ -91,7 +91,7 @@ impl<'a> HttpRequest<'a> {
         let actually_read = stream
             .read_exact(&mut buffer.as_mut_slice()[..body_size])
             .await?;
-        request.body = buffer.detach(actually_read);
+        request.body = buffer.take_front(actually_read);
 
         #[cfg(feature = "ws")]
         {

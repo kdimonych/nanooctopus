@@ -16,7 +16,7 @@ pub mod embassy_impls;
 pub mod borrowed_buffer;
 
 /// A bump allocator based on the principle of play all-in, then gather the cream.
-pub mod detachable_buffer;
+pub mod head_arena;
 
 /// Test mocks for read streams and related utilities.
 #[cfg(any(test, feature = "mocks"))]

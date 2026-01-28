@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::header::{HttpHeader, headers::*};
 use crate::method::HttpMethod;
-use abstarct_socket::detachable_buffer::DetachableBuffer;
+use abstarct_socket::head_arena::HeadArena;
 use abstarct_socket::read_stream::ReadStream;
 use abstarct_socket::read_stream_ext::{ReadError, ReadStreamExt};
 
@@ -113,7 +113,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
     /// - Returns `HttpParseError::UnsupportedMethod` if the method is not recognized
     pub async fn parse_first_line<'buf>(
         self,
-        buffer: &mut DetachableBuffer<'buf>,
+        buffer: &mut HeadArena<'buf>,
     ) -> Result<
         (
             HttpFirstLine<'buf>,
@@ -128,7 +128,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
             .reader
             .read_till_stop_sequence(LINE_DELIMITTER, buffer.as_mut_slice())
             .await?;
-        let line = buffer.detach(read_size);
+        let line = buffer.take_front(read_size);
 
         let line_str: &str = core::str::from_utf8(&line[..read_size - LINE_DELIMITTER_SIZE]) // Exclude the delimiter
             .map_err(|_| HttpParseError::MalformedRequest)?;
@@ -185,7 +185,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     /// - Returns `HttpParseError::UnsupportedMethod` if the method is not recognized
     pub async fn parse_next_header<'buf>(
         &mut self,
-        buffer: &mut DetachableBuffer<'buf>,
+        buffer: &mut HeadArena<'buf>,
     ) -> Result<Option<HttpHeader<'buf>>, HttpParseError<Reader::Error>>
     where
         Reader: ReadStream,
@@ -200,7 +200,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
             .read_till_stop_sequence(LINE_DELIMITTER, buffer.as_mut_slice())
             .await?;
 
-        let header = buffer.detach(read_size);
+        let header = buffer.take_front(read_size);
 
         if read_size == LINE_DELIMITTER_SIZE {
             // Empty line indicates end of headers
@@ -261,7 +261,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     ///
     pub async fn finalize(
         mut self,
-        buffer: &mut DetachableBuffer<'_>,
+        buffer: &mut HeadArena<'_>,
     ) -> Result<usize, HttpParseError<Reader::Error>>
     where
         Reader: ReadStream,
@@ -294,7 +294,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()];
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -317,7 +317,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len() - 1]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -342,7 +342,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -363,7 +363,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -385,7 +385,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -407,7 +407,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -424,7 +424,7 @@ mod tests {
 
     async fn get_header_parser<'reader, 'buf, Stream>(
         stream: &'reader mut Stream,
-        buffer: &mut DetachableBuffer<'buf>,
+        buffer: &mut HeadArena<'buf>,
     ) -> HttpHeaderParser<'reader, Stream, ReadHeaders>
     where
         Stream: ReadStream,
@@ -452,7 +452,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -482,7 +482,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -517,7 +517,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -547,7 +547,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -578,7 +578,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -605,7 +605,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = DetachableBuffer::new(&mut raw_buffer);
+        let mut buffer = HeadArena::new(&mut raw_buffer);
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
 
