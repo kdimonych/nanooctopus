@@ -407,13 +407,13 @@ impl WSHeaderReader {
     ///     let mut src_buf = &data[..];
     ///
     ///     match reader.try_read_header(src_buf) {
-    ///         WSHeaderReadState::Ready(header, read_size) => {
+    ///         WSHeaderState::Ready(header, read_size) => {
     ///             // Process the header
     ///         },
-    ///         WSHeaderReadState::PendingData(read_size) => {
+    ///         WSHeaderState::PendingData(read_size) => {
     ///             // Need more data
     ///         },
-    ///         WSHeaderReadState::Error(e) => {
+    ///         WSHeaderState::Error(e) => {
     ///             // Handle error
     ///         },
     ///     }
