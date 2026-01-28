@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::header::{HttpHeader, headers::*};
+use crate::header::HttpHeader;
 use crate::method::HttpMethod;
 use abstarct_socket::head_arena::HeadArena;
 use abstarct_socket::read_stream::ReadStream;
@@ -57,16 +57,12 @@ pub struct ReadFirstLine;
 /// State markers for the different parts of the HTTP request being read
 pub struct ReadHeaders {
     all_parsed: bool,
-    content_length: Option<usize>,
 }
 
 impl ReadHeaders {
     /// Create a new ReadHeaders state
     pub const fn new() -> Self {
-        Self {
-            all_parsed: false,
-            content_length: None,
-        }
+        Self { all_parsed: false }
     }
 }
 
@@ -215,42 +211,16 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
             .split_once(KEY_VALUE_DELIMITTER)
             .ok_or(HttpParseError::MalformedRequest)?;
 
-        if key_str.eq_ignore_ascii_case(CONTENT_LENGTH) {
-            if self.state.content_length.is_some() {
-                // Duplicate Content-Length header
-                return Err(HttpParseError::MalformedRequest);
-            }
-
-            let content_length = value_str
-                .trim()
-                .parse::<usize>()
-                .map_err(|_| HttpParseError::MalformedRequest)?;
-            self.state.content_length = Some(content_length);
-        }
-
         Ok(Some(HttpHeader::new(key_str.trim(), value_str.trim())))
     }
 
-    /// Check if all headers have been parsed
-    fn no_pending_headers(&self) -> bool {
-        self.state.all_parsed
-    }
-
-    /// Get the content length if specified in headers
-    fn content_length(&self) -> Option<usize> {
-        self.state.content_length
-    }
-
-    /// Check if Content-Length header is present
-    fn has_content_length(&self) -> bool {
-        self.state.content_length.is_some()
+    /// Check if pending headers are available to be read
+    fn has_pending_headers(&self) -> bool {
+        !self.state.all_parsed
     }
 
     /// This method finalizes the header parsing process and release the stream so it can be used for reading the body directly.
     /// It ensures that all headers are read and the Content-Length header is present.
-    ///
-    /// ## Returns
-    /// The content length specified in the headers.
     ///
     /// ## Errors
     /// - Returns `HttpParseError::ReadError` if reading from the stream fails and releases the stream.
@@ -262,14 +232,14 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     pub async fn finalize(
         mut self,
         buffer: &mut HeadArena<'_>,
-    ) -> Result<usize, HttpParseError<Reader::Error>>
+    ) -> Result<(), HttpParseError<Reader::Error>>
     where
         Reader: ReadStream,
     {
         // Read out all remaining headers
         while self.parse_next_header(buffer).await?.is_some() {}
 
-        Ok(self.state.content_length.unwrap_or(0))
+        Ok(())
     }
 }
 
@@ -465,9 +435,7 @@ mod tests {
         assert_eq!(header.name, EXPECTED_HEADER_NAME);
         assert_eq!(header.value, EXPECTED_HEADER_VALUE);
 
-        assert!(!parser.no_pending_headers());
-        assert!(!parser.has_content_length());
-        assert!(parser.content_length() == None);
+        assert!(parser.has_pending_headers());
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -498,9 +466,7 @@ mod tests {
             .expect("Expected header");
         assert!(opt.is_none());
 
-        assert!(parser.no_pending_headers());
-        assert!(!parser.has_content_length());
-        assert!(parser.content_length() == None);
+        assert!(!parser.has_pending_headers());
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -530,9 +496,7 @@ mod tests {
         assert_eq!(header.name, EXPECTED_HEADER_NAME);
         assert_eq!(header.value, EXPECTED_HEADER_VALUE);
 
-        assert!(!parser.no_pending_headers());
-        assert!(parser.has_content_length());
-        assert!(parser.content_length() == Some(123));
+        assert!(parser.has_pending_headers());
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -561,9 +525,7 @@ mod tests {
             .await
             .expect("Expected header");
 
-        assert!(parser.no_pending_headers());
-        assert!(parser.has_content_length());
-        assert!(parser.content_length() == Some(123));
+        assert!(!parser.has_pending_headers());
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -582,16 +544,12 @@ mod tests {
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
 
-        assert!(!parser.no_pending_headers());
-        assert!(!parser.has_content_length());
-        assert!(parser.content_length() == None);
+        assert!(parser.has_pending_headers());
 
-        let content_length = parser
+        parser
             .finalize(&mut buffer)
             .await
             .expect("Failed to finalize header parsing");
-
-        assert_eq!(content_length, 123);
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -609,16 +567,12 @@ mod tests {
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
 
-        assert!(!parser.no_pending_headers());
-        assert!(!parser.has_content_length());
-        assert!(parser.content_length() == None);
+        assert!(parser.has_pending_headers());
 
-        let content_length = parser
+        parser
             .finalize(&mut buffer)
             .await
             .expect("Failed to finalize header parsing");
-
-        assert_eq!(content_length, 0);
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }

@@ -56,33 +56,49 @@ impl<'a> HttpRequest<'a> {
     ///
     pub async fn try_parse_from_stream<'buf, Reader>(
         stream: &'_ mut Reader,
-        buf: &'buf mut [u8],
+        read_buf: &'buf mut [u8],
     ) -> Result<HttpRequest<'buf>, Error>
     where
         Reader: ReadStream,
         Error: From<Reader::Error>,
     {
         let parser = HttpHeaderParser::new(stream);
-        let mut buffer = HeadArena::new(buf);
+        let mut buffer = HeadArena::new(read_buf);
 
         let (first_line, mut parser) = parser.parse_first_line(&mut buffer).await?;
         let mut request = HttpRequest::new(first_line.method, first_line.path, first_line.version);
 
-        for _ in 0..MAX_HEADERS {
-            let header = parser.parse_next_header(&mut buffer).await?;
+        #[cfg(feature = "ws")]
+        let mut web_socket_search = WebSocketKeySearch::new();
+        let mut content_length_search = ContentLengthSearch::new();
 
-            if let Some(header) = header {
-                request
-                    .headers
-                    .push(header)
-                    .map_err(|_| Error::InvalidData("Too many headers"))?;
-            } else {
-                break;
+        while let Some(header) = parser.parse_next_header(&mut buffer).await? {
+            #[cfg(feature = "ws")]
+            let is_filtered_out =
+                { content_length_search.process(&header)? || web_socket_search.process(&header) };
+            #[cfg(not(feature = "ws"))]
+            let is_filtered_out = content_length_search.process(&header)?;
+
+            if is_filtered_out {
+                continue;
             }
+
+            request
+                .headers
+                .push(header)
+                .map_err(|_| Error::InvalidData("Too many headers"))?;
+        }
+
+        #[cfg(feature = "ws")]
+        {
+            request.web_socket_key = web_socket_search.web_socket_key();
         }
 
         // Finalize the parser (e.g., read body if needed)
-        let body_size = parser.finalize(&mut buffer).await?;
+        parser.finalize(&mut buffer).await?;
+
+        let body_size = content_length_search.content_length().unwrap_or(0);
+
         if buffer.len() < body_size {
             // Not enough buffer to receive body
             return Err(Error::ReadBufferOverflow);
@@ -92,11 +108,6 @@ impl<'a> HttpRequest<'a> {
             .read_exact(&mut buffer.as_mut_slice()[..body_size])
             .await?;
         request.body = buffer.take_front(actually_read);
-
-        #[cfg(feature = "ws")]
-        {
-            request.web_socket_key = try_get_web_socket_key(&request.headers);
-        }
 
         Ok(request)
     }
@@ -160,6 +171,103 @@ impl<'a> HttpRequest<'a> {
     }
 }
 
+struct ContentLengthSearch {
+    length: Option<usize>,
+}
+
+impl ContentLengthSearch {
+    /// Create a new ContentLengthSearch
+    pub const fn new() -> Self {
+        Self { length: None }
+    }
+
+    /// Process a header to check for Content-Length
+    ///
+    /// ## Returns
+    /// - Returns Ok(true) if the header was Content-Length and processed
+    /// - Returns Ok(false) if the header was not Content-Length
+    ///
+    /// ## Errors
+    /// - Returns `Error::InvalidData` if multiple Content-Length headers are found or if
+    /// the value is invalid.
+    pub fn process(&mut self, header: &HttpHeader<'_>) -> Result<bool, Error> {
+        let mut res: bool = false;
+        if self.length.is_none() {
+            if header.name.eq_ignore_ascii_case("Content-Length") {
+                let val = header
+                    .value
+                    .parse::<usize>()
+                    .map_err(|_| Error::InvalidData("Invalid Content-Length header value"))?;
+                self.length = Some(val);
+                res = true;
+            }
+        } else {
+            return Err(Error::InvalidData("Multiple Content-Length headers found"));
+        }
+        Ok(res)
+    }
+
+    pub fn content_length(&self) -> Option<usize> {
+        self.length
+    }
+}
+
+#[cfg(feature = "ws")]
+struct WebSocketKeySearch<'buf> {
+    is_done: bool,
+    is_upgrade: bool,
+    is_connection_upgrade: bool,
+    key: Option<&'buf str>,
+}
+#[cfg(feature = "ws")]
+impl<'buf> WebSocketKeySearch<'buf> {
+    /// Create a new WebSocketKeySearch
+    pub const fn new() -> Self {
+        Self {
+            is_done: false,
+            is_upgrade: false,
+            is_connection_upgrade: false,
+            key: None,
+        }
+    }
+
+    /// Process a header to check for WebSocket upgrade headers
+    /// ## Returns
+    /// - Returns Some(key) if the WebSocket key is found and all upgrade headers are present
+    /// - Returns None otherwise
+    pub fn process(&mut self, header: &HttpHeader<'buf>) -> bool {
+        let mut res: bool = false;
+        if self.is_done {
+            return res;
+        }
+
+        if self.key.is_none() && header.name.eq_ignore_ascii_case("Sec-WebSocket-Key") {
+            self.key = Some(header.value);
+            res = true;
+        } else if !self.is_upgrade
+            && header.name.eq_ignore_ascii_case("Upgrade")
+            && header.value.eq_ignore_ascii_case("websocket")
+        {
+            self.is_upgrade = true;
+            res = true;
+        } else if !self.is_connection_upgrade
+            && header.name.eq_ignore_ascii_case("Connection")
+            && header.value.eq_ignore_ascii_case("upgrade")
+        {
+            self.is_connection_upgrade = true;
+            res = true;
+        }
+
+        self.is_done = self.is_upgrade && self.is_connection_upgrade && self.key.is_some();
+
+        res
+    }
+
+    pub fn web_socket_key(&self) -> Option<&'buf str> {
+        if self.is_done { self.key } else { None }
+    }
+}
+
 #[cfg(feature = "ws")]
 fn try_get_web_socket_key<'buf, const N: usize>(
     headers: &'_ Vec<HttpHeader<'buf>, N>,
@@ -213,7 +321,7 @@ mod tests {
     use crate::HttpMethod;
     use abstarct_socket::mocks::read_stream::DummyReadStream;
 
-    fn create_mock_stream(data: &mut [u8]) -> DummyReadStream {
+    fn create_mock_stream<'buf>(data: &'buf mut [u8]) -> DummyReadStream<'buf> {
         DummyReadStream::new(data)
     }
 
@@ -295,11 +403,16 @@ mod tests {
         assert_eq!(request.method, HttpMethod::POST);
         assert_eq!(request.path, "/api/data");
         assert_eq!(request.version, "HTTP/1.1");
-        assert_eq!(request.headers.len(), 2);
+        assert_eq!(request.headers.len(), 1);
+
+        #[cfg(feature = "ws")]
+        {
+            assert!(request.web_socket_key.is_none());
+        }
+
         for header in request.headers {
             match header.name {
                 "Content-Type" => assert_eq!(header.value, "application/json"),
-                "Content-Length" => assert_eq!(header.value, "15"),
                 _ => panic!("Unexpected header"),
             }
         }
