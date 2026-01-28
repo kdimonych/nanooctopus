@@ -17,3 +17,6 @@ pub mod status_code;
 
 /// Error types for HTTP operations.
 pub mod error;
+
+#[cfg(any(test, feature = "mocks"))]
+pub mod mocks;

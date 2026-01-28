@@ -1,7 +1,7 @@
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
     handler::HttpHandler,
-    request::{HttpRequest, try_parse_from_stream},
+    request::HttpRequest,
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
 };
 //use abstarct_socket::embassy_impls::read_stream::*;
@@ -174,7 +174,10 @@ impl HttpServer {
 
                 let request = match with_timeout(
                     Duration::from_secs(self.timeouts.read_timeout),
-                    try_parse_from_stream(&mut socket.split().0, &mut buffers.request_buf),
+                    HttpRequest::try_parse_from_stream(
+                        &mut socket.split().0,
+                        &mut buffers.request_buf,
+                    ),
                 )
                 .await
                 {
@@ -232,6 +235,58 @@ impl HttpServer {
                         continue;
                     }
                 }
+
+                // #[cfg(feature = "ws")]
+                // if let Some(web_socket_key) = request.web_socket_key {
+                //     if Self::web_socket_handshake(web_socket_key, &mut socket)
+                //         .await
+                //         .is_err()
+                //     {
+                //         // Handshake failed, close the connection
+                //         break;
+                //     }
+                //     // Here we would normally transition to WebSocket handling
+                //     let mut web_socket_state = WebSocketState::new();
+
+                //     // Test code
+                //     {
+                //         defmt::info!("WebSocket connection established");
+                //         let header_buf = &mut [0; 100];
+                //         let packet_len = socket.read(header_buf).await.ok();
+                //         if let Some(packet_len) = packet_len {
+                //             defmt::info!("WebSocket header received {} bytes", packet_len);
+                //             // Trace the raw data in bites
+                //             for byte in &header_buf[..packet_len] {
+                //                 defmt::info!("0b{:08b}", byte);
+                //             }
+                //         }
+                //     }
+
+                //     if handler
+                //         .handle_websocket_connection(
+                //             &request,
+                //             WebSocket::new(&mut socket, &mut web_socket_state),
+                //         )
+                //         .await
+                //         .is_err()
+                //     {
+                //         //
+                //         web_socket_state.close(&mut socket).await.ok();
+                //         break;
+                //     }
+
+                //     // After WebSocket handling is done, close the connection
+                //     if web_socket_state.close(&mut socket).await.is_err() {
+                //         break;
+                //     }
+                //     if !self.auto_close_connection {
+                //         // Web Socket if properly closed, proceed to next request
+                //         continue;
+                //     } else {
+                //         // Auto-close connection is enabled, break the transaction cycle
+                //         break;
+                //     }
+                // }
 
                 #[cfg(feature = "defmt")]
                 defmt::debug!(

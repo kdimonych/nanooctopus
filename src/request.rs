@@ -3,6 +3,10 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
+use abstarct_socket::detachable_buffer::DetachableBuffer;
+use abstarct_socket::read_stream::ReadStream;
+use protocols::http_header_parser::HttpHeaderParser;
+
 /// Maximum number of headers allowed in a request
 pub const MAX_HEADERS: usize = 16;
 
@@ -32,7 +36,7 @@ fn find_double_crlf(data: &[u8]) -> Option<usize> {
 }
 
 impl<'a> HttpRequest<'a> {
-    fn new(method: HttpMethod, path: &'a str, version: &'a str) -> Self {
+    const fn new(method: HttpMethod, path: &'a str, version: &'a str) -> Self {
         Self {
             method,
             path,
@@ -43,6 +47,60 @@ impl<'a> HttpRequest<'a> {
             web_socket_key: None,
         }
     }
+
+    /// Try to parse an HTTP request from a TCP stream asynchronously
+    /// ## Errors
+    /// Returns an error if:
+    /// - Reading from the stream fails
+    /// - The request is malformed  
+    ///
+    pub async fn try_parse_from_stream<'buf, Reader>(
+        stream: &'_ mut Reader,
+        buf: &'buf mut [u8],
+    ) -> Result<HttpRequest<'buf>, Error>
+    where
+        Reader: ReadStream,
+        Error: From<Reader::Error>,
+    {
+        let parser = HttpHeaderParser::new(stream);
+        let mut buffer = DetachableBuffer::new(buf);
+
+        let (first_line, mut parser) = parser.parse_first_line(&mut buffer).await?;
+        let mut request = HttpRequest::new(first_line.method, first_line.path, first_line.version);
+
+        for _ in 0..MAX_HEADERS {
+            let header = parser.parse_next_header(&mut buffer).await?;
+
+            if let Some(header) = header {
+                request
+                    .headers
+                    .push(header)
+                    .map_err(|_| Error::InvalidData("Too many headers"))?;
+            } else {
+                break;
+            }
+        }
+
+        // Finalize the parser (e.g., read body if needed)
+        let body_size = parser.finalize(&mut buffer).await?;
+        if buffer.len() < body_size {
+            // Not enough buffer to receive body
+            return Err(Error::ReadBufferOverflow);
+        }
+
+        let actually_read = stream
+            .read_exact(&mut buffer.as_mut_slice()[..body_size])
+            .await?;
+        request.body = buffer.detach(actually_read);
+
+        #[cfg(feature = "ws")]
+        {
+            request.web_socket_key = try_get_web_socket_key(&request.headers);
+        }
+
+        Ok(request)
+    }
+
     /// Parse an HTTP request from headers string and body bytes
     ///
     /// ## Errors
@@ -88,7 +146,7 @@ impl<'a> HttpRequest<'a> {
         }
 
         #[cfg(feature = "ws")]
-        let web_socket_key = Self::try_get_web_socket_key(&headers);
+        let web_socket_key = try_get_web_socket_key(&headers);
 
         Ok(HttpRequest {
             method,
@@ -100,32 +158,34 @@ impl<'a> HttpRequest<'a> {
             web_socket_key,
         })
     }
+}
 
-    #[cfg(feature = "ws")]
-    fn try_get_web_socket_key(headers: &Vec<HttpHeader<'a>, 16>) -> Option<&'a str> {
-        // Find the Sec-WebSocket-Key header if present.
-        // This check is done first because it appears rarely in requests, so we can avoid unnecessary iterations.
-        let res = headers
-            .iter()
-            .find(|header| header.name.eq_ignore_ascii_case("Sec-WebSocket-Key"))
-            .map(|header| header.value);
+#[cfg(feature = "ws")]
+fn try_get_web_socket_key<'buf, const N: usize>(
+    headers: &'_ Vec<HttpHeader<'buf>, N>,
+) -> Option<&'buf str> {
+    // Find the Sec-WebSocket-Key header if present.
+    // This check is done first because it appears rarely in requests, so we can avoid unnecessary iterations.
+    let res = headers
+        .iter()
+        .find(|header| header.name.eq_ignore_ascii_case("Sec-WebSocket-Key"))
+        .map(|header| header.value);
 
-        if !headers.iter().any(|header| {
-            header.name.eq_ignore_ascii_case("Upgrade")
-                && header.value.eq_ignore_ascii_case("websocket")
-        }) {
-            return None;
-        };
+    if !headers.iter().any(|header| {
+        header.name.eq_ignore_ascii_case("Upgrade")
+            && header.value.eq_ignore_ascii_case("websocket")
+    }) {
+        return None;
+    };
 
-        if !headers.iter().any(|header| {
-            header.name.eq_ignore_ascii_case("Connection")
-                && header.value.eq_ignore_ascii_case("upgrade")
-        }) {
-            return None;
-        }
-
-        res
+    if !headers.iter().any(|header| {
+        header.name.eq_ignore_ascii_case("Connection")
+            && header.value.eq_ignore_ascii_case("upgrade")
+    }) {
+        return None;
     }
+
+    res
 }
 
 impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
@@ -147,58 +207,6 @@ impl<'a> TryFrom<&'a [u8]> for HttpRequest<'a> {
     }
 }
 
-use abstarct_socket::detachable_buffer::DetachableBuffer;
-use abstarct_socket::read_stream::ReadStream;
-use protocols::http_header_parser::HttpHeaderParser;
-
-/// Try to parse an HTTP request from a TCP stream asynchronously
-/// ## Errors
-/// Returns an error if:
-/// - Reading from the stream fails
-/// - The request is malformed  
-///
-pub async fn try_parse_from_stream<'buf, Reader>(
-    stream: &'_ mut Reader,
-    buf: &'buf mut [u8],
-) -> Result<HttpRequest<'buf>, Error>
-where
-    Reader: ReadStream,
-    Error: From<Reader::Error>,
-{
-    let parser = HttpHeaderParser::new(stream);
-    let mut buffer = DetachableBuffer::new(buf);
-
-    let (first_line, mut parser) = parser.parse_first_line(&mut buffer).await?;
-    let mut request = HttpRequest::new(first_line.method, first_line.path, first_line.version);
-
-    for _ in 0..MAX_HEADERS {
-        let header = parser.parse_next_header(&mut buffer).await?;
-
-        if let Some(header) = header {
-            request
-                .headers
-                .push(header)
-                .map_err(|_| Error::InvalidData("Too many headers"))?;
-        } else {
-            break;
-        }
-    }
-
-    // Finalize the parser (e.g., read body if needed)
-    let body_size = parser.finalize(&mut buffer).await?;
-    if buffer.len() < body_size {
-        // Not enough buffer to receive body
-        return Err(Error::ReadBufferOverflow);
-    }
-
-    let actually_read = stream
-        .read_exact(&mut buffer.as_mut_slice()[..body_size])
-        .await?;
-    request.body = buffer.detach(actually_read);
-
-    Ok(request)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,9 +214,7 @@ mod tests {
     use abstarct_socket::mocks::read_stream::DummyReadStream;
 
     fn create_mock_stream(data: &mut [u8]) -> DummyReadStream {
-        let mut stream = DummyReadStream::new(data);
-        stream.add_read_data(data);
-        stream
+        DummyReadStream::new(data)
     }
 
     #[test]
@@ -217,12 +223,38 @@ mod tests {
             "GET /index.html HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n";
         let body = b"";
 
-        let request = HttpRequest::parse_from(request_str, body).unwrap();
+        let request: HttpRequest<'_> = HttpRequest::parse_from(request_str, body).unwrap();
 
         assert_eq!(request.method, HttpMethod::GET);
         assert_eq!(request.path, "/index.html");
         assert_eq!(request.version, "HTTP/1.1");
         assert_eq!(request.headers.len(), 2);
+        assert_eq!(request.body, b"");
+    }
+
+    #[tokio::test]
+    async fn test_try_parse_from_stream() {
+        let mut request =
+            b"GET /index.html HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n".to_vec();
+
+        let mut stream = create_mock_stream(request.as_mut_slice());
+        let mut buffer = [0u8; 256];
+
+        let request = HttpRequest::try_parse_from_stream(&mut stream, &mut buffer)
+            .await
+            .expect("Expected successful parse");
+
+        assert_eq!(request.method, HttpMethod::GET);
+        assert_eq!(request.path, "/index.html");
+        assert_eq!(request.version, "HTTP/1.1");
+        assert_eq!(request.headers.len(), 2);
+        for header in request.headers {
+            match header.name {
+                "Host" => assert_eq!(header.value, "example.com"),
+                "User-Agent" => assert_eq!(header.value, "test"),
+                _ => panic!("Unexpected header"),
+            }
+        }
         assert_eq!(request.body, b"");
     }
 
@@ -246,6 +278,32 @@ mod tests {
             .find(|h| h.name == "Content-Type")
             .unwrap();
         assert_eq!(content_type_header.value, "application/json");
+    }
+
+    #[tokio::test]
+    async fn test_try_parse_from_stream_post_with_body() {
+        let mut request =
+            b"POST /api/data HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{\"key\":\"value\"}".to_vec();
+
+        let mut stream = create_mock_stream(request.as_mut_slice());
+        let mut buffer = [0u8; 256];
+
+        let request = HttpRequest::try_parse_from_stream(&mut stream, &mut buffer)
+            .await
+            .expect("Expected successful parse");
+
+        assert_eq!(request.method, HttpMethod::POST);
+        assert_eq!(request.path, "/api/data");
+        assert_eq!(request.version, "HTTP/1.1");
+        assert_eq!(request.headers.len(), 2);
+        for header in request.headers {
+            match header.name {
+                "Content-Type" => assert_eq!(header.value, "application/json"),
+                "Content-Length" => assert_eq!(header.value, "15"),
+                _ => panic!("Unexpected header"),
+            }
+        }
+        assert_eq!(request.body, b"{\"key\":\"value\"}");
     }
 
     #[test]

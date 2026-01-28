@@ -40,3 +40,7 @@ abstarct_socket = { path = "./abstarct_socket" }
 
 [dev-dependencies]
 futures-lite = "2.0"
+abstarct_socket = { path = "./abstarct_socket", features = ["std", "mocks"] }
+protocols = { path = "./protocols", features = ["ws", "std", "mocks"] }
+tokio = { version = "1.0", features = ["full"] }
+tokio-test = "0.4"

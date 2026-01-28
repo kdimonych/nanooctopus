@@ -51,7 +51,7 @@ impl<'a> ReadStream for DummyReadStream<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;   
+    use super::*;
     #[tokio::test]
     async fn test_new() {
         let mut buffer = vec![1, 2, 3, 4, 5];
@@ -64,7 +64,7 @@ mod tests {
         let mut buffer = vec![];
         let mut stream = DummyReadStream::new(&mut buffer);
         let mut buf = [0u8; 10];
-        
+
         let result = stream.read(&mut buf).await.unwrap();
         assert_eq!(result, 0);
     }
@@ -74,7 +74,7 @@ mod tests {
         let mut buffer = vec![1, 2, 3, 4, 5];
         let mut stream = DummyReadStream::new(&mut buffer);
         let mut buf = [0u8; 3];
-        
+
         let result = stream.read(&mut buf).await.unwrap();
         assert_eq!(result, 3);
         assert_eq!(buf, [1, 2, 3]);
@@ -85,7 +85,7 @@ mod tests {
         let mut buffer = vec![1, 2, 3];
         let mut stream = DummyReadStream::new(&mut buffer);
         let mut buf = [0u8; 5];
-        
+
         let result = stream.read(&mut buf).await.unwrap();
         assert_eq!(result, 3);
         assert_eq!(buf[..3], [1, 2, 3]);
@@ -96,15 +96,15 @@ mod tests {
         let mut buffer = vec![1, 2, 3, 4, 5];
         let mut stream = DummyReadStream::new(&mut buffer);
         let mut buf = [0u8; 2];
-        
+
         let result1 = stream.read(&mut buf).await.unwrap();
         assert_eq!(result1, 2);
         assert_eq!(buf, [1, 2]);
-        
+
         let result2 = stream.read(&mut buf).await.unwrap();
         assert_eq!(result2, 2);
         assert_eq!(buf, [3, 4]);
-        
+
         let result3 = stream.read(&mut buf).await.unwrap();
         assert_eq!(result3, 1);
         assert_eq!(buf[0], 5);
@@ -115,10 +115,10 @@ mod tests {
         let mut buffer = vec![1, 2, 3];
         let mut stream = DummyReadStream::new(&mut buffer);
         let mut buf = [0u8; 5];
-        
+
         // Read all data
         stream.read(&mut buf).await.unwrap();
-        
+
         // Try to read again at EOF
         let result = stream.read(&mut buf).await.unwrap();
         assert_eq!(result, 0);
@@ -128,12 +128,15 @@ mod tests {
     async fn test_read_with_success() {
         let mut buffer = vec![1, 2, 3, 4, 5];
         let mut stream = DummyReadStream::new(&mut buffer);
-        
-        let result = stream.read_with(|data| {
-            assert_eq!(data, &[1, 2, 3, 4, 5]);
-            (3, "success")
-        }).await.unwrap();
-        
+
+        let result = stream
+            .read_with(|data| {
+                assert_eq!(data, &[1, 2, 3, 4, 5]);
+                (3, "success")
+            })
+            .await
+            .unwrap();
+
         assert_eq!(result, "success");
         assert_eq!(stream.position, 3);
     }
@@ -143,7 +146,7 @@ mod tests {
         let mut buffer = vec![1, 2, 3];
         let mut stream = DummyReadStream::new(&mut buffer);
         stream.position = 3; // Set to EOF
-        
+
         let result = stream.read_with(|_| (0, "test")).await;
         assert!(matches!(result, Err(DummySocketError::ConnectionReset)));
     }
@@ -153,12 +156,15 @@ mod tests {
         let mut buffer = vec![1, 2, 3, 4, 5];
         let mut stream = DummyReadStream::new(&mut buffer);
         stream.position = 2; // Start from position 2
-        
-        let result = stream.read_with(|data| {
-            assert_eq!(data, &[3, 4, 5]);
-            (2, 42)
-        }).await.unwrap();
-        
+
+        let result = stream
+            .read_with(|data| {
+                assert_eq!(data, &[3, 4, 5]);
+                (2, 42)
+            })
+            .await
+            .unwrap();
+
         assert_eq!(result, 42);
         assert_eq!(stream.position, 4);
     }

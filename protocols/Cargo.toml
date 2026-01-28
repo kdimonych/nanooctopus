@@ -40,6 +40,7 @@ std = ["embassy-net/std", "abstarct_socket/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
 defmt = ["dep:defmt", "abstarct_socket/defmt", "embassy-net/defmt"]
 tls = ["dep:embedded-tls"]
+mocks = ["abstarct_socket/mocks"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]

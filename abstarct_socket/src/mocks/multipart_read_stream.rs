@@ -11,6 +11,7 @@ pub struct DummyMultipartReadStream {
     part: usize,
     position: usize,
 }
+
 impl DummyMultipartReadStream {
     /// Create a new DummyMultipartReadStream with the given multipart buffer
     pub fn new(multipart_buffer: &std::vec::Vec<std::vec::Vec<u8>>) -> Self {
