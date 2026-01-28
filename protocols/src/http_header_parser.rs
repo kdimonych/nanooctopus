@@ -42,12 +42,12 @@ where
     fn from(err: HttpParseError<SocketReadErrorT>) -> Self {
         match err {
             HttpParseError::ReadError(e) => Error::from(e),
-            HttpParseError::MalformedRequest => Error::HeaderError("Malformed request"),
-            HttpParseError::NoMethod => Error::InvalidData("No method"),
-            HttpParseError::NoPath => Error::InvalidData("No path"),
-            HttpParseError::NoVersion => Error::InvalidData("No version"),
-            HttpParseError::UnsupportedMethod => Error::UnsupportedScheme("Unsupported method"),
-            HttpParseError::NoContentLength => Error::InvalidData("No Content-Length header found"),
+            HttpParseError::MalformedRequest => Error::InvalidData("Malformed request"),
+            HttpParseError::NoMethod => Error::HeaderError("No method"),
+            HttpParseError::NoPath => Error::HeaderError("No path"),
+            HttpParseError::NoVersion => Error::HeaderError("No version"),
+            HttpParseError::UnsupportedMethod => Error::HeaderError("Unsupported method"),
+            HttpParseError::NoContentLength => Error::HeaderError("No Content-Length header found"),
         }
     }
 }
@@ -252,6 +252,47 @@ mod tests {
     fn make_multipart_stream(chunk_size: usize, request: Vec<u8>) -> DummyMultipartReadStream {
         let parts_vec = request.chunks(chunk_size).map(|p| p.to_vec()).collect();
         DummyMultipartReadStream::new(&parts_vec)
+    }
+
+    #[test]
+    fn from_http_parse_error_to_error() {
+        assert!(matches!(
+            Error::from(HttpParseError::<embassy_net::tcp::Error>::MalformedRequest),
+            Error::InvalidData(_)
+        ));
+        assert!(matches!(
+            Error::from(HttpParseError::<embassy_net::tcp::Error>::NoContentLength),
+            Error::HeaderError(_)
+        ));
+        assert!(matches!(
+            Error::from(HttpParseError::<embassy_net::tcp::Error>::NoMethod),
+            Error::HeaderError(_)
+        ));
+        assert!(matches!(
+            Error::from(HttpParseError::<embassy_net::tcp::Error>::NoPath),
+            Error::HeaderError(_)
+        ));
+        assert!(matches!(
+            Error::from(HttpParseError::<embassy_net::tcp::Error>::NoVersion),
+            Error::HeaderError(_)
+        ));
+
+        assert!(matches!(
+            Error::from(HttpParseError::<embassy_net::tcp::Error>::UnsupportedMethod),
+            Error::HeaderError(_)
+        ));
+        assert!(matches!(
+            Error::from(HttpParseError::ReadError(ReadError::SocketReadError(
+                embassy_net::tcp::Error::ConnectionReset
+            ))),
+            Error::SocketError(embassy_net::tcp::Error::ConnectionReset)
+        ));
+        assert!(matches!(
+            Error::from(HttpParseError::ReadError(
+                ReadError::<embassy_net::tcp::Error>::TargetBufferOverflow
+            )),
+            Error::ReadBufferOverflow
+        ));
     }
 
     #[tokio::test]
