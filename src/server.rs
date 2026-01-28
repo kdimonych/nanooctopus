@@ -1,9 +1,10 @@
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
     handler::HttpHandler,
-    request::HttpRequest,
+    request::{self, HttpRequest, try_parse_from_stream},
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
 };
+//use abstarct_socket::embassy_impls::read_stream::*;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
@@ -13,9 +14,6 @@ use protocols::status_code::StatusCode;
 
 #[cfg(feature = "ws")]
 use crate::ws::*;
-
-const MAX_REQUEST_SIZE: usize = 4096;
-const DEFAULT_MAX_RESPONSE_SIZE: usize = 4096;
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -174,23 +172,13 @@ impl HttpServer {
                     self.auto_close_connection
                 );
 
-                let n = match with_timeout(
+                let request = match with_timeout(
                     Duration::from_secs(self.timeouts.read_timeout),
-                    socket.read(&mut buffers.request_buf),
+                    try_parse_from_stream(&mut socket.split().0, &mut buffers.request_buf),
                 )
                 .await
                 {
-                    Ok(Ok(0)) => {
-                        // Connection closed
-                        #[cfg(feature = "defmt")]
-                        defmt::info!(
-                            "Remote side has closed the connection, {:?}",
-                            socket.remote_endpoint()
-                        );
-                        Self::close_connection(&mut socket).await;
-                        continue;
-                    }
-                    Ok(Ok(n)) => n,
+                    Ok(Ok(request)) => request,
                     Ok(Err(e)) => {
                         #[cfg(feature = "defmt")]
                         defmt::warn!("Read error: {:?}, {:?}", e, socket.remote_endpoint());
@@ -207,26 +195,6 @@ impl HttpServer {
 
                 #[cfg(feature = "defmt")]
                 defmt::info!("Process the request of, {:?}", socket.remote_endpoint());
-
-                // Parse the request
-                let request = match HttpRequest::try_from(&buffers.request_buf[..n]) {
-                    Ok(req) => req,
-                    Err(e) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::error!(
-                            "Unable to parse HTTP request: {:?}, {:?}",
-                            e,
-                            socket.remote_endpoint()
-                        );
-                        #[cfg(not(feature = "defmt"))]
-                        core::mem::drop(e);
-
-                        // Send a 500 error response
-                        Self::send_server_internal_error(&mut socket).await.ok();
-                        Self::close_connection(&mut socket).await;
-                        continue;
-                    }
-                };
 
                 match self
                     .handle_connection(
