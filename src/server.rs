@@ -160,7 +160,7 @@ impl HttpServer {
             defmt::info!("Auto-close connection is disabled");
         }
 
-        let mut ready: Queue<_, SOCKETS> = Queue::new();
+        let mut ready = Queue::new();
 
         loop {
             socket_pool.acquire_next_request(&mut ready).await;

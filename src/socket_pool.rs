@@ -133,9 +133,9 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     /// (ready means has established stated and data is available for reading).
     /// All ready sockets are enqueued into the provided `ready` queue.
     ///
-    pub async fn acquire_next_request<'b, const QUEUE_SIZE: usize>(
+    pub async fn acquire_next_request<'b>(
         &'b self,
-        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, QUEUE_SIZE>,
+        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, POOL_SIZE>,
     ) {
         //let mut ready: Queue<RefMut<'_, TcpSocket<'stack>>, POOL_SIZE> = Queue::new();
         Self::collect_ready(&self.sockets, self.port, ready).await;
@@ -146,10 +146,10 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
         POOL_SIZE
     }
 
-    async fn collect_ready<'a, 'b, const QUEUE_SIZE: usize>(
+    async fn collect_ready<'a, 'b>(
         sockets: &'a [RefCell<TcpSocket<'stack>>],
         port: u16,
-        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, QUEUE_SIZE>,
+        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, POOL_SIZE>,
     ) where
         'a: 'b,
     {
