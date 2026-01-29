@@ -24,9 +24,9 @@ impl MockMultipartReadStream {
 }
 
 impl ReadWith for MockMultipartReadStream {
-    async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::Error>
+    async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
-        F: FnMut(&mut [u8]) -> (usize, R),
+        F: FnOnce(&mut [u8]) -> (usize, R),
     {
         if self.part >= self.multipart_buffer.len() {
             return Err(MockReadError::ConnectionReset);

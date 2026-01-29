@@ -8,7 +8,7 @@ impl<'socket> ReadWith for TcpSocket<'socket> {
         f: F,
     ) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
-        F: FnMut(&mut [u8]) -> (usize, R),
+        F: FnOnce(&mut [u8]) -> (usize, R),
     {
         self.read_with(f)
     }
@@ -21,7 +21,7 @@ impl<'socket> ReadWith for TcpReader<'socket> {
         f: F,
     ) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
-        F: FnMut(&mut [u8]) -> (usize, R),
+        F: FnOnce(&mut [u8]) -> (usize, R),
     {
         self.read_with(f)
     }

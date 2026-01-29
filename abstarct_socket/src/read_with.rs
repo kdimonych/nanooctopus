@@ -16,5 +16,5 @@ pub trait ReadWith: embedded_io_async::ErrorType {
         f: F,
     ) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
-        F: FnMut(&mut [u8]) -> (usize, R);
+        F: FnOnce(&mut [u8]) -> (usize, R);
 }
