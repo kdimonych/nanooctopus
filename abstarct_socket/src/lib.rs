@@ -18,6 +18,6 @@ pub mod borrowed_buffer;
 /// A bump allocator based on the principle of play all-in, then gather the cream.
 pub mod head_arena;
 
-/// Test mocks for read streams and related utilities.
+/// Test mocks for read/write streams and related utilities.
 #[cfg(any(test, feature = "mocks"))]
 pub mod mocks;

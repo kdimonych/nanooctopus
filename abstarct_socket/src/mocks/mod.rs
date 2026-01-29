@@ -1,3 +1,3 @@
 pub mod error;
-pub mod multipart_read_stream;
-pub mod read_stream;
+pub mod mock_multipart_read_stream;
+pub mod mock_read_stream;

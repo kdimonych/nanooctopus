@@ -1,6 +1,6 @@
 /// Error returned by stream read functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum DummyStreamError {
+pub enum MockStreamError {
     /// The connection was reset.
     ///
     /// This can happen on receiving a RST packet, or on timeout.
@@ -8,17 +8,17 @@ pub enum DummyStreamError {
 }
 
 /// Alias for write errors returned by stream write functions.
-pub type DummyReadError = DummyStreamError;
+pub type MockReadError = MockStreamError;
 /// Alias for write errors returned by stream write functions.
-pub type DummyWriteError = DummyStreamError;
+pub type MockWriteError = MockStreamError;
 
 mod embedded_io_impls {
     use super::*;
 
-    impl embedded_io_async::Error for DummyStreamError {
+    impl embedded_io_async::Error for MockStreamError {
         fn kind(&self) -> embedded_io_async::ErrorKind {
             match self {
-                DummyStreamError::ConnectionReset => embedded_io_async::ErrorKind::ConnectionReset,
+                MockStreamError::ConnectionReset => embedded_io_async::ErrorKind::ConnectionReset,
             }
         }
     }

@@ -1,4 +1,4 @@
-pub use crate::mocks::error::DummyReadError;
+pub use crate::mocks::error::MockReadError;
 pub use crate::read_with::ReadWith;
 
 extern crate std;
@@ -6,13 +6,13 @@ extern crate std;
 /// A dummy multipart read stream for testing purposes
 /// The stream simulates reading from multiple portions (buffers) sequentially like a
 /// concatenated stream.
-pub struct DummyMultipartReadStream {
+pub struct MockMultipartReadStream {
     multipart_buffer: std::vec::Vec<std::vec::Vec<u8>>,
     part: usize,
     position: usize,
 }
 
-impl DummyMultipartReadStream {
+impl MockMultipartReadStream {
     /// Create a new DummyMultipartReadStream with the given multipart buffer
     pub fn new(multipart_buffer: &std::vec::Vec<std::vec::Vec<u8>>) -> Self {
         Self {
@@ -23,20 +23,20 @@ impl DummyMultipartReadStream {
     }
 }
 
-impl ReadWith for DummyMultipartReadStream {
+impl ReadWith for MockMultipartReadStream {
     async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::Error>
     where
         F: FnMut(&mut [u8]) -> (usize, R),
     {
         if self.part >= self.multipart_buffer.len() {
-            return Err(DummyReadError::ConnectionReset);
+            return Err(MockReadError::ConnectionReset);
         }
 
         if self.position >= self.multipart_buffer[self.part].len() {
             self.part += 1;
             self.position = 0;
             if self.part >= self.multipart_buffer.len() {
-                return Err(DummyReadError::ConnectionReset);
+                return Err(MockReadError::ConnectionReset);
             }
         }
 
@@ -49,11 +49,11 @@ impl ReadWith for DummyMultipartReadStream {
 
 mod embedded_io_impls {
     use super::*;
-    impl embedded_io_async::ErrorType for DummyMultipartReadStream {
-        type Error = DummyReadError;
+    impl embedded_io_async::ErrorType for MockMultipartReadStream {
+        type Error = MockReadError;
     }
 
-    impl embedded_io_async::Read for DummyMultipartReadStream {
+    impl embedded_io_async::Read for MockMultipartReadStream {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             if buf.is_empty() || self.part >= self.multipart_buffer.len() {
                 // EOF reached
@@ -88,7 +88,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_multipart_buffer_is_empty() {
         let multipart_buffer = vec![];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [0u8; 10];
 
         let result = stream
@@ -101,7 +101,7 @@ mod tests {
     #[tokio::test]
     async fn test_single_part_read() {
         let multipart_buffer = vec![vec![1, 2, 3, 4, 5]];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [0u8; 10];
 
         let bytes_read = stream.read(&mut buf).await.unwrap();
@@ -116,7 +116,7 @@ mod tests {
     #[tokio::test]
     async fn test_multipart_sequential_read() {
         let multipart_buffer = vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8, 9]];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [0u8; 2];
 
         // Read first portion partially: [1, 2]
@@ -152,7 +152,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_with_function() {
         let multipart_buffer = vec![vec![1, 2, 3, 4]];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
 
         let result = stream
             .read_with(|data| {
@@ -168,16 +168,16 @@ mod tests {
     #[tokio::test]
     async fn test_read_with_empty_buffer() {
         let multipart_buffer = vec![];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
 
         let result = stream.read_with(|_data| (0, 42)).await;
-        assert!(matches!(result, Err(DummyReadError::ConnectionReset)));
+        assert!(matches!(result, Err(MockReadError::ConnectionReset)));
     }
 
     #[tokio::test]
     async fn test_buffer_boundary_transitions() {
         let multipart_buffer = vec![vec![1], vec![2], vec![3]];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [0u8; 1];
 
         // Read each part
@@ -195,7 +195,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_larger_than_available() {
         let multipart_buffer = vec![vec![1, 2, 3]];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [0u8; 10];
 
         let bytes_read = stream.read(&mut buf).await.unwrap();
@@ -206,7 +206,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_buffer_read() {
         let multipart_buffer = vec![vec![1, 2, 3]];
-        let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [];
 
         let bytes_read = stream.read(&mut buf).await.unwrap();

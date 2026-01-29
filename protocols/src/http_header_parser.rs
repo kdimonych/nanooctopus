@@ -247,11 +247,11 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
 mod tests {
     use super::*;
     use crate::header;
-    use abstarct_socket::mocks::multipart_read_stream::*;
+    use abstarct_socket::mocks::mock_multipart_read_stream::*;
 
-    fn make_multipart_stream(chunk_size: usize, request: Vec<u8>) -> DummyMultipartReadStream {
+    fn make_multipart_stream(chunk_size: usize, request: Vec<u8>) -> MockMultipartReadStream {
         let parts_vec = request.chunks(chunk_size).map(|p| p.to_vec()).collect();
-        DummyMultipartReadStream::new(&parts_vec)
+        MockMultipartReadStream::new(&parts_vec)
     }
 
     #[test]

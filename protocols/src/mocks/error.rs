@@ -1,10 +1,10 @@
 use crate::error::Error;
-use abstarct_socket::mocks::error::DummyStreamError;
+use abstarct_socket::mocks::error::MockStreamError;
 
-impl From<DummyStreamError> for Error {
-    fn from(err: DummyStreamError) -> Self {
+impl From<MockStreamError> for Error {
+    fn from(err: MockStreamError) -> Self {
         match err {
-            DummyStreamError::ConnectionReset => {
+            MockStreamError::ConnectionReset => {
                 Error::SocketError(embassy_net::tcp::Error::ConnectionReset)
             }
         }

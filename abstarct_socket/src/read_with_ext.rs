@@ -37,7 +37,6 @@ pub trait ReadStreamExt: ReadWith {
             let mut read_size = 0;
             let mut result = Ok(());
 
-            //let mut read_bytes: usize = 0;
             let mut buffer = BorrowedBuffer::new(buffer);
 
             loop {
@@ -226,14 +225,14 @@ impl<T: ReadWith + ?Sized> ReadStreamExt for T {}
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::mocks::read_stream::*;
+    use crate::mocks::mock_read_stream::*;
     use embedded_io_async::Read;
 
     #[tokio::test]
     async fn test_read_till_stop_sequence() {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\nThis is a test.\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let bytes_read = stream
@@ -249,7 +248,7 @@ pub mod tests {
     async fn test_read_stop_sequence_only() {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let bytes_read = stream
@@ -265,7 +264,7 @@ pub mod tests {
     async fn test_read_eof_when_no_stop_found() {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let error = stream
@@ -280,7 +279,7 @@ pub mod tests {
     async fn test_read_buffer_overflow() {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 4];
 
         let error = stream
@@ -294,7 +293,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_consume_bytes() {
         let mut request_data = b"Hello, World!\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         stream.consume(7).await.expect("Expect no error");
@@ -307,7 +306,7 @@ pub mod tests {
     async fn test_consume_stop() {
         const STOP: u8 = b',';
         let mut request_data = b"Hello, World!\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let consumed = stream
@@ -323,7 +322,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_consume_till_stop_sequence() {
         let mut request_data = b"Hello, World!\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let consumed = stream
@@ -339,7 +338,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_consume_all_data_if_no_sequence_found() {
         let mut request_data = b"Hello, World!\r\n".to_vec();
-        let mut stream = DummyReadStream::new(&mut request_data);
+        let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
         let e = stream

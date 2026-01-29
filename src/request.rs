@@ -209,10 +209,10 @@ impl<'buf> WebSocketKeySearch<'buf> {
 mod tests {
     use super::*;
     use crate::HttpMethod;
-    use abstarct_socket::mocks::read_stream::DummyReadStream;
+    use abstarct_socket::mocks::mock_read_stream::MockReadStream;
 
-    fn create_mock_stream<'buf>(data: &'buf mut [u8]) -> DummyReadStream<'buf> {
-        DummyReadStream::new(data)
+    fn create_mock_stream<'buf>(data: &'buf mut [u8]) -> MockReadStream<'buf> {
+        MockReadStream::new(data)
     }
 
     #[tokio::test]
