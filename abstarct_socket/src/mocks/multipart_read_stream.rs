@@ -1,4 +1,4 @@
-pub use crate::mocks::error::DummySocketError;
+pub use crate::mocks::error::DummyReadError;
 pub use crate::read_with::ReadWith;
 
 extern crate std;
@@ -29,14 +29,14 @@ impl ReadWith for DummyMultipartReadStream {
         F: FnMut(&mut [u8]) -> (usize, R),
     {
         if self.part >= self.multipart_buffer.len() {
-            return Err(DummySocketError::ConnectionReset);
+            return Err(DummyReadError::ConnectionReset);
         }
 
         if self.position >= self.multipart_buffer[self.part].len() {
             self.part += 1;
             self.position = 0;
             if self.part >= self.multipart_buffer.len() {
-                return Err(DummySocketError::ConnectionReset);
+                return Err(DummyReadError::ConnectionReset);
             }
         }
 
@@ -50,7 +50,7 @@ impl ReadWith for DummyMultipartReadStream {
 mod embedded_io_impls {
     use super::*;
     impl embedded_io_async::ErrorType for DummyMultipartReadStream {
-        type Error = DummySocketError;
+        type Error = DummyReadError;
     }
 
     impl embedded_io_async::Read for DummyMultipartReadStream {
@@ -171,7 +171,7 @@ mod tests {
         let mut stream = DummyMultipartReadStream::new(&multipart_buffer);
 
         let result = stream.read_with(|_data| (0, 42)).await;
-        assert!(matches!(result, Err(DummySocketError::ConnectionReset)));
+        assert!(matches!(result, Err(DummyReadError::ConnectionReset)));
     }
 
     #[tokio::test]

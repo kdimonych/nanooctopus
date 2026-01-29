@@ -1,4 +1,4 @@
-pub use crate::mocks::error::DummySocketError;
+pub use crate::mocks::error::DummyReadError;
 pub use crate::read_with::ReadWith;
 
 /// A dummy read stream for testing purposes
@@ -22,7 +22,7 @@ impl<'a> ReadWith for DummyReadStream<'a> {
         F: FnMut(&mut [u8]) -> (usize, R),
     {
         if self.position >= self.buffer.len() {
-            return Err(DummySocketError::ConnectionReset);
+            return Err(DummyReadError::ConnectionReset);
         }
 
         let data = &mut self.buffer[self.position..];
@@ -39,7 +39,7 @@ impl<'a> ReadWith for DummyReadStream<'a> {
 mod embedded_io_impls {
     use super::*;
     impl<'d> embedded_io_async::ErrorType for DummyReadStream<'d> {
-        type Error = DummySocketError;
+        type Error = DummyReadError;
     }
 
     impl<'d> embedded_io_async::Read for DummyReadStream<'d> {
@@ -158,7 +158,7 @@ mod tests {
         stream.position = 3; // Set to EOF
 
         let result = stream.read_with(|_| (0, "test")).await;
-        assert!(matches!(result, Err(DummySocketError::ConnectionReset)));
+        assert!(matches!(result, Err(DummyReadError::ConnectionReset)));
     }
 
     #[tokio::test]
