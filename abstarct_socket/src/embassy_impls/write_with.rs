@@ -3,6 +3,7 @@ use embassy_net::tcp::{TcpSocket, TcpWriter};
 
 // Embassy-net based WriteWith implementation for TcpSocket
 impl<'socket> WriteWith for TcpSocket<'socket> {
+    #[inline]
     fn write_with<F, R>(
         &mut self,
         f: F,
@@ -16,6 +17,7 @@ impl<'socket> WriteWith for TcpSocket<'socket> {
 
 // Embassy-net based implementation of WriteWith for TcpWriter
 impl<'socket> WriteWith for TcpWriter<'socket> {
+    #[inline]
     fn write_with<F, R>(
         &mut self,
         f: F,
