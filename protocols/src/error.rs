@@ -1,4 +1,4 @@
-use abstarct_socket::read_stream_ext::ReadError;
+use abstarct_socket::read_with_ext::ReadError;
 
 /// Errors that can occur during HTTP operations
 ///
@@ -98,6 +98,25 @@ impl core::fmt::Display for Error {
         }
     }
 }
+
+impl<ErrorT> From<embedded_io_async::ReadExactError<ErrorT>> for Error
+where
+    ErrorT: embedded_io_async::Error,
+    Error: From<ErrorT>,
+{
+    fn from(err: embedded_io_async::ReadExactError<ErrorT>) -> Self {
+        match err {
+            embedded_io_async::ReadExactError::UnexpectedEof => {
+                Error::SocketError(embassy_net::tcp::Error::ConnectionReset)
+            }
+            embedded_io_async::ReadExactError::Other(e) => Error::from(e),
+        }
+    }
+}
+
+// mod embedded_io_impls {
+//     use super::*;
+// }
 
 #[cfg(test)]
 mod tests {

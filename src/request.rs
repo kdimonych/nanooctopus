@@ -4,7 +4,8 @@ use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
 use abstarct_socket::head_arena::HeadArena;
-use abstarct_socket::read_stream::ReadStream;
+use abstarct_socket::read_with::ReadWith;
+use embedded_io_async::Read;
 use protocols::http_header_parser::HttpHeaderParser;
 
 /// Maximum number of headers allowed in a request
@@ -53,7 +54,7 @@ impl<'a> HttpRequest<'a> {
         read_buf: &'buf mut [u8],
     ) -> Result<HttpRequest<'buf>, Error>
     where
-        Reader: ReadStream,
+        Reader: ReadWith + Read,
         Error: From<Reader::Error>,
     {
         let parser = HttpHeaderParser::new(stream);
@@ -101,7 +102,7 @@ impl<'a> HttpRequest<'a> {
         let actually_read = stream
             .read_exact(&mut buffer.as_mut_slice()[..body_size])
             .await?;
-        request.body = buffer.take_front(actually_read);
+        request.body = buffer.take_front(body_size);
 
         Ok(request)
     }

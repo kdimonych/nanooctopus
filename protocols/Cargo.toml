@@ -25,6 +25,7 @@ embassy-net = { version = "0.7.1", features = ["tcp", "dns"] }
 abstarct_socket = { path = "../abstarct_socket" }
 defmt = { version = "1.0.1", optional = true }
 embedded-tls = { version = "0.17.0", default-features = false, optional = true }
+embedded-io-async = "0.6.1"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }

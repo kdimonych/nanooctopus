@@ -18,6 +18,7 @@ path = "src/lib.rs"
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
 embassy-net = { version = "0.7.1", features = ["tcp", "proto-ipv6", "medium-ethernet"] }
+embedded-io-async = "0.6.1"
 defmt = { version = "1.0.1", optional = true }
 
 [dev-dependencies]

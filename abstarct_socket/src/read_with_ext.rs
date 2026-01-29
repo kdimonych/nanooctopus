@@ -1,6 +1,6 @@
 use crate::borrowed_buffer::BorrowedBuffer;
 use crate::find_sequence::FindSequence;
-use crate::read_stream::ReadStream;
+use crate::read_with::ReadWith;
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -13,7 +13,7 @@ pub enum ReadError<SocketReadErrorT> {
     TargetBufferOverflow,
 }
 
-pub trait ReadStreamExt: ReadStream {
+pub trait ReadStreamExt: ReadWith {
     /// This function repeatadly call stop_predicate with next chank from the stream until the stop_predicate
     /// returns Some(actually processed bytes out of chank). The read bytes are stored in the provided buffer
     /// (including the last one that triggered the stop predicate).
@@ -221,12 +221,13 @@ pub trait ReadStreamExt: ReadStream {
     }
 }
 
-impl<T: ReadStream + ?Sized> ReadStreamExt for T {}
+impl<T: ReadWith + ?Sized> ReadStreamExt for T {}
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
     use crate::mocks::read_stream::*;
+    use embedded_io_async::Read;
 
     #[tokio::test]
     async fn test_read_till_stop_sequence() {

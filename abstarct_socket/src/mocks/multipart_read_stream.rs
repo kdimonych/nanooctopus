@@ -1,5 +1,5 @@
 pub use crate::mocks::error::DummySocketError;
-pub use crate::read_stream::ReadStream;
+pub use crate::read_with::ReadWith;
 
 extern crate std;
 
@@ -23,8 +23,7 @@ impl DummyMultipartReadStream {
     }
 }
 
-impl ReadStream for DummyMultipartReadStream {
-    type Error = DummySocketError;
+impl ReadWith for DummyMultipartReadStream {
     async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::Error>
     where
         F: FnMut(&mut [u8]) -> (usize, R),
@@ -46,35 +45,45 @@ impl ReadStream for DummyMultipartReadStream {
         self.position += read_bytes;
         Ok(res)
     }
+}
 
-    async fn read<'s>(&'s mut self, buf: &'s mut [u8]) -> Result<usize, Self::Error> {
-        if buf.is_empty() || self.part >= self.multipart_buffer.len() {
-            // EOF reached
-            return Ok(0);
+mod embedded_io_impls {
+    use super::*;
+    impl embedded_io_async::ErrorType for DummyMultipartReadStream {
+        type Error = DummySocketError;
+    }
+
+    impl embedded_io_async::Read for DummyMultipartReadStream {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            if buf.is_empty() || self.part >= self.multipart_buffer.len() {
+                // EOF reached
+                return Ok(0);
+            }
+
+            let to_read = core::cmp::min(
+                buf.len(),
+                self.multipart_buffer[self.part].len() - self.position,
+            );
+
+            buf[..to_read].copy_from_slice(
+                &self.multipart_buffer[self.part][self.position..self.position + to_read],
+            );
+            self.position += to_read;
+
+            if self.position >= self.multipart_buffer[self.part].len() {
+                self.part += 1;
+                self.position = 0;
+            }
+
+            Ok(to_read)
         }
-
-        let to_read = core::cmp::min(
-            buf.len(),
-            self.multipart_buffer[self.part].len() - self.position,
-        );
-
-        buf[..to_read].copy_from_slice(
-            &self.multipart_buffer[self.part][self.position..self.position + to_read],
-        );
-        self.position += to_read;
-
-        if self.position >= self.multipart_buffer[self.part].len() {
-            self.part += 1;
-            self.position = 0;
-        }
-
-        Ok(to_read)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use embedded_io_async::Read;
 
     #[tokio::test]
     async fn test_empty_multipart_buffer_is_empty() {

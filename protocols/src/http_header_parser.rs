@@ -2,8 +2,8 @@ use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
 use abstarct_socket::head_arena::HeadArena;
-use abstarct_socket::read_stream::ReadStream;
-use abstarct_socket::read_stream_ext::{ReadError, ReadStreamExt};
+use abstarct_socket::read_with::ReadWith;
+use abstarct_socket::read_with_ext::{ReadError, ReadStreamExt};
 
 const LINE_DELIMITTER: &[u8; 2] = b"\r\n";
 const LINE_DELIMITTER_SIZE: usize = LINE_DELIMITTER.len();
@@ -118,7 +118,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
         HttpParseError<Reader::Error>,
     >
     where
-        Reader: ReadStream,
+        Reader: ReadWith,
     {
         let read_size = self
             .reader
@@ -184,7 +184,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
         buffer: &mut HeadArena<'buf>,
     ) -> Result<Option<HttpHeader<'buf>>, HttpParseError<Reader::Error>>
     where
-        Reader: ReadStream,
+        Reader: ReadWith,
     {
         if self.state.all_parsed {
             // All headers have been parsed during current session
@@ -234,7 +234,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
         buffer: &mut HeadArena<'_>,
     ) -> Result<(), HttpParseError<Reader::Error>>
     where
-        Reader: ReadStream,
+        Reader: ReadWith,
     {
         // Read out all remaining headers
         while self.parse_next_header(buffer).await?.is_some() {}
@@ -438,7 +438,7 @@ mod tests {
         buffer: &mut HeadArena<'buf>,
     ) -> HttpHeaderParser<'reader, Stream, ReadHeaders>
     where
-        Stream: ReadStream,
+        Stream: ReadWith,
         Stream::Error: core::fmt::Debug,
     {
         let parser = HttpHeaderParser::new(stream);

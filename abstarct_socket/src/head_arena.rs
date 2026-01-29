@@ -183,13 +183,14 @@ mod tests {
 
     #[test]
     fn test_usage_in_a_loop() {
+        const PART_SIZE: usize = 3;
         let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let mut head_arena = HeadArena::new(&mut data);
 
         let mut detached_parts = Vec::new();
 
         while !head_arena.is_empty() {
-            let to_detach = if head_arena.len() >= 3 { 3 } else { head_arena.len() };
+            let to_detach = core::cmp::min(head_arena.len(), PART_SIZE);
             let detached = head_arena.take_front(to_detach);
             detached_parts.push(detached);
         }
@@ -202,13 +203,15 @@ mod tests {
 
     #[test]
     fn test_no_borrowing_glue() {
+        const PART_SIZE: usize = 3;
+
         let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let mut head_arena = HeadArena::new(&mut data);
 
         let mut detached_parts = Vec::new();
 
         while !head_arena.is_empty() {
-            let to_detach = if head_arena.len() >= 3 { 3 } else { head_arena.len() };
+            let to_detach = core::cmp::min(head_arena.len(), PART_SIZE);
             // Mutate buffer only within detach to avoid borrowing issues
             head_arena.as_mut_slice()[0] += 1; // Example mutation
             let detached = head_arena.take_front(to_detach);

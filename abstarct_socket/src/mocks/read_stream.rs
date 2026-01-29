@@ -1,5 +1,5 @@
 pub use crate::mocks::error::DummySocketError;
-pub use crate::read_stream::ReadStream;
+pub use crate::read_with::ReadWith;
 
 /// A dummy read stream for testing purposes
 pub struct DummyReadStream<'a> {
@@ -16,8 +16,7 @@ impl<'a> DummyReadStream<'a> {
     }
 }
 
-impl<'a> ReadStream for DummyReadStream<'a> {
-    type Error = DummySocketError;
+impl<'a> ReadWith for DummyReadStream<'a> {
     async fn read_with<F, R>(&mut self, mut f: F) -> Result<R, Self::Error>
     where
         F: FnMut(&mut [u8]) -> (usize, R),
@@ -35,23 +34,34 @@ impl<'a> ReadStream for DummyReadStream<'a> {
         self.position += read_bytes;
         Ok(res)
     }
+}
 
-    async fn read<'s>(&'s mut self, buf: &'s mut [u8]) -> Result<usize, Self::Error> {
-        if self.position >= self.buffer.len() || buf.is_empty() {
-            // EOF reached
-            return Ok(0);
+mod embedded_io_impls {
+    use super::*;
+    impl<'d> embedded_io_async::ErrorType for DummyReadStream<'d> {
+        type Error = DummySocketError;
+    }
+
+    impl<'d> embedded_io_async::Read for DummyReadStream<'d> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            if self.position >= self.buffer.len() || buf.is_empty() {
+                // EOF reached
+                return Ok(0);
+            }
+
+            let to_read = core::cmp::min(buf.len(), self.buffer.len() - self.position);
+            buf[..to_read].copy_from_slice(&self.buffer[self.position..self.position + to_read]);
+            self.position += to_read;
+            Ok(to_read)
         }
-
-        let to_read = core::cmp::min(buf.len(), self.buffer.len() - self.position);
-        buf[..to_read].copy_from_slice(&self.buffer[self.position..self.position + to_read]);
-        self.position += to_read;
-        Ok(to_read)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use embedded_io_async::Read;
+
     #[tokio::test]
     async fn test_new() {
         let mut buffer = vec![1, 2, 3, 4, 5];

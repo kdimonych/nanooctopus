@@ -1,10 +1,10 @@
 #![cfg_attr(not(test), no_std)]
 
-/// HTTP read stream trait and error types.
-pub mod read_stream;
+/// Read stream trait and error types.
+pub mod read_with;
 
-/// HTTP read stream extention trait and error types.
-pub mod read_stream_ext;
+/// Read stream extention trait and error types.
+pub mod read_with_ext;
 
 /// Utility to find value sequences in a stream.
 pub mod find_sequence;

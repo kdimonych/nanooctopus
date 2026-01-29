@@ -367,19 +367,19 @@ fn write_decimal_to_placeholder(bytes: &mut [u8], mut num: usize) -> Result<(), 
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use heapless::Vec;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use heapless::Vec;
 
-    #[test]
-    fn test_http_response_builder_create_with_status_only() {
-        // let mut buffer = [0u8; 128];
-        // let builder = HttpResponseBuilder::new(&mut buffer);
-        // let response = builder.with_status(StatusCode::Ok).unwrap().build();
-        // let expected = b"HTTP/1.1 200 OK\r\n";
-        // assert_eq!(&response.buffer.as_slice()[..expected.len()], expected);
-    }
+//     #[test]
+//     fn test_http_response_builder_create_with_status_only() {
+//         // let mut buffer = [0u8; 128];
+//         // let builder = HttpResponseBuilder::new(&mut buffer);
+//         // let response = builder.with_status(StatusCode::Ok).unwrap().build();
+//         // let expected = b"HTTP/1.1 200 OK\r\n";
+//         // assert_eq!(&response.buffer.as_slice()[..expected.len()], expected);
+//     }
 
-    // TODO: Add more tests for headers and body building
-}
+//     // TODO: Add more tests for headers and body building
+// }
