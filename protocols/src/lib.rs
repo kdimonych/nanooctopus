@@ -12,6 +12,9 @@ pub mod http_header_parser;
 /// WebSocket protocol support.
 pub mod web_socket_proto;
 
+/// Websocket implementation.
+pub mod web_socket;
+
 /// Predefined HTTP status codes as per RFC 2616.
 pub mod status_code;
 

@@ -9,9 +9,8 @@ pub const WS_EXTENDEDPAYLOAD_LEN_LONG: usize = 8;
 pub const WS_MASKING_KEY_LEN: usize = 4;
 pub const MAX_WS_FRAME_HEADER_SIZE: usize =
     MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG + WS_MASKING_KEY_LEN; // 2 + 8 + 4
-pub const MASKING_KEY_LEN: usize = 4;
 
-pub type MaskKey = [u8; MASKING_KEY_LEN];
+pub type MaskKey = [u8; WS_MASKING_KEY_LEN];
 
 pub type WSRequiredSizeHint = usize;
 pub type WSReadSize = usize;
@@ -123,6 +122,7 @@ pub fn write_frame_header(
     Ok(index)
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct WSFrameHeader {
     fin: u8,
     opcode: WSOpcode,
@@ -148,7 +148,7 @@ impl WSFrameHeader {
     }
 }
 
-fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSocketProtoError> {
+pub fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSocketProtoError> {
     let mut expected_size = MIN_WS_FRAME_HEADER_SIZE;
     if buffer.len() < expected_size {
         return Err(WebSocketProtoError::NotEnoughData(
