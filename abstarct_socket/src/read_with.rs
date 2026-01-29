@@ -18,3 +18,17 @@ pub trait ReadWith: embedded_io_async::ErrorType {
     where
         F: FnOnce(&mut [u8]) -> (usize, R);
 }
+
+/// Implement ReadWith for mutable references to types that implement ReadWith
+impl<T: ?Sized + ReadWith> ReadWith for &mut T {
+    #[inline]
+    fn read_with<F, R>(
+        &mut self,
+        f: F,
+    ) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    where
+        F: FnOnce(&mut [u8]) -> (usize, R),
+    {
+        T::read_with(self, f)
+    }
+}

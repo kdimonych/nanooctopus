@@ -18,3 +18,17 @@ pub trait WriteWith: embedded_io_async::ErrorType {
     where
         F: FnOnce(&mut [u8]) -> (usize, R);
 }
+
+/// Implement WriteWith for mutable references to types that implement WriteWith
+impl<T: ?Sized + WriteWith> WriteWith for &mut T {
+    #[inline]
+    fn write_with<F, R>(
+        &mut self,
+        f: F,
+    ) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    where
+        F: FnOnce(&mut [u8]) -> (usize, R),
+    {
+        T::write_with(self, f)
+    }
+}
