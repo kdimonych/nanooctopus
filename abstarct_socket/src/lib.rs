@@ -3,6 +3,9 @@
 /// Read stream trait and error types.
 pub mod read_with;
 
+/// Write stream trait and error types.
+pub mod write_with;
+
 /// Read stream extention trait and error types.
 pub mod read_with_ext;
 
