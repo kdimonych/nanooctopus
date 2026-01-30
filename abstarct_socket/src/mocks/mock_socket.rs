@@ -1,24 +1,12 @@
-use abstarct_socket::read_with::ReadWith;
-use abstarct_socket::write_with::WriteWith;
-use embedded_io_async::{Error, ErrorType, Read, Write};
+pub use crate::mocks::error::MockStreamError;
+use crate::read_with::ReadWith;
+use crate::write_with::WriteWith;
+use embedded_io_async::{ErrorType, Read, Write};
 use std::vec::Vec;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum MockSocketError {
-    IoError,
-}
-
-impl Error for MockSocketError {
-    fn kind(&self) -> embedded_io_async::ErrorKind {
-        match self {
-            MockSocketError::IoError => embedded_io_async::ErrorKind::Other,
-        }
-    }
-}
-
 pub struct MockSocket {
-    on_receive: Option<Box<dyn FnMut(&mut [u8]) -> Result<usize, MockSocketError>>>,
-    on_send: Option<Box<dyn FnMut(&[u8]) -> Result<usize, MockSocketError>>>,
+    on_receive: Option<Box<dyn FnMut(&mut [u8]) -> Result<usize, MockStreamError>>>,
+    on_send: Option<Box<dyn FnMut(&[u8]) -> Result<usize, MockStreamError>>>,
 }
 
 impl MockSocket {
@@ -31,41 +19,41 @@ impl MockSocket {
 
     pub fn set_on_receive<F>(&mut self, callback: F)
     where
-        F: 'static + FnMut(&mut [u8]) -> Result<usize, MockSocketError>,
+        F: 'static + FnMut(&mut [u8]) -> Result<usize, MockStreamError>,
     {
         self.on_receive = Some(Box::new(callback));
     }
 
     pub fn set_on_send<F>(&mut self, callback: F)
     where
-        F: 'static + FnMut(&[u8]) -> Result<usize, MockSocketError>,
+        F: 'static + FnMut(&[u8]) -> Result<usize, MockStreamError>,
     {
         self.on_send = Some(Box::new(callback));
     }
 }
 
 impl ErrorType for MockSocket {
-    type Error = MockSocketError;
+    type Error = MockStreamError;
 }
 
 impl Read for MockSocket {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MockSocketError> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MockStreamError> {
         if let Some(receive_callback) = &mut self.on_receive {
             let size = receive_callback(buf)?;
             Ok(size)
         } else {
-            Err(MockSocketError::IoError)
+            Err(MockStreamError::ConnectionReset)
         }
     }
 }
 
 impl Write for MockSocket {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, MockSocketError> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, MockStreamError> {
         if let Some(send_callback) = &mut self.on_send {
             let size = send_callback(buf)?;
             Ok(size)
         } else {
-            Err(MockSocketError::IoError)
+            Err(MockStreamError::ConnectionReset)
         }
     }
 }
@@ -86,7 +74,7 @@ impl ReadWith for MockSocket {
             );
             Ok(result)
         } else {
-            Err(MockSocketError::IoError)
+            Err(MockStreamError::ConnectionReset)
         }
     }
 }
@@ -110,7 +98,7 @@ impl WriteWith for MockSocket {
 
             Ok(result)
         } else {
-            Err(MockSocketError::IoError)
+            Err(MockStreamError::ConnectionReset)
         }
     }
 }
@@ -177,8 +165,8 @@ mod tests {
     async fn test_mock_socket_error_in_callback() {
         let mut mock_socket = MockSocket::new();
 
-        mock_socket.set_on_send(|_| Err(MockSocketError::IoError));
-        mock_socket.set_on_receive(|_| Err(MockSocketError::IoError));
+        mock_socket.set_on_send(|_| Err(MockStreamError::ConnectionReset));
+        mock_socket.set_on_receive(|_| Err(MockStreamError::ConnectionReset));
 
         let write_data = b"test";
         let write_result = mock_socket.write(write_data).await;

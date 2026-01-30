@@ -1,20 +1,8 @@
-use abstarct_socket::read_with::ReadWith;
-use abstarct_socket::write_with::WriteWith;
-use embedded_io_async::{Error, ErrorType, Read, Write};
+pub use crate::mocks::error::MockStreamError;
+use crate::read_with::ReadWith;
+use crate::write_with::WriteWith;
+use embedded_io_async::{ErrorType, Read, Write};
 use ringbuf::{StaticRb, traits::*};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum MockLoopbackError {
-    IoError,
-}
-
-impl Error for MockLoopbackError {
-    fn kind(&self) -> embedded_io_async::ErrorKind {
-        match self {
-            MockLoopbackError::IoError => embedded_io_async::ErrorKind::Other,
-        }
-    }
-}
 
 pub struct MockLoopbackSocket<const BUFFER_SIZE: usize> {
     rb: StaticRb<u8, BUFFER_SIZE>,
@@ -29,23 +17,23 @@ impl<const BUFFER_SIZE: usize> MockLoopbackSocket<BUFFER_SIZE> {
 }
 
 impl<const BUFFER_SIZE: usize> ErrorType for MockLoopbackSocket<BUFFER_SIZE> {
-    type Error = MockLoopbackError;
+    type Error = MockStreamError;
 }
 
 impl<const BUFFER_SIZE: usize> Read for MockLoopbackSocket<BUFFER_SIZE> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MockLoopbackError> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MockStreamError> {
         Ok(self.rb.pop_slice(buf))
     }
 }
 
 impl<const BUFFER_SIZE: usize> Write for MockLoopbackSocket<BUFFER_SIZE> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, MockLoopbackError> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, MockStreamError> {
         Ok(self.rb.push_slice(buf))
     }
 }
 
 impl<const BUFFER_SIZE: usize> WriteWith for MockLoopbackSocket<BUFFER_SIZE> {
-    async fn write_with<F, R>(&mut self, f: F) -> Result<R, MockLoopbackError>
+    async fn write_with<F, R>(&mut self, f: F) -> Result<R, MockStreamError>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
@@ -61,7 +49,7 @@ impl<const BUFFER_SIZE: usize> WriteWith for MockLoopbackSocket<BUFFER_SIZE> {
 }
 
 impl<const BUFFER_SIZE: usize> ReadWith for MockLoopbackSocket<BUFFER_SIZE> {
-    async fn read_with<F, R>(&mut self, f: F) -> Result<R, MockLoopbackError>
+    async fn read_with<F, R>(&mut self, f: F) -> Result<R, MockStreamError>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {

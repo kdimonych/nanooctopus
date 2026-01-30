@@ -34,7 +34,6 @@ abstarct_socket = { path = "../abstarct_socket", features = ["mocks"] }
 sha1 = { version = "0.10", default-features = false}
 binascii = { version = "0.1.4", default-features = false, features = ["encode"]}
 modular-bitfield = { version = "0.13.0" }
-ringbuf = "0.4.8"
 
 [features]
 default = []
