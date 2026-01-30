@@ -2,6 +2,7 @@ pub use crate::mocks::error::MockStreamError;
 use crate::read_with::ReadWith;
 use crate::write_with::WriteWith;
 use embedded_io_async::{ErrorType, Read, Write};
+extern crate std;
 use ringbuf::{StaticRb, traits::*};
 
 pub struct MockLoopbackSocket<const BUFFER_SIZE: usize> {

@@ -13,7 +13,7 @@ enum PipeState {
 #[derive(Debug)]
 pub enum WebSocketError<E: embedded_io_async::Error> {
     InvalidHeader,
-    BufferTooSmall,
+    BufferOverflow,
     Closed,
     SocketError(E),
 }
@@ -22,7 +22,7 @@ impl<E: embedded_io_async::Error> embedded_io_async::Error for WebSocketError<E>
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
             WebSocketError::InvalidHeader => embedded_io_async::ErrorKind::InvalidData,
-            WebSocketError::BufferTooSmall => embedded_io_async::ErrorKind::OutOfMemory,
+            WebSocketError::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
             WebSocketError::Closed => embedded_io_async::ErrorKind::BrokenPipe,
             WebSocketError::SocketError(e) => e.kind(),
         }
@@ -138,8 +138,7 @@ where
         S: Write,
     {
         let header_size =
-            write_frame_header(1, WSOpcode::Close, 0, None, &mut self.send_header_buffer)
-                .map_err(|_| WebSocketError::BufferTooSmall)?;
+            write_frame_header(1, WSOpcode::Close, 0, None, &mut self.send_header_buffer);
 
         self.socket
             .write_all(&self.send_header_buffer[..header_size])
@@ -227,6 +226,14 @@ impl<S> Write for WebSocket<S>
 where
     S: Write + ErrorType,
 {
+    /// Writes data to the WebSocket stream.
+    /// This method sends the data as a binary WebSocket frame.
+    /// Returns the number of bytes written.
+    ///
+    /// ### Error:
+    /// - `WebSocketError::Closed`: If the WebSocket sending pipe is closed.
+    /// - `WebSocketError::SocketError`: If there is an error while writing to the underlying socket.
+    ///
     async fn write(&mut self, buf: &[u8]) -> Result<usize, WebSocketError<S::Error>> {
         if self.sending_state == PipeState::Closed {
             return Err(WebSocketError::Closed);
@@ -235,11 +242,10 @@ where
         let header_size = write_frame_header(
             1,
             WSOpcode::Binary,
-            buf.len() as usize,
+            buf.len(),
             None,
             &mut self.send_header_buffer,
-        )
-        .map_err(|_| WebSocketError::BufferTooSmall)?;
+        );
 
         self.socket
             .write_all(&self.send_header_buffer[..header_size])
@@ -248,5 +254,17 @@ where
         self.socket.write_all(buf).await?;
 
         Ok(buf.len())
+    }
+
+    #[inline]
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.socket.flush().await?;
+        Ok(())
+    }
+
+    #[inline]
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.write(buf).await?;
+        Ok(())
     }
 }

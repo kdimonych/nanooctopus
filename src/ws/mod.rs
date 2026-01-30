@@ -88,8 +88,7 @@ impl WebSocketState {
             // Send close frame
             let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
             let header_size =
-                write_frame_header(1, WSOpcode::Close, 0, Option::None, &mut header_buffer)
-                    .map_err(|_| WebSocketError::InvalidFrame)?;
+                write_frame_header(1, WSOpcode::Close, 0, Option::None, &mut header_buffer);
 
             socket
                 .write_all(&header_buffer[..header_size])
@@ -266,8 +265,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
             payload.len(),
             Option::None,
             &mut header_buffer,
-        )
-        .map_err(|_| WebSocketError::InvalidFrame)?;
+        );
 
         self.socket
             .write_all(&header_buffer[..header_size])
@@ -307,8 +305,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
             payload.len(),
             Option::None,
             &mut header_buffer,
-        )
-        .map_err(|_| WebSocketError::InvalidFrame)?;
+        );
 
         self.socket
             .write_all(&header_buffer[..header_size])
@@ -350,8 +347,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
             WSOpcode::Binary,
             payload.len(),
             masking_key,
-        )
-        .map_err(|_| WebSocketError::InvalidFrame)?;
+        );
 
         self.socket
             .write_all(&header_buffer[..header_size])

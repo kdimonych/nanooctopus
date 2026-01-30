@@ -65,9 +65,11 @@ pub fn write_frame_header(
     opcode: WSOpcode,
     payload_len: usize,
     masking_key: Option<MaskKey>,
-    buffer: &mut [u8],
-) -> Result<usize, ()> {
-    let mut index = 0;
+    buffer: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
+) -> usize {
+    debug_assert!(buffer.len() == MAX_WS_FRAME_HEADER_SIZE);
+
+    let mut pos = 0;
 
     let mask_bit = if masking_key.is_some() { 1 } else { 0 };
 
@@ -77,49 +79,34 @@ pub fn write_frame_header(
     header.set_mask(mask_bit);
 
     if payload_len <= 125 {
-        if buffer.len() < MIN_WS_FRAME_HEADER_SIZE {
-            return Err(());
-        }
-
         header.set_payload_len(payload_len as u8);
-        buffer[index..index + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
-        index += MIN_WS_FRAME_HEADER_SIZE;
+        buffer[pos..pos + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
+        pos += MIN_WS_FRAME_HEADER_SIZE;
     } else if payload_len <= 65535 {
-        if buffer.len() < MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT {
-            return Err(());
-        }
-
         header.set_payload_len(126);
-        buffer[index..index + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
-        index += MIN_WS_FRAME_HEADER_SIZE;
+        buffer[pos..pos + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
+        pos += MIN_WS_FRAME_HEADER_SIZE;
 
         let payload_len_sort = payload_len as u16;
-        buffer[index..index + WS_EXTENDEDPAYLOAD_LEN_SHORT]
+        buffer[pos..pos + WS_EXTENDEDPAYLOAD_LEN_SHORT]
             .copy_from_slice(&payload_len_sort.to_be_bytes());
-        index += 2;
+        pos += WS_EXTENDEDPAYLOAD_LEN_SHORT;
     } else {
-        if buffer.len() < MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG {
-            return Err(());
-        }
-
         header.set_payload_len(127);
-        buffer[index..index + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
-        index += MIN_WS_FRAME_HEADER_SIZE;
+        buffer[pos..pos + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
+        pos += MIN_WS_FRAME_HEADER_SIZE;
 
-        buffer[index..index + WS_EXTENDEDPAYLOAD_LEN_LONG]
-            .copy_from_slice(&payload_len.to_be_bytes());
-        index += WS_EXTENDEDPAYLOAD_LEN_LONG;
+        buffer[pos..pos + WS_EXTENDEDPAYLOAD_LEN_LONG].copy_from_slice(&payload_len.to_be_bytes());
+        pos += WS_EXTENDEDPAYLOAD_LEN_LONG;
     }
 
     if let Some(mask) = masking_key {
-        if buffer.len() < index + WS_MASKING_KEY_LEN {
-            return Err(());
-        }
-        buffer[index..index + WS_MASKING_KEY_LEN].copy_from_slice(&mask);
-        index += WS_MASKING_KEY_LEN;
+        buffer[pos..pos + WS_MASKING_KEY_LEN].copy_from_slice(&mask);
+        pos += WS_MASKING_KEY_LEN;
     }
 
-    Ok(index)
+    debug_assert!(pos <= MAX_WS_FRAME_HEADER_SIZE);
+    pos
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -243,13 +230,13 @@ pub struct WSEncodeWriter {
 
 impl WSEncodeWriter {
     pub fn new(
-        out_buf: &mut [u8],
+        out_buf: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
         fin: u8,
         opcode: WSOpcode,
         payload_len: usize,
         masking_key: [u8; 4],
-    ) -> Result<(Self, usize), ()> {
-        let header_size = write_frame_header(fin, opcode, payload_len, Some(masking_key), out_buf)?;
+    ) -> (Self, usize) {
+        let header_size = write_frame_header(fin, opcode, payload_len, Some(masking_key), out_buf);
 
         let result = Self {
             free_space: payload_len,
@@ -257,7 +244,7 @@ impl WSEncodeWriter {
             masking_key,
         };
 
-        Ok((result, header_size))
+        (result, header_size)
     }
 
     /// Writes payload to the destination buffer, applying masking if necessary.
@@ -810,8 +797,7 @@ mod tests {
         let payload_len = 300;
         let masking_key = Some(0xAABBCCDDu32.to_be_bytes());
 
-        let header_size =
-            write_frame_header(fin, opcode, payload_len, masking_key, &mut buffer).unwrap();
+        let header_size = write_frame_header(fin, opcode, payload_len, masking_key, &mut buffer);
 
         let (reading, read_size) = read_frame_header(&buffer).unwrap();
 
@@ -936,14 +922,15 @@ mod tests {
         assert_eq!(decoded_payload_size, 17);
         assert_eq!(decoded_payload_size, reader.payload_len());
 
+        let mut header = [0u8; MAX_WS_FRAME_HEADER_SIZE];
         let (mut writer, encoded_header_size) = WSEncodeWriter::new(
-            &mut encoded_frame_buf,
+            &mut header,
             reader.fin(),
             reader.opcode(),
             reader.payload_len(),
             reader.masking_key().unwrap().clone(),
-        )
-        .unwrap();
+        );
+        encoded_frame_buf[..encoded_header_size].copy_from_slice(&header[..encoded_header_size]);
 
         let encoded_payload_size = writer
             .encode_payload(

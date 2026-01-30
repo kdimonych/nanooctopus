@@ -2,6 +2,10 @@ pub use crate::mocks::error::MockStreamError;
 use crate::read_with::ReadWith;
 use crate::write_with::WriteWith;
 use embedded_io_async::{ErrorType, Read, Write};
+extern crate alloc;
+extern crate std;
+use alloc::boxed::Box;
+
 use std::vec::Vec;
 
 pub struct MockSocket {
