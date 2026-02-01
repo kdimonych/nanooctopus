@@ -87,8 +87,13 @@ impl WebSocketState {
         if self.connection_state == WSConnectionState::Open {
             // Send close frame
             let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
-            let header_size =
-                write_frame_header(1, WSOpcode::Close, 0, Option::None, &mut header_buffer);
+            let header_size = write_frame_header_with_mask_key(
+                1,
+                WSOpcode::Close,
+                0,
+                Option::None,
+                &mut header_buffer,
+            );
 
             socket
                 .write_all(&header_buffer[..header_size])
@@ -260,11 +265,10 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
         }
 
         let header_size = write_frame_header(
-            fin as u8,
-            WSOpcode::Binary,
             payload.len(),
-            Option::None,
             &mut header_buffer,
+            WSOpcode::Binary,
+            fin as u8,
         );
 
         self.socket
@@ -299,13 +303,8 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
             return Err(WebSocketError::Closed);
         }
 
-        let header_size = write_frame_header(
-            fin as u8,
-            WSOpcode::Text,
-            payload.len(),
-            Option::None,
-            &mut header_buffer,
-        );
+        let header_size =
+            write_frame_header(payload.len(), &mut header_buffer, WSOpcode::Text, fin as u8);
 
         self.socket
             .write_all(&header_buffer[..header_size])
@@ -333,7 +332,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
         &mut self,
         mut payload: &'a mut [u8],
         fin: bool,
-        masking_key: [u8; 4],
+        masking_key: MaskKey,
     ) -> Result<(), WebSocketError> {
         let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
 
@@ -341,7 +340,7 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
             return Err(WebSocketError::Closed);
         }
 
-        let (mut writer, header_size) = WSEncodeWriter::new(
+        let (mut writer, header_size) = WSEncodeWriter::encode_header(
             &mut header_buffer,
             fin as u8,
             WSOpcode::Binary,

@@ -60,18 +60,16 @@ struct WebSocketFrameHeaderPacked {
 }
 
 /// Writes a WebSocket frame header into the provided buffer.
-pub fn write_frame_header(
-    fin: u8,
-    opcode: WSOpcode,
+fn write_frame_header_impl(
     payload_len: usize,
-    masking_key: Option<MaskKey>,
     buffer: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
+    opcode: WSOpcode,
+    fin: u8,
+    mask_bit: u8,
 ) -> usize {
     debug_assert!(buffer.len() == MAX_WS_FRAME_HEADER_SIZE);
 
     let mut pos = 0;
-
-    let mask_bit = if masking_key.is_some() { 1 } else { 0 };
 
     let mut header = WebSocketFrameHeaderPacked::new();
     header.set_fin(fin);
@@ -100,10 +98,33 @@ pub fn write_frame_header(
         pos += WS_EXTENDEDPAYLOAD_LEN_LONG;
     }
 
-    if let Some(mask) = masking_key {
-        buffer[pos..pos + WS_MASKING_KEY_LEN].copy_from_slice(&mask);
-        pos += WS_MASKING_KEY_LEN;
-    }
+    debug_assert!(pos <= MAX_WS_FRAME_HEADER_SIZE);
+    pos
+}
+
+/// Writes a WebSocket frame header into the provided buffer.
+#[inline(always)]
+pub fn write_frame_header(
+    payload_len: usize,
+    buffer: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
+    opcode: WSOpcode,
+    fin: u8,
+) -> usize {
+    write_frame_header_impl(payload_len, buffer, opcode, fin, 0)
+}
+
+/// Writes a WebSocket frame header into the provided buffer.
+fn write_frame_header_with_mask_key(
+    payload_len: usize,
+    buffer: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
+    opcode: WSOpcode,
+    fin: u8,
+    masking_key: MaskKey,
+) -> usize {
+    let mut pos = write_frame_header_impl(payload_len, buffer, opcode, fin, 1);
+
+    buffer[pos..pos + WS_MASKING_KEY_LEN].copy_from_slice(&masking_key);
+    pos += WS_MASKING_KEY_LEN;
 
     debug_assert!(pos <= MAX_WS_FRAME_HEADER_SIZE);
     pos
@@ -229,14 +250,15 @@ pub struct WSEncodeWriter {
 }
 
 impl WSEncodeWriter {
-    pub fn new(
+    pub fn encode_header(
         out_buf: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
         fin: u8,
         opcode: WSOpcode,
         payload_len: usize,
         masking_key: [u8; 4],
     ) -> (Self, usize) {
-        let header_size = write_frame_header(fin, opcode, payload_len, Some(masking_key), out_buf);
+        let header_size =
+            write_frame_header_with_mask_key(payload_len, out_buf, opcode, fin, masking_key);
 
         let result = Self {
             free_space: payload_len,
@@ -795,9 +817,10 @@ mod tests {
         let fin = 1;
         let opcode = WSOpcode::Text;
         let payload_len = 300;
-        let masking_key = Some(0xAABBCCDDu32.to_be_bytes());
+        let masking_key = 0xAABBCCDDu32.to_be_bytes();
 
-        let header_size = write_frame_header(fin, opcode, payload_len, masking_key, &mut buffer);
+        let header_size =
+            write_frame_header_with_mask_key(payload_len, &mut buffer, opcode, fin, masking_key);
 
         let (reading, read_size) = read_frame_header(&buffer).unwrap();
 
@@ -805,7 +828,7 @@ mod tests {
         assert_eq!(reading.fin, fin);
         assert_eq!(reading.opcode as u8, opcode as u8);
         assert_eq!(reading.payload_len, payload_len);
-        assert_eq!(reading.masking_key, masking_key);
+        assert_eq!(reading.masking_key, Some(masking_key));
     }
 
     #[test]
@@ -923,7 +946,7 @@ mod tests {
         assert_eq!(decoded_payload_size, reader.payload_len());
 
         let mut header = [0u8; MAX_WS_FRAME_HEADER_SIZE];
-        let (mut writer, encoded_header_size) = WSEncodeWriter::new(
+        let (mut writer, encoded_header_size) = WSEncodeWriter::encode_header(
             &mut header,
             reader.fin(),
             reader.opcode(),

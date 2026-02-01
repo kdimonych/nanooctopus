@@ -137,8 +137,7 @@ where
     where
         S: Write,
     {
-        let header_size =
-            write_frame_header(1, WSOpcode::Close, 0, None, &mut self.send_header_buffer);
+        let header_size = write_frame_header(0, &mut self.send_header_buffer, WSOpcode::Close, 1);
 
         self.socket
             .write_all(&self.send_header_buffer[..header_size])
@@ -239,13 +238,8 @@ where
             return Err(WebSocketError::Closed);
         }
 
-        let header_size = write_frame_header(
-            1,
-            WSOpcode::Binary,
-            buf.len(),
-            None,
-            &mut self.send_header_buffer,
-        );
+        let header_size =
+            write_frame_header(buf.len(), &mut self.send_header_buffer, WSOpcode::Binary, 1);
 
         self.socket
             .write_all(&self.send_header_buffer[..header_size])
