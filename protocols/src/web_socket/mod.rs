@@ -42,10 +42,10 @@ mod tests {
 
         let mut header = [0u8; MAX_WS_FRAME_HEADER_SIZE];
         let (mut writer, encoded_header_size) = WSEncodeWriter::encode_header(
-            &mut header,
-            reader.fin(),
-            reader.opcode(),
             reader.payload_len(),
+            &mut header,
+            reader.opcode(),
+            reader.fin(),
             reader.masking_key().unwrap().clone(),
         );
         encoded_frame_buf[..encoded_header_size].copy_from_slice(&header[..encoded_header_size]);

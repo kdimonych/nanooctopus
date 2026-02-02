@@ -338,10 +338,10 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
         }
 
         let (mut writer, header_size) = WSEncodeWriter::encode_header(
-            &mut header_buffer,
-            fin as u8,
-            WSOpcode::Binary,
             payload.len(),
+            &mut header_buffer,
+            WSOpcode::Binary,
+            fin as u8,
             masking_key,
         );
 

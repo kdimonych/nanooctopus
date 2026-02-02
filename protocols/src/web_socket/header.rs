@@ -1,9 +1,9 @@
 use modular_bitfield::prelude::*;
 
 pub const MIN_WS_FRAME_HEADER_SIZE: usize = 2;
-const WS_EXTENDEDPAYLOAD_LEN_SHORT: usize = 2;
-const WS_EXTENDEDPAYLOAD_LEN_LONG: usize = 8;
-const WS_MASKING_KEY_LEN: usize = 4;
+pub(crate) const WS_EXTENDEDPAYLOAD_LEN_SHORT: usize = 2;
+pub(crate) const WS_EXTENDEDPAYLOAD_LEN_LONG: usize = 8;
+pub(crate) const WS_MASKING_KEY_LEN: usize = 4;
 pub const MAX_WS_FRAME_HEADER_SIZE: usize =
     MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG + WS_MASKING_KEY_LEN; // 2 + 8 + 4
 

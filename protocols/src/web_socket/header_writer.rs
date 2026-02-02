@@ -8,10 +8,10 @@ pub struct WSEncodeWriter {
 
 impl WSEncodeWriter {
     pub fn encode_header(
-        out_buf: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
-        fin: u8,
-        opcode: WSOpcode,
         payload_len: usize,
+        out_buf: &mut [u8; MAX_WS_FRAME_HEADER_SIZE],
+        opcode: WSOpcode,
+        fin: u8,
         masking_key: [u8; 4],
     ) -> (Self, usize) {
         let header_size: usize =
@@ -92,4 +92,63 @@ impl WSEncodeWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::web_socket::test_utils::*;
+
+    #[test]
+    fn test_ws_encode_writer() {
+        const PAYLOAD: &[u8] = b"Hello, WebSocket!";
+        const MASKING_KEY: [u8; 4] = [0x12, 0x34, 0x56, 0x78];
+        const EXPECTED_WS_PACKET: &[u8] = &[
+            0x81, 0x91, 0x12, 0x34, 0x56, 0x78, 0x5A, 0x51, 0x3A, 0x14, 0x7D, 0x18, 0x76, 0x2F,
+            0x77, 0x56, 0x05, 0x17, 0x71, 0x5F, 0x33, 0x0C, 0x33,
+        ]; // Masked frame with "Hello, WebSocket!" payload
+
+        let payload: &[u8] = PAYLOAD; //17 bytes
+        let masking_key: [u8; 4] = MASKING_KEY;
+        let mut buf = [0u8; MAX_WS_FRAME_HEADER_SIZE + PAYLOAD.len()];
+        let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
+
+        let (mut writer, header_size) = WSEncodeWriter::encode_header(
+            payload.len(),
+            &mut header_buffer,
+            WSOpcode::Text,
+            1,
+            masking_key,
+        );
+        assert_eq!(header_size, MIN_WS_FRAME_HEADER_SIZE + WS_MASKING_KEY_LEN);
+
+        buf[..header_size].copy_from_slice(&header_buffer[..header_size]);
+
+        let encoded_payload_size = writer
+            .encode_payload(&mut buf[header_size..], payload)
+            .unwrap();
+        assert_eq!(encoded_payload_size, payload.len());
+        assert_eq!(
+            &buf[..header_size + encoded_payload_size],
+            EXPECTED_WS_PACKET
+        );
+    }
+
+    #[test]
+    fn test_ws_encode_writer_encode_real_frame() {
+        let mut buf = [0u8; REAL_WS_PACKET.len()];
+        let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
+
+        let (mut writer, header_size) = WSEncodeWriter::encode_header(
+            REAL_WS_PACKET_PAYLOAD.len(),
+            &mut header_buffer,
+            WSOpcode::Text,
+            REAL_WS_PACKET_FIN,
+            REAL_WS_PACKET_MASKING_KEY,
+        );
+        assert_eq!(header_size, REAL_WS_PACKET_HEADER_SIZE);
+
+        buf[..header_size].copy_from_slice(&header_buffer[..header_size]);
+
+        let encoded_payload_size = writer
+            .encode_payload(&mut buf[header_size..], &REAL_WS_PACKET_PAYLOAD[..])
+            .unwrap();
+        assert_eq!(encoded_payload_size, REAL_WS_PACKET_PAYLOAD.len());
+        assert_eq!(&buf[..header_size + encoded_payload_size], REAL_WS_PACKET);
+    }
 }
