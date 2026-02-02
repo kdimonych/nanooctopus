@@ -9,12 +9,6 @@ pub mod method;
 /// Stream-based HTTP request parser.
 pub mod http_header_parser;
 
-/// WebSocket protocol support.
-pub mod web_socket_proto;
-
-/// Websocket implementation.
-pub mod web_socket;
-
 /// Predefined HTTP status codes as per RFC 2616.
 pub mod status_code;
 
@@ -23,3 +17,5 @@ pub mod error;
 
 #[cfg(any(test, feature = "mocks"))]
 pub mod mocks;
+
+pub mod web_socket;

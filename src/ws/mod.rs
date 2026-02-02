@@ -5,7 +5,10 @@ use embassy_net::tcp::TcpSocket;
 use embedded_io_async::Write;
 use protocols::error::Error;
 #[cfg(feature = "ws")]
-use protocols::web_socket_proto::*;
+use protocols::web_socket::WS_GUID;
+use protocols::web_socket::header::*;
+use protocols::web_socket::header_reader::*;
+use protocols::web_socket::header_writer::*;
 use sha1::{Digest, Sha1};
 /// WebSocket-related errors.
 pub enum WebSocketError {
@@ -87,13 +90,7 @@ impl WebSocketState {
         if self.connection_state == WSConnectionState::Open {
             // Send close frame
             let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
-            let header_size = write_frame_header_with_mask_key(
-                1,
-                WSOpcode::Close,
-                0,
-                Option::None,
-                &mut header_buffer,
-            );
+            let header_size = write_frame_header(0, &mut header_buffer, WSOpcode::Close, 1);
 
             socket
                 .write_all(&header_buffer[..header_size])
@@ -116,7 +113,7 @@ impl WebSocketState {
 
                 match header_reader.try_read_header(&header_buffer[..read]) {
                     WSHeaderState::Ready(header, _) => {
-                        if header.fin() == 1 {
+                        if header.fin == 1 {
                             // Received close frame, we're done
                             break;
                         } else {
@@ -198,8 +195,8 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
             }
         };
 
-        if header.opcode() == WSOpcode::Close {
-            if header.payload_len() == 0 {
+        if header.opcode == WSOpcode::Close {
+            if header.payload_len == 0 {
                 // No payload to read, we're done
                 self.state.connection_state = WSConnectionState::ClosedRemotely;
                 return Err(WebSocketError::Closed);

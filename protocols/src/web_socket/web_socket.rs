@@ -1,4 +1,6 @@
-use crate::web_socket_proto::*;
+use crate::web_socket::header::*;
+use crate::web_socket::header_reader::*;
+use crate::web_socket::header_writer::*;
 use abstarct_socket::head_arena::HeadArena;
 use abstarct_socket::read_with::ReadWith;
 use abstarct_socket::write_with::WriteWith;
@@ -175,10 +177,9 @@ where
     S: Closable + ErrorType + Write + Read,
     WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
 {
-    async fn close(&mut self) -> Result<(), WebSocketError<S::Error>> {
-        self.close_handshake().await?;
-        self.socket.close().await?;
-        Ok(())
+    #[inline(always)]
+    fn close(&mut self) -> impl core::future::Future<Output = Result<(), Self::Error>> + '_ {
+        self.close_handshake()
     }
 }
 
