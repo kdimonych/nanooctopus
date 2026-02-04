@@ -14,8 +14,6 @@ pub mod web_socket;
 #[cfg(test)]
 pub mod test_utils;
 
-pub const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
 // Tests
 #[cfg(test)]
 mod tests {

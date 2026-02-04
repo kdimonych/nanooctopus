@@ -1,15 +1,12 @@
 use core::cmp::min;
 
-use crate::response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 use embassy_net::tcp::TcpSocket;
 use embedded_io_async::Write;
-use protocols::error::Error;
-#[cfg(feature = "ws")]
-use protocols::web_socket::WS_GUID;
+
 use protocols::web_socket::header::*;
 use protocols::web_socket::header_reader::*;
 use protocols::web_socket::header_writer::*;
-use sha1::{Digest, Sha1};
+
 /// WebSocket-related errors.
 pub enum WebSocketError {
     /// TCP socket error.
@@ -380,29 +377,4 @@ impl<'state, 'socket> WebSocket<'state, 'socket> {
     pub async fn close(&mut self) -> Result<(), WebSocketError> {
         self.state.close(self.socket).await
     }
-}
-
-/// Handles the WebSocket handshake process.
-pub(crate) fn try_handle_websocket_handshake<'a>(
-    mut response_buffer: HttpResponseBufferRef<'a>,
-    web_socket_key: &'a str,
-) -> Result<HttpResponse, Error> {
-    // Compute the Sec-WebSocket-Accept value
-    let key_bytes = web_socket_key.as_bytes();
-    let mut hasher = Sha1::new();
-    hasher.update(key_bytes);
-    hasher.update(WS_GUID);
-    let hash = hasher.finalize();
-
-    HttpResponseBuilder::new(response_buffer.reborrow())
-        .with_status(crate::StatusCode::SwitchingProtocols)?
-        .with_header("Upgrade", "websocket")?
-        .with_header("Connection", "Upgrade")?
-        .with_header_value_from_filler("Sec-WebSocket-Accept", |buf| {
-            // Encode the hash in base64 directly into the provided response buffer
-            let encoded = binascii::b64encode(&hash, buf)
-                .map_err(|_| Error::InvalidData("Failed to encode Sec-WebSocket-Accept"))?;
-            Ok(encoded.len())
-        })?
-        .with_no_body()
 }

@@ -5,6 +5,8 @@ use crate::{
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
 };
 //use abstarct_socket::embassy_impls::read_stream::*;
+#[cfg(feature = "ws")]
+use crate::ws::*;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
@@ -12,9 +14,11 @@ use embedded_io_async::Write as EmbeddedWrite;
 use heapless::spsc::Queue;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
+#[cfg(feature = "ws")]
+use sha1::{Digest, Sha1};
 
 #[cfg(feature = "ws")]
-use crate::ws::*;
+pub const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -397,6 +401,32 @@ impl HttpServer {
                 .with_body_from_str("Request Timeout"),
         }
     }
+}
+
+/// Handles the WebSocket handshake process.
+#[cfg(feature = "ws")]
+fn try_handle_websocket_handshake<'a>(
+    mut response_buffer: HttpResponseBufferRef<'a>,
+    web_socket_key: &'a str,
+) -> Result<HttpResponse, Error> {
+    // Compute the Sec-WebSocket-Accept value
+    let key_bytes = web_socket_key.as_bytes();
+    let mut hasher = Sha1::new();
+    hasher.update(key_bytes);
+    hasher.update(WS_GUID);
+    let hash = hasher.finalize();
+
+    HttpResponseBuilder::new(response_buffer.reborrow())
+        .with_status(crate::StatusCode::SwitchingProtocols)?
+        .with_header("Upgrade", "websocket")?
+        .with_header("Connection", "Upgrade")?
+        .with_header_value_from_filler("Sec-WebSocket-Accept", |buf| {
+            // Encode the hash in base64 directly into the provided response buffer
+            let encoded = binascii::b64encode(&hash, buf)
+                .map_err(|_| Error::InvalidData("Failed to encode Sec-WebSocket-Accept"))?;
+            Ok(encoded.len())
+        })?
+        .with_no_body()
 }
 
 /// Type alias for `HttpServer` with default buffer sizes (4KB each)
