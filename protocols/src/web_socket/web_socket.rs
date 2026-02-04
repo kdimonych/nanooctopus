@@ -1,12 +1,8 @@
 use crate::web_socket::header::*;
 use crate::web_socket::header_reader::*;
-use crate::web_socket::header_writer::*;
-use abstarct_socket::head_arena::HeadArena;
-use abstarct_socket::read_with::ReadWith;
-use abstarct_socket::write_with::WriteWith;
 use core::fmt::Debug;
 use defmt_or_log as log;
-use embedded_io_async::{Error, ErrorType, Read, ReadExactError, ReadReady, Write};
+use embedded_io_async::{ErrorType, Read, ReadExactError, ReadReady, Write};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum PipeState {

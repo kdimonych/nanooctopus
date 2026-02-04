@@ -9,6 +9,7 @@ use core::future::poll_fn;
 use core::pin::pin;
 use core::task::Context;
 use core::task::Poll;
+use defmt_or_log as log;
 use heapless::spsc::Queue;
 
 const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
@@ -115,8 +116,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
                 // This must be set to prevent eternal pending on IO operations
                 socket.set_timeout(Some(SOCKET_IO_TIMEOUT));
 
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
+                log::trace!(
                     "SocketPool: Created socket with RX size {} and TX size {}",
                     RX_SIZE,
                     TX_SIZE
@@ -160,8 +160,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
                 .filter_map(|mut s| match s.poll_wait_next_request_once(cx, port) {
                     Poll::Ready(Ok(())) => Some(s),
                     Poll::Ready(Err(error)) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::error!("SocketPool: Error while polling socket: {:?}", error);
+                        log::error!("SocketPool: Error while polling socket: {:?}", error);
                         None
                     }
                     Poll::Pending => None,
@@ -247,16 +246,14 @@ impl PollSocket for TcpSocket<'_> {
         cx: &mut Context<'_>,
         port: u16,
     ) -> Poll<Result<(), SocketPoolError>> {
-        #[cfg(feature = "defmt")]
-        defmt::trace!(
+        log::trace!(
             "SocketPool: Socket {:?} in state {:?}",
             self.remote_endpoint(),
             self.state()
         );
         match self.state() {
             State::Established | State::SynSent | State::SynReceived => {
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
+                log::trace!(
                     "SocketPool: Wait for request at socket {:?} in state {:?}",
                     self.remote_endpoint(),
                     self.state()
@@ -266,16 +263,14 @@ impl PollSocket for TcpSocket<'_> {
 
             State::Closed | State::Listen => {
                 // In this case we can safelly poll just accept
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
+                log::trace!(
                     "SocketPool: Accept new connection at socket {:?} in state {:?}",
                     self.remote_endpoint(),
                     self.state()
                 );
                 match self.poll_accept_once(cx, port) {
                     Poll::Ready(Ok(())) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::debug!(
+                        log::debug!(
                             "SocketPool: New connection {:?} at socket",
                             self.remote_endpoint()
                         );
@@ -292,16 +287,14 @@ impl PollSocket for TcpSocket<'_> {
             | State::LastAck
             | State::CloseWait => {
                 // In this case we have to gracefully bring the socket down first.
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
+                log::trace!(
                     "SocketPool: Close socket {:?} in state {:?}",
                     self.remote_endpoint(),
                     self.state()
                 );
                 // Close the socket and accept a new connection
                 self.close();
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
+                log::trace!(
                     "SocketPool: Closed socket {:?} in state {:?}",
                     self.remote_endpoint(),
                     self.state()
@@ -310,8 +303,7 @@ impl PollSocket for TcpSocket<'_> {
                 match self.poll_flush_once(cx) {
                     Poll::Ready(Ok(())) => {}
                     Poll::Ready(Err(e)) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::error!(
+                        log::error!(
                             "SocketPool: flush error for socket {:?} in state {:?}",
                             self.remote_endpoint(),
                             self.state()
@@ -320,8 +312,7 @@ impl PollSocket for TcpSocket<'_> {
                     }
                     Poll::Pending => return Poll::Pending,
                 }
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
+                log::trace!(
                     "SocketPool: Accept new connection at socket {:?} in state {:?}",
                     self.remote_endpoint(),
                     self.state()
@@ -329,8 +320,7 @@ impl PollSocket for TcpSocket<'_> {
                 // Previous operations succeeded, accept new connection on this socket
                 match self.poll_accept_once(cx, port) {
                     Poll::Ready(Ok(())) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::debug!(
+                        log::debug!(
                             "SocketPool: New connection at socket {:?} in state {:?}",
                             self.remote_endpoint(),
                             self.state()
@@ -345,8 +335,7 @@ impl PollSocket for TcpSocket<'_> {
             // In the FinWait2 state this function will always return Pending, hence setting up a waker to be woken later if
             // state changed (I hope so)
             State::FinWait2 => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!(
+                log::debug!(
                     "SocketPool: Wait at socket {:?} in state {:?} to be closed by remote",
                     self.remote_endpoint(),
                     self.state()

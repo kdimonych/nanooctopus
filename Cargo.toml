@@ -14,7 +14,8 @@ authors = ["rttf <contact@rttf.dev>"]
 default = []
 tls = ["dep:embedded-tls", "dep:rand_core", "dep:rand_chacha", "protocols/tls"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
-defmt = ["dep:defmt", "embassy-net/defmt", "protocols/defmt", "abstarct_socket/defmt"]
+defmt = ["dep:defmt", "embassy-net/defmt", "protocols/defmt", "abstarct_socket/defmt", "defmt-or-log/defmt"]
+log = ["defmt-or-log/log"]
 
 
 [dependencies]
@@ -37,6 +38,7 @@ binascii = { version = "0.1.4", default-features = false, features = ["encode"],
 modular-bitfield = { version = "0.13.0", optional = true }
 protocols = { path = "./protocols", features = ["ws"] }
 abstarct_socket = { path = "./abstarct_socket" }
+defmt-or-log = { version = "0.2.3" }
 
 [dev-dependencies]
 futures-lite = "2.0"
@@ -44,3 +46,4 @@ abstarct_socket = { path = "./abstarct_socket", features = ["std", "mocks"] }
 protocols = { path = "./protocols", features = ["ws", "std", "mocks"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
+defmt-or-log = { version = "0.2.3", features = ["log"] }

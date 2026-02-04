@@ -4,8 +4,7 @@ use crate::{
 };
 #[cfg(feature = "tls")]
 use defmt::debug;
-#[cfg(feature = "defmt")]
-use defmt::error;
+use defmt_or_log as log;
 use embassy_net::{
     Stack,
     dns::{self, DnsSocket},
@@ -387,8 +386,7 @@ impl<
                     }
                 }
                 Err(e) => {
-                    #[cfg(feature = "defmt")]
-                    error!("Socket read error: {:?}", defmt::Debug2Format(&e));
+                    log::error!("Socket read error: {:?}", log::Debug2Format(&e));
                     retries -= 1;
                     if retries > 0 {
                         Timer::after(self.options.retry_delay).await;

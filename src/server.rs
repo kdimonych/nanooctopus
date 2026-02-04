@@ -5,6 +5,7 @@ use crate::{
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
 };
 //use abstarct_socket::embassy_impls::read_stream::*;
+use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
@@ -141,8 +142,7 @@ impl HttpServer {
     where
         H: HttpHandler,
     {
-        #[cfg(feature = "defmt")]
-        defmt::info!("HTTP server started on port {}", self.port);
+        log::info!("HTTP server started on port {}", self.port);
 
         //The tcp socket life cycle
         let socket_pool = RoundRobinSocketPoolBuilder::new(self.port)
@@ -150,23 +150,15 @@ impl HttpServer {
             .with_keep_alive_timeout(Duration::from_secs(5))
             .build(&mut buffers.socket_buffers, stack);
 
-        #[cfg(feature = "defmt")]
-        defmt::debug!("HTTP server started listening");
-
-        #[cfg(feature = "defmt")]
-        if self.auto_close_connection {
-            defmt::info!("Auto-close connection is enabled");
-        } else {
-            defmt::info!("Auto-close connection is disabled");
-        }
+        log::debug!("HTTP server started listening");
+        log::info!("Auto-close connection is {}", self.auto_close_connection);
 
         let mut ready = Queue::new();
 
         loop {
             socket_pool.acquire_next_request(&mut ready).await;
             if let Some(mut socket) = ready.dequeue() {
-                #[cfg(feature = "defmt")]
-                defmt::info!(
+                log::info!(
                     "New connection/request {:?}, {:?}",
                     socket.remote_endpoint(),
                     self.auto_close_connection
@@ -183,14 +175,12 @@ impl HttpServer {
                 {
                     Ok(Ok(request)) => request,
                     Ok(Err(e)) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("Read error: {:?}, {:?}", e, socket.remote_endpoint());
+                        log::warn!("Read error: {:?}, {:?}", e, socket.remote_endpoint());
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
                     Err(_) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("Socket read timeout, {:?}", socket.remote_endpoint());
+                        log::warn!("Socket read timeout, {:?}", socket.remote_endpoint());
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
@@ -198,8 +188,7 @@ impl HttpServer {
 
                 #[cfg(feature = "ws")]
                 if let Some(web_socket_key) = request.web_socket_key {
-                    #[cfg(feature = "defmt")]
-                    defmt::info!(
+                    log::info!(
                         "Process the websocket connection from, {:?}",
                         socket.remote_endpoint()
                     );
@@ -221,10 +210,10 @@ impl HttpServer {
                     //     let packet_len = socket.read(header_buf).await.ok();
                     //     #[cfg(feature = "defmt")]
                     //     if let Some(packet_len) = packet_len {
-                    //         defmt::info!("WebSocket header received {} bytes", packet_len);
+                    //         log::info!("WebSocket header received {} bytes", packet_len);
                     //         // Trace the raw data in bites
                     //         for byte in &header_buf[..packet_len] {
-                    //             defmt::info!("0b{:08b}", byte);
+                    //             log::info!("0b{:08b}", byte);
                     //         }
                     //     }
                     // }
@@ -238,8 +227,7 @@ impl HttpServer {
                         .is_err()
                     {
                         // Handle error during WebSocket connection
-                        #[cfg(feature = "defmt")]
-                        defmt::error!("Error handling WebSocket connection");
+                        log::error!("Error handling WebSocket connection");
                         web_socket_state.close(&mut socket).await.ok();
                         Self::close_connection(&mut socket).await;
                         continue;
@@ -249,16 +237,14 @@ impl HttpServer {
                     // and return back the socket. The TCP socket may remain open for further HTTP
                     //requests.
                     if web_socket_state.close(&mut socket).await.is_err() {
-                        #[cfg(feature = "defmt")]
-                        defmt::error!(
+                        log::error!(
                             "Unable to close WebSocket gracefully for the client {:?}. Closing TCP socket.",
                             socket.remote_endpoint()
                         );
                     }
                     Self::close_connection(&mut socket).await;
                 } else {
-                    #[cfg(feature = "defmt")]
-                    defmt::info!("Process the request of, {:?}", socket.remote_endpoint());
+                    log::info!("Process the request of, {:?}", socket.remote_endpoint());
 
                     match self
                         .handle_connection(
@@ -280,20 +266,17 @@ impl HttpServer {
                             .is_err()
                             {
                                 // Failed to send response, close the connection
-                                #[cfg(feature = "defmt")]
-                                defmt::debug!("Failed to send response, closing connection");
+                                log::debug!("Failed to send response, closing connection");
                                 Self::close_connection(&mut socket).await;
                                 continue;
                             }
                         }
                         Err(e) => {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("Error handling request: {:?}", e);
+                            log::error!("Error handling request: {:?}", e);
                             // Send a 500 error response
                             if Self::send_server_internal_error(&mut socket).await.is_err() {
                                 // Failed to send error response, close the connection
-                                #[cfg(feature = "defmt")]
-                                defmt::error!("Failed to send internal server error response");
+                                log::error!("Failed to send internal server error response");
                             }
                             Self::close_connection(&mut socket).await;
                             continue;
@@ -301,16 +284,14 @@ impl HttpServer {
                     }
                 }
 
-                #[cfg(feature = "defmt")]
-                defmt::debug!(
+                log::debug!(
                     "It is about to process following request... {:?}",
                     socket.remote_endpoint()
                 );
                 // // Close the connection after handling
                 // Self::close_connection(&mut socket).await;
             } else {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("No available sockets in the pool, retrying...");
+                log::warn!("No available sockets in the pool, retrying...");
                 Timer::after(Duration::from_millis(10)).await;
             }
         }
@@ -321,8 +302,7 @@ impl HttpServer {
         web_socket_key: &'a str,
         tcp_socket: &mut TcpSocket<'_>,
     ) -> Result<(), ()> {
-        #[cfg(feature = "defmt")]
-        defmt::info!("WebSocket upgrade request detected");
+        log::info!("WebSocket upgrade request detected");
         // TODO: Reduce buffer size to fit to the handshake response only.
         let mut response_buffer = [0; 1024];
         let res = try_handle_websocket_handshake(
@@ -332,15 +312,13 @@ impl HttpServer {
 
         match res {
             Ok(response) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!("WebSocket handshake successful");
+                log::info!("WebSocket handshake successful");
                 // Here you would typically hand off the WebSocket to a WebSocket handler
                 // For this example, we'll just close the connection
                 Self::send_response(tcp_socket, &response_buffer[..response.len()]).await
             }
             Err(e) => {
-                #[cfg(feature = "defmt")]
-                defmt::error!("WebSocket handshake error: {:?}", e);
+                log::error!("WebSocket handshake error: {:?}", e);
                 // Send a 500 error response
                 Self::send_server_internal_error(tcp_socket).await
             }
@@ -351,20 +329,19 @@ impl HttpServer {
         socket: &mut TcpSocket<'socket>,
         response_bytes: &[u8],
     ) -> Result<(), ()> {
-        #[cfg(feature = "defmt")]
+        #[cfg(any(feature = "defmt", feature = "log"))]
         if response_bytes.len() < 256 {
-            defmt::trace!(
+            log::trace!(
                 "Raw response: {:?}",
                 core::str::from_utf8(&response_bytes[..response_bytes.len()])
                     .unwrap_or("<invalid utf8>")
             );
         } else {
-            defmt::trace!("Response length: {} bytes", response_bytes.len());
+            log::trace!("Response length: {} bytes", response_bytes.len());
         }
 
         socket.write_all(response_bytes).await.map_err(|e| {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("Failed to write response: {:?}", e);
+            log::warn!("Failed to write response: {:?}", e);
         })
     }
 
@@ -386,20 +363,7 @@ impl HttpServer {
         // Ensure the RST is sent
         socket.flush().await.ok();
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("Connection closed {:?}", remote_endpoint);
-    }
-
-    async fn abort_connection<'a>(socket: &mut TcpSocket<'a>) {
-        let remote_endpoint = socket.remote_endpoint();
-
-        // Close the socket
-        socket.abort();
-        // Ensure the RST is sent
-        socket.flush().await.ok();
-
-        #[cfg(feature = "defmt")]
-        defmt::info!("Connection aborted {:?}", remote_endpoint);
+        log::info!("Connection closed {:?}", remote_endpoint);
     }
 
     async fn handle_connection<'buf, H>(
@@ -420,10 +384,7 @@ impl HttpServer {
         {
             Ok(Ok(response)) => return Ok(response),
             Ok(Err(e)) => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("Handler error: {:?}", e);
-                #[cfg(not(feature = "defmt"))]
-                core::mem::drop(e);
+                log::warn!("Handler error: {:?}", e);
 
                 HttpResponseBuilder::new(response_buffer.reborrow())
                     .with_status(StatusCode::InternalServerError)?
