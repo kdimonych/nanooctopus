@@ -10,6 +10,7 @@ enum PipeState {
     Closed,
 }
 
+/// Errors that can occur during WebSocket protocol parsing
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum WebSocketState {
     Open,
@@ -18,8 +19,9 @@ pub enum WebSocketState {
     Closed,
 }
 
+/// Errors that can occur during WebSocket operations
 #[derive(Debug)]
-pub enum WebSocketError<E: embedded_io_async::Error> {
+pub enum WebSocketError<E> {
     InvalidHeader,
     BufferOverflow,
     Closed,
@@ -37,7 +39,7 @@ impl<E: embedded_io_async::Error> embedded_io_async::Error for WebSocketError<E>
     }
 }
 
-impl<E: embedded_io_async::Error> From<WebSocketProtoError> for WebSocketError<E> {
+impl<E> From<WebSocketProtoError> for WebSocketError<E> {
     fn from(_err: WebSocketProtoError) -> Self {
         WebSocketError::InvalidHeader
     }
@@ -49,8 +51,17 @@ impl<E: embedded_io_async::Error> From<E> for WebSocketError<E> {
     }
 }
 
-pub struct WebSocket<S> {
-    socket: S,
+impl<E: embedded_io_async::Error> From<ReadExactError<E>> for WebSocketError<E> {
+    fn from(err: ReadExactError<E>) -> Self {
+        match err {
+            ReadExactError::UnexpectedEof => WebSocketError::Closed,
+            ReadExactError::Other(e) => WebSocketError::SocketError(e),
+        }
+    }
+}
+
+pub struct WebSocket<'s, S> {
+    socket: &'s mut S,
     receiving_state: PipeState,
     sending_state: PipeState,
     recv_header_buffer: [u8; MAX_WS_FRAME_HEADER_SIZE],
@@ -58,11 +69,11 @@ pub struct WebSocket<S> {
     active_payload_reader: Option<WSPayloadReader>,
 }
 
-impl<S> WebSocket<S>
+impl<'s, S> WebSocket<'s, S>
 where
     S: ErrorType,
 {
-    pub const fn new(socket: S) -> Self {
+    pub const fn new(socket: &'s mut S) -> Self {
         Self {
             socket,
             receiving_state: PipeState::Open,
@@ -74,7 +85,7 @@ where
     }
 
     /// Performs close handshake and releases the underlying socket
-    pub async fn release(mut self) -> (S, Result<(), WebSocketError<S::Error>>)
+    pub async fn release(mut self) -> (&'s mut S, Result<(), WebSocketError<S::Error>>)
     where
         S: Write + Read + ReadReady,
         WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
@@ -268,14 +279,14 @@ where
     }
 }
 
-impl<S> ErrorType for WebSocket<S>
+impl<'s, S> ErrorType for WebSocket<'s, S>
 where
     S: ErrorType,
 {
     type Error = WebSocketError<S::Error>;
 }
 
-impl<S> Read for WebSocket<S>
+impl<'s, S> Read for WebSocket<'s, S>
 where
     S: Read + ErrorType,
     WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
@@ -312,7 +323,7 @@ where
     }
 }
 
-impl<S> Write for WebSocket<S>
+impl<'s, S> Write for WebSocket<'s, S>
 where
     S: Write + ErrorType,
 {

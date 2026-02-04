@@ -1,18 +1,26 @@
 /// WebSocket protocol header
-pub mod header;
+mod header;
 
 /// WebSocket header reader module.
-pub mod header_reader;
+mod header_reader;
 
 /// WebSocket header writer module.
-pub mod header_writer;
+mod header_writer;
 
 /// Websocket implementation.
-pub mod web_socket;
+mod web_socket;
 
 /// Test utilities for WebSocket.
 #[cfg(test)]
 pub mod test_utils;
+
+pub use web_socket::{WebSocket, WebSocketError, WebSocketState};
+
+// Re-export the traits to make implementations visible
+pub use embedded_io_async::{
+    Error as WebSocketIoError, Read as WebSocketRead, ReadReady as WebSocketReadReady,
+    Write as WebSocketWrite, WriteReady as WebSocketWriteReady,
+};
 
 // Tests
 #[cfg(test)]

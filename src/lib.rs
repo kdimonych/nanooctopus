@@ -18,10 +18,10 @@ pub mod response_builder;
 pub mod server;
 /// Slice view utilities for HTTP responses.
 pub mod slice_view;
-mod socket_wrapper;
-/// WebSocket support module
-#[cfg(feature = "ws")]
-pub mod ws;
+
+// /// WebSocket support module
+// #[cfg(feature = "ws")]
+// pub mod ws;
 
 mod socket_pool;
 
@@ -32,11 +32,15 @@ pub use protocols::error::Error;
 pub use protocols::header::{HttpHeader, headers, mime_types};
 pub use protocols::method::HttpMethod;
 pub use protocols::status_code::StatusCode;
+
+#[cfg(feature = "ws")]
+pub use handler::{
+    WebSocket, WebSocketError, WebSocketIoError, WebSocketRead, WebSocketReadReady, WebSocketState,
+    WebSocketWrite, WebSocketWriteReady,
+};
+
 pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 pub use server::{
     DefaultHttpServer, HttpServer, HttpServerBuffers, ServerTimeouts, SmallHttpServer,
 };
-
-#[cfg(feature = "ws")]
-pub use ws::*;

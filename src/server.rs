@@ -5,8 +5,6 @@ use crate::{
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
 };
 //use abstarct_socket::embassy_impls::read_stream::*;
-#[cfg(feature = "ws")]
-use crate::ws::*;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
@@ -14,6 +12,8 @@ use embedded_io_async::Write as EmbeddedWrite;
 use heapless::spsc::Queue;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
+#[cfg(feature = "ws")]
+use protocols::web_socket::{WebSocket, WebSocketError, WebSocketState};
 #[cfg(feature = "ws")]
 use sha1::{Digest, Sha1};
 
@@ -204,8 +204,6 @@ impl HttpServer {
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
-                    // Here we would normally transition to WebSocket handling
-                    let mut web_socket_state = WebSocketState::new();
 
                     // Test code
                     // {
@@ -222,17 +220,15 @@ impl HttpServer {
                     //     }
                     // }
 
+                    // core::cell::RefMut<'_, TcpSocket<'_>>
+
                     if handler
-                        .handle_websocket_connection(
-                            &request,
-                            WebSocket::new(&mut socket, &mut web_socket_state),
-                        )
+                        .handle_websocket_connection(&request, WebSocket::new(&mut socket))
                         .await
                         .is_err()
                     {
                         // Handle error during WebSocket connection
                         log::error!("Error handling WebSocket connection");
-                        web_socket_state.close(&mut socket).await.ok();
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
@@ -240,12 +236,6 @@ impl HttpServer {
                     // After WebSocket handling is done, close the WebSocket connection gracefully
                     // and return back the socket. The TCP socket may remain open for further HTTP
                     //requests.
-                    if web_socket_state.close(&mut socket).await.is_err() {
-                        log::error!(
-                            "Unable to close WebSocket gracefully for the client {:?}. Closing TCP socket.",
-                            socket.remote_endpoint()
-                        );
-                    }
                     Self::close_connection(&mut socket).await;
                 } else {
                     log::info!("Process the request of, {:?}", socket.remote_endpoint());

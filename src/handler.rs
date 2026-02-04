@@ -1,5 +1,3 @@
-#[cfg(feature = "ws")]
-use crate::WebSocket;
 use crate::{
     HttpResponseBuilder,
     request::HttpRequest,
@@ -8,6 +6,18 @@ use crate::{
 
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
+
+/// The WebSOcket implementation
+#[cfg(feature = "ws")]
+pub type WebSocket<'a, 's> = protocols::web_socket::WebSocket<'a, embassy_net::tcp::TcpSocket<'s>>;
+
+#[cfg(feature = "ws")]
+pub use protocols::web_socket::{WebSocketError, WebSocketState};
+
+#[cfg(feature = "ws")]
+pub use protocols::web_socket::{
+    WebSocketIoError, WebSocketRead, WebSocketReadReady, WebSocketWrite, WebSocketWriteReady,
+};
 
 /// Trait for handling HTTP requests
 #[allow(async_fn_in_trait)]
@@ -26,10 +36,10 @@ pub trait HttpHandler {
     /// will remain open and server will process further HTTP requests on it.
     ///
     /// If the handler returns Err() the TCP socket will be closed and the server will wait for a new connection.
-    async fn handle_websocket_connection(
+    async fn handle_websocket_connection<'a>(
         &mut self,
         request: &HttpRequest<'_>,
-        web_socket: WebSocket<'_, '_>,
+        web_socket: WebSocket<'a, '_>,
     ) -> Result<(), ()>;
 }
 
@@ -60,10 +70,10 @@ impl HttpHandler for SimpleHandler {
     }
 
     #[cfg(feature = "ws")]
-    async fn handle_websocket_connection(
+    async fn handle_websocket_connection<'a>(
         &mut self,
         request: &HttpRequest<'_>,
-        web_socket: WebSocket<'_, '_>,
+        web_socket: WebSocket<'a, '_>,
     ) -> Result<(), ()> {
         Err(()) // Close the connection immediately
     }
