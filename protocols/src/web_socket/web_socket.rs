@@ -5,6 +5,7 @@ use abstarct_socket::head_arena::HeadArena;
 use abstarct_socket::read_with::ReadWith;
 use abstarct_socket::write_with::WriteWith;
 use embedded_io_async::{Error, ErrorType, Read, ReadExactError, Write};
+use defmt_or_log as log;
 
 #[derive(Debug, PartialEq)]
 enum PipeState {

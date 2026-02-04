@@ -26,6 +26,7 @@ abstarct_socket = { path = "../abstarct_socket" }
 defmt = { version = "1.0.1", optional = true }
 embedded-tls = { version = "0.17.0", default-features = false, optional = true }
 embedded-io-async = "0.6.1"
+defmt-or-log = { version = "0.2.3" }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -34,14 +35,16 @@ abstarct_socket = { path = "../abstarct_socket", features = ["mocks"] }
 sha1 = { version = "0.10", default-features = false}
 binascii = { version = "0.1.4", default-features = false, features = ["encode"]}
 modular-bitfield = { version = "0.13.0" }
+defmt-or-log = { version = "0.2.3", features = ["log"] }
 
 [features]
 default = []
 std = ["embassy-net/std", "abstarct_socket/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
-defmt = ["dep:defmt", "abstarct_socket/defmt", "embassy-net/defmt"]
+defmt = ["dep:defmt", "abstarct_socket/defmt", "embassy-net/defmt", "defmt-or-log/defmt"]
 tls = ["dep:embedded-tls"]
 mocks = ["abstarct_socket/mocks"]
+log = ["defmt-or-log/log"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]
