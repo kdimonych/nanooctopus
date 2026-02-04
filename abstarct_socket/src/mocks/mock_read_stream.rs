@@ -55,12 +55,18 @@ mod embedded_io_impls {
             Ok(to_read)
         }
     }
+
+    impl<'d> embedded_io_async::ReadReady for MockReadStream<'d> {
+        fn read_ready(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.position < self.buffer.len())
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use embedded_io_async::Read;
+    use embedded_io_async::{Read, ReadReady};
 
     #[tokio::test]
     async fn test_new() {
@@ -177,5 +183,19 @@ mod tests {
 
         assert_eq!(result, 42);
         assert_eq!(stream.position, 4);
+    }
+
+    #[tokio::test]
+    async fn test_read_ready() {
+        let mut buffer = vec![1, 2, 3];
+        let mut stream = MockReadStream::new(&mut buffer);
+        let is_ready = stream.read_ready().unwrap();
+        assert!(is_ready);
+
+        // Read all data
+        let mut buf = [0u8; 3];
+        stream.read(&mut buf).await.unwrap();
+        let is_ready_after_eof = stream.read_ready().unwrap();
+        assert!(!is_ready_after_eof);
     }
 }

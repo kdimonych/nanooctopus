@@ -45,9 +45,15 @@ pub fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSoc
         return Err(WebSocketProtoError::NotEnoughData(
             expected_size, // Need at least 2 bytes
         ));
-    }
+    };
 
-    let header = WebSocketFrameHeaderPacked::from_bytes([buffer[0], buffer[1]]);
+    // Safety: We have already checked that the buffer length is at least MIN_WS_FRAME_HEADER_SIZE
+    let header_bytes = unsafe {
+        *buffer
+            .first_chunk::<MIN_WS_FRAME_HEADER_SIZE>()
+            .unwrap_unchecked()
+    };
+    let header = WebSocketFrameHeaderPacked::from_bytes(header_bytes);
     let opcode = header
         .opcode_or_err()
         .map_err(|_| WebSocketProtoError::InvalidFrame)?;
@@ -130,36 +136,33 @@ fn write_frame_header_impl(
     fin: u8,
     mask_bit: u8,
 ) -> usize {
-    debug_assert!(buffer.len() == MAX_WS_FRAME_HEADER_SIZE);
-
-    let mut pos = 0;
+    let mut buf = buffer.as_mut();
 
     let mut header = WebSocketFrameHeaderPacked::new();
     header.set_fin(fin);
     header.set_opcode(opcode);
     header.set_mask(mask_bit);
 
-    if payload_len <= 125 {
+    let pos: usize = if payload_len <= 125 {
         header.set_payload_len(payload_len as u8);
-        buffer[pos..pos + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
-        pos += MIN_WS_FRAME_HEADER_SIZE;
+        buf[..MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
+        MIN_WS_FRAME_HEADER_SIZE
     } else if payload_len <= 65535 {
         header.set_payload_len(126);
-        buffer[pos..pos + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
-        pos += MIN_WS_FRAME_HEADER_SIZE;
+        buf[..MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
+        buf = &mut buf[MIN_WS_FRAME_HEADER_SIZE..];
 
         let payload_len_sort = payload_len as u16;
-        buffer[pos..pos + WS_EXTENDEDPAYLOAD_LEN_SHORT]
-            .copy_from_slice(&payload_len_sort.to_be_bytes());
-        pos += WS_EXTENDEDPAYLOAD_LEN_SHORT;
+        buf[..WS_EXTENDEDPAYLOAD_LEN_SHORT].copy_from_slice(&payload_len_sort.to_be_bytes());
+        MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT
     } else {
         header.set_payload_len(127);
-        buffer[pos..pos + MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
-        pos += MIN_WS_FRAME_HEADER_SIZE;
+        buf[..MIN_WS_FRAME_HEADER_SIZE].copy_from_slice(&header.into_bytes());
+        buf = &mut buf[MIN_WS_FRAME_HEADER_SIZE..];
 
-        buffer[pos..pos + WS_EXTENDEDPAYLOAD_LEN_LONG].copy_from_slice(&payload_len.to_be_bytes());
-        pos += WS_EXTENDEDPAYLOAD_LEN_LONG;
-    }
+        buf[..WS_EXTENDEDPAYLOAD_LEN_LONG].copy_from_slice(&payload_len.to_be_bytes());
+        MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG
+    };
 
     debug_assert!(pos <= MAX_WS_FRAME_HEADER_SIZE);
     pos

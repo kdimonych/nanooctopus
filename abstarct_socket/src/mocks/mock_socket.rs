@@ -1,7 +1,7 @@
 pub use crate::mocks::error::MockStreamError;
 use crate::read_with::ReadWith;
 use crate::write_with::WriteWith;
-use embedded_io_async::{ErrorType, Read, Write};
+use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 extern crate alloc;
 extern crate std;
 use alloc::boxed::Box;
@@ -11,6 +11,8 @@ use std::vec::Vec;
 pub struct MockSocket {
     on_receive: Option<Box<dyn FnMut(&mut [u8]) -> Result<usize, MockStreamError>>>,
     on_send: Option<Box<dyn FnMut(&[u8]) -> Result<usize, MockStreamError>>>,
+    on_read_ready: Option<Box<dyn FnMut() -> Result<bool, MockStreamError>>>,
+    on_write_ready: Option<Box<dyn FnMut() -> Result<bool, MockStreamError>>>,
 }
 
 impl MockSocket {
@@ -18,6 +20,8 @@ impl MockSocket {
         Self {
             on_receive: None,
             on_send: None,
+            on_read_ready: None,
+            on_write_ready: None,
         }
     }
 
@@ -33,6 +37,20 @@ impl MockSocket {
         F: 'static + FnMut(&[u8]) -> Result<usize, MockStreamError>,
     {
         self.on_send = Some(Box::new(callback));
+    }
+
+    pub fn set_on_read_ready<F>(&mut self, callback: F)
+    where
+        F: 'static + FnMut() -> Result<bool, MockStreamError>,
+    {
+        self.on_read_ready = Some(Box::new(callback));
+    }
+
+    pub fn set_on_write_ready<F>(&mut self, callback: F)
+    where
+        F: 'static + FnMut() -> Result<bool, MockStreamError>,
+    {
+        self.on_write_ready = Some(Box::new(callback));
     }
 }
 
@@ -59,6 +77,24 @@ impl Write for MockSocket {
         } else {
             Err(MockStreamError::ConnectionReset)
         }
+    }
+}
+
+impl WriteReady for MockSocket {
+    fn write_ready(&mut self) -> Result<bool, MockStreamError> {
+        if let Some(on_write_ready) = self.on_write_ready.as_mut() {
+            return on_write_ready();
+        }
+        Ok(true)
+    }
+}
+
+impl ReadReady for MockSocket {
+    fn read_ready(&mut self) -> Result<bool, MockStreamError> {
+        if let Some(on_read_ready) = self.on_read_ready.as_mut() {
+            return on_read_ready();
+        }
+        Ok(true)
     }
 }
 
@@ -195,5 +231,51 @@ mod tests {
         let mut read_buf = [0u8; 10];
         let bytes_read = mock_socket.read(&mut read_buf).await.unwrap();
         assert_eq!(bytes_read, 0);
+    }
+
+    #[tokio::test]
+    async fn test_mock_socket_read_ready() {
+        let mut mock_socket = MockSocket::new();
+
+        mock_socket.set_on_read_ready(|| Ok(false));
+
+        let mut is_ready = mock_socket.read_ready().unwrap();
+        assert_eq!(is_ready, false);
+
+        mock_socket.set_on_read_ready(|| Ok(true));
+
+        is_ready = mock_socket.read_ready().unwrap();
+        assert_eq!(is_ready, true);
+    }
+
+    #[tokio::test]
+    async fn test_mock_socket_no_read_ready_set_always_returns_true() {
+        let mut mock_socket = MockSocket::new();
+
+        let is_ready = mock_socket.read_ready().unwrap();
+        assert!(is_ready);
+    }
+
+    #[tokio::test]
+    async fn test_mock_socket_write_ready() {
+        let mut mock_socket = MockSocket::new();
+
+        mock_socket.set_on_write_ready(|| Ok(false));
+
+        let mut is_ready = mock_socket.write_ready().unwrap();
+        assert_eq!(is_ready, false);
+
+        mock_socket.set_on_write_ready(|| Ok(true));
+
+        is_ready = mock_socket.write_ready().unwrap();
+        assert_eq!(is_ready, true);
+    }
+
+    #[tokio::test]
+    async fn test_mock_socket_no_write_ready_set_always_returns_true() {
+        let mut mock_socket = MockSocket::new();
+
+        let is_ready = mock_socket.write_ready().unwrap();
+        assert!(is_ready);
     }
 }

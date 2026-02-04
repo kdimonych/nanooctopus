@@ -78,12 +78,19 @@ mod embedded_io_impls {
             Ok(to_read)
         }
     }
+
+    impl embedded_io_async::ReadReady for MockMultipartReadStream {
+        fn read_ready(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.part < self.multipart_buffer.len()
+                && self.position < self.multipart_buffer[self.part].len())
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use embedded_io_async::Read;
+    use embedded_io_async::{Read, ReadReady};
 
     #[tokio::test]
     async fn test_empty_multipart_buffer_is_empty() {
@@ -211,5 +218,18 @@ mod tests {
 
         let bytes_read = stream.read(&mut buf).await.unwrap();
         assert_eq!(bytes_read, 0);
+    }
+
+    #[tokio::test]
+    async fn test_read_ready() {
+        let multipart_buffer = vec![vec![1, 2, 3]];
+        let mut stream = MockMultipartReadStream::new(&multipart_buffer);
+        let is_ready = stream.read_ready().unwrap();
+        assert!(is_ready);
+        // Read all data
+        let mut buf = [0u8; 3];
+        stream.read(&mut buf).await.unwrap();
+        let is_ready_after_eof = stream.read_ready().unwrap();
+        assert!(!is_ready_after_eof);
     }
 }
