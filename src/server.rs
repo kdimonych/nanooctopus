@@ -146,7 +146,7 @@ impl HttpServer {
     where
         H: HttpHandler,
     {
-        log::info!("HTTP server started on port {}", self.port);
+        log::info!("WebServer: HTTP server started on port {}", self.port);
 
         //The tcp socket life cycle
         let socket_pool = RoundRobinSocketPoolBuilder::new(self.port)
@@ -154,8 +154,11 @@ impl HttpServer {
             .with_keep_alive_timeout(Duration::from_secs(5))
             .build(&mut buffers.socket_buffers, stack);
 
-        log::debug!("HTTP server started listening");
-        log::info!("Auto-close connection is {}", self.auto_close_connection);
+        log::debug!("WebServer: HTTP server started listening");
+        log::info!(
+            "WebServer: Auto-close connection is {}",
+            self.auto_close_connection
+        );
 
         let mut ready = Queue::new();
 
@@ -163,7 +166,7 @@ impl HttpServer {
             socket_pool.acquire_next_request(&mut ready).await;
             if let Some(mut socket) = ready.dequeue() {
                 log::info!(
-                    "New connection/request {:?}, {:?}",
+                    "WebServer: New connection/request {:?}, {:?}",
                     socket.remote_endpoint(),
                     self.auto_close_connection
                 );
@@ -179,12 +182,19 @@ impl HttpServer {
                 {
                     Ok(Ok(request)) => request,
                     Ok(Err(e)) => {
-                        log::warn!("Read error: {:?}, {:?}", e, socket.remote_endpoint());
+                        log::warn!(
+                            "WebServer: Read error: {:?}, {:?}",
+                            e,
+                            socket.remote_endpoint()
+                        );
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
                     Err(_) => {
-                        log::warn!("Socket read timeout, {:?}", socket.remote_endpoint());
+                        log::warn!(
+                            "WebServer: Socket read timeout, {:?}",
+                            socket.remote_endpoint()
+                        );
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
@@ -193,7 +203,7 @@ impl HttpServer {
                 #[cfg(feature = "ws")]
                 if let Some(web_socket_key) = request.web_socket_key {
                     log::info!(
-                        "Process the websocket connection from, {:?}",
+                        "WebServer: Process the websocket connection from, {:?}",
                         socket.remote_endpoint()
                     );
                     if Self::web_socket_handshake(web_socket_key, &mut socket)
@@ -233,12 +243,15 @@ impl HttpServer {
                         continue;
                     }
 
-                    // After WebSocket handling is done, close the WebSocket connection gracefully
-                    // and return back the socket. The TCP socket may remain open for further HTTP
-                    //requests.
-                    Self::close_connection(&mut socket).await;
+                    // // After WebSocket handling is done, close the WebSocket connection gracefully
+                    // // and return back the socket. The TCP socket may remain open for further HTTP
+                    // //requests.
+                    // Self::close_connection(&mut socket).await;
                 } else {
-                    log::info!("Process the request of, {:?}", socket.remote_endpoint());
+                    log::info!(
+                        "WebServer: Process the request of, {:?}",
+                        socket.remote_endpoint()
+                    );
 
                     match self
                         .handle_connection(
@@ -260,17 +273,21 @@ impl HttpServer {
                             .is_err()
                             {
                                 // Failed to send response, close the connection
-                                log::debug!("Failed to send response, closing connection");
+                                log::debug!(
+                                    "WebServer: Failed to send response, closing connection"
+                                );
                                 Self::close_connection(&mut socket).await;
                                 continue;
                             }
                         }
                         Err(e) => {
-                            log::error!("Error handling request: {:?}", e);
+                            log::error!("WebServer: Error handling request: {:?}", e);
                             // Send a 500 error response
                             if Self::send_server_internal_error(&mut socket).await.is_err() {
                                 // Failed to send error response, close the connection
-                                log::error!("Failed to send internal server error response");
+                                log::error!(
+                                    "WebServer: Failed to send internal server error response"
+                                );
                             }
                             Self::close_connection(&mut socket).await;
                             continue;
@@ -279,13 +296,13 @@ impl HttpServer {
                 }
 
                 log::debug!(
-                    "It is about to process following request... {:?}",
+                    "WebServer: It is about to process following request... {:?}",
                     socket.remote_endpoint()
                 );
                 // // Close the connection after handling
                 // Self::close_connection(&mut socket).await;
             } else {
-                log::warn!("No available sockets in the pool, retrying...");
+                log::warn!("WebServer: No available sockets in the pool, retrying...");
                 Timer::after(Duration::from_millis(10)).await;
             }
         }
@@ -296,7 +313,7 @@ impl HttpServer {
         web_socket_key: &'a str,
         tcp_socket: &mut TcpSocket<'_>,
     ) -> Result<(), ()> {
-        log::info!("WebSocket upgrade request detected");
+        log::info!("WebServer: WebSocket upgrade request detected");
         // TODO: Reduce buffer size to fit to the handshake response only.
         let mut response_buffer = [0; 1024];
         let res = try_handle_websocket_handshake(
@@ -306,13 +323,13 @@ impl HttpServer {
 
         match res {
             Ok(response) => {
-                log::info!("WebSocket handshake successful");
+                log::info!("WebServer: WebSocket handshake successful");
                 // Here you would typically hand off the WebSocket to a WebSocket handler
                 // For this example, we'll just close the connection
                 Self::send_response(tcp_socket, &response_buffer[..response.len()]).await
             }
             Err(e) => {
-                log::error!("WebSocket handshake error: {:?}", e);
+                log::error!("WebServer: WebSocket handshake error: {:?}", e);
                 // Send a 500 error response
                 Self::send_server_internal_error(tcp_socket).await
             }
@@ -326,16 +343,16 @@ impl HttpServer {
         #[cfg(any(feature = "defmt", feature = "log"))]
         if response_bytes.len() < 256 {
             log::trace!(
-                "Raw response: {:?}",
+                "WebServer: Raw response: {:?}",
                 core::str::from_utf8(&response_bytes[..response_bytes.len()])
                     .unwrap_or("<invalid utf8>")
             );
         } else {
-            log::trace!("Response length: {} bytes", response_bytes.len());
+            log::trace!("WebServer: Response length: {} bytes", response_bytes.len());
         }
 
         socket.write_all(response_bytes).await.map_err(|e| {
-            log::warn!("Failed to write response: {:?}", e);
+            log::warn!("WebServer: Failed to write response: {:?}", e);
         })
     }
 
@@ -357,7 +374,7 @@ impl HttpServer {
         // Ensure the RST is sent
         socket.flush().await.ok();
 
-        log::info!("Connection closed {:?}", remote_endpoint);
+        log::info!("WebServer: Connection closed {:?}", remote_endpoint);
     }
 
     async fn handle_connection<'buf, H>(
@@ -378,7 +395,7 @@ impl HttpServer {
         {
             Ok(Ok(response)) => return Ok(response),
             Ok(Err(e)) => {
-                log::warn!("Handler error: {:?}", e);
+                log::warn!("WebServer: Handler error: {:?}", e);
 
                 HttpResponseBuilder::new(response_buffer.reborrow())
                     .with_status(StatusCode::InternalServerError)?

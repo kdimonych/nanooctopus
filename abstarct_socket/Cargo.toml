@@ -17,10 +17,15 @@ path = "src/lib.rs"
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
-embassy-net = { version = "0.7.1", features = ["tcp", "proto-ipv6", "medium-ethernet"] }
+embassy-net = { version = "0.7.1", features = [
+    "tcp",
+    "proto-ipv6",
+    "medium-ethernet",
+] }
 embedded-io-async = "0.6.1"
 defmt = { version = "1.0.1", optional = true }
-ringbuf = {version = "0.4.8",  optional = true}
+ringbuf = { version = "0.4.8", optional = true }
+defmt-or-log = { version = "0.2.3", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -30,8 +35,9 @@ ringbuf = "0.4.8"
 [features]
 default = []
 std = ["embassy-net/std", "ringbuf/std"]
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "defmt-or-log/defmt"]
 mocks = ["dep:ringbuf"]
+log = ["defmt-or-log/log"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]

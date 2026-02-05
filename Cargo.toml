@@ -6,7 +6,14 @@ description = "🐟 A lightweight, `no_std` HTTP client and server for embedded 
 documentation = "https://docs.rs/nanofish"
 repository = "https://github.com/rttfd/nanofish"
 license = "MIT"
-keywords = ["no_std", "embedded", "async", "http_client", "http_server", "websockets"]
+keywords = [
+    "no_std",
+    "embedded",
+    "async",
+    "http_client",
+    "http_server",
+    "websockets",
+]
 authors = ["rttf <contact@rttf.dev>"]
 
 
@@ -14,12 +21,18 @@ authors = ["rttf <contact@rttf.dev>"]
 default = []
 tls = ["dep:embedded-tls", "dep:rand_core", "dep:rand_chacha", "protocols/tls"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
-defmt = ["dep:defmt", "embassy-net/defmt", "protocols/defmt", "abstarct_socket/defmt", "defmt-or-log/defmt"]
-log = ["defmt-or-log/log"]
+defmt = [
+    "dep:defmt",
+    "embassy-net/defmt",
+    "protocols/defmt",
+    "abstarct_socket/defmt",
+    "defmt-or-log/defmt",
+]
+log = ["defmt-or-log/log", "abstarct_socket/log", "protocols/log"]
 
 
 [dependencies]
-defmt = {version = "1.0.1", optional = true }
+defmt = { version = "1.0.1", optional = true }
 embassy-net = { version = "0.7.1", features = [
     "dns",
     "medium-ethernet",
@@ -34,15 +47,23 @@ rand_chacha = { version = "0.3", default-features = false, optional = true }
 rand_core = { version = "0.6.4", optional = true }
 # SHA-1 for no_std environments - try sha1 crate instead
 sha1 = { version = "0.10", default-features = false, optional = true }
-binascii = { version = "0.1.4", default-features = false, features = ["encode"], optional = true }
+binascii = { version = "0.1.4", default-features = false, features = [
+    "encode",
+], optional = true }
 modular-bitfield = { version = "0.13.0", optional = true }
-protocols = { path = "./protocols", features = ["ws"] }
-abstarct_socket = { path = "./abstarct_socket" }
+protocols = { path = "./protocols", features = [
+    "ws",
+], default-features = false }
+abstarct_socket = { path = "./abstarct_socket", default-features = false }
 defmt-or-log = { version = "0.2.3" }
 
 [dev-dependencies]
 futures-lite = "2.0"
-abstarct_socket = { path = "./abstarct_socket", features = ["std", "mocks"] }
+abstarct_socket = { path = "./abstarct_socket", features = [
+    "std",
+    "mocks",
+    "log",
+] }
 protocols = { path = "./protocols", features = ["ws", "std", "mocks"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"

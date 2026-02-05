@@ -167,6 +167,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
                 });
 
             while let Some(socket) = ready_it.next() {
+                log::debug!("SocketPool: Socket {:?} is ready", socket.remote_endpoint());
                 ready.enqueue(socket).ok();
             }
 

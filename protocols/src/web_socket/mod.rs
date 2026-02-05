@@ -64,12 +64,11 @@ mod tests {
         );
         encoded_frame_buf[..encoded_header_size]
             .copy_from_slice(&header_bytes[..encoded_header_size]);
+        encoded_frame_buf[encoded_header_size..encoded_header_size + decoded_payload_size]
+            .copy_from_slice(&decoded_payload_buf[..decoded_payload_size]);
 
         let encoded_payload_size = writer
-            .encode_payload(
-                &mut encoded_frame_buf[encoded_header_size..],
-                &decoded_payload_buf,
-            )
+            .encode_payload_in_place(&mut encoded_frame_buf[encoded_header_size..])
             .unwrap();
 
         assert_eq!(encoded_header_size, decoded_header_size);
