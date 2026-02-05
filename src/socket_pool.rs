@@ -295,7 +295,7 @@ impl PollSocket for TcpSocket<'_> {
                 );
                 // Close the socket and accept a new connection
                 self.close();
-                log::trace!(
+                log::debug!(
                     "SocketPool: Closed socket {:?} in state {:?}",
                     self.remote_endpoint(),
                     self.state()

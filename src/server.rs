@@ -215,23 +215,6 @@ impl HttpServer {
                         continue;
                     }
 
-                    // Test code
-                    // {
-                    //     defmt::info!("WebSocket connection established");
-                    //     let header_buf = &mut [0; 100];
-                    //     let packet_len = socket.read(header_buf).await.ok();
-                    //     #[cfg(feature = "defmt")]
-                    //     if let Some(packet_len) = packet_len {
-                    //         log::info!("WebSocket header received {} bytes", packet_len);
-                    //         // Trace the raw data in bites
-                    //         for byte in &header_buf[..packet_len] {
-                    //             log::info!("0b{:08b}", byte);
-                    //         }
-                    //     }
-                    // }
-
-                    // core::cell::RefMut<'_, TcpSocket<'_>>
-
                     if handler
                         .handle_websocket_connection(&request, WebSocket::new(&mut socket))
                         .await
