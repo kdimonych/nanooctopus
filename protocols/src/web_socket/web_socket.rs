@@ -185,6 +185,7 @@ where
     where
         S: Write,
     {
+        log::debug!("WebSocket: Sending close frame");
         let header_size = write_frame_header(0, &mut self.send_header_buffer, WSOpcode::Close, 1);
 
         self.socket
@@ -257,6 +258,7 @@ where
         S: Read,
         WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
     {
+        log::debug!("WebSocket: Waiting for close frame from remote side");
         loop {
             let header: WSFrameHeader = self.read_header().await?;
             let mut payload_reader = WSPayloadReader::from_header(&header);
@@ -273,7 +275,7 @@ where
             }
 
             if header.opcode == WSOpcode::Close {
-                log::trace!("WebSocket: Close frame received");
+                log::debug!("WebSocket: Close frame received");
                 return Ok(());
             }
         }
