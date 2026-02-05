@@ -156,40 +156,35 @@ impl WSHeaderReader {
 }
 
 pub struct WSPayloadReader {
-    header: WSFrameHeader,
+    masking_key: Option<[u8; WS_MASKING_KEY_LEN]>,
+    payload_len: usize,
     read_idx: usize,
 }
 
 impl WSPayloadReader {
-    pub fn from_header(header: WSFrameHeader) -> Self {
+    pub fn from_header(header: &WSFrameHeader) -> Self {
         Self {
-            header,
+            payload_len: header.payload_len,
+            masking_key: header.masking_key,
             read_idx: 0,
         }
     }
 
-    pub fn payload_len(&self) -> usize {
-        self.header.payload_len
-    }
-
-    pub fn opcode(&self) -> WSOpcode {
-        self.header.opcode
-    }
-
-    pub fn fin(&self) -> u8 {
-        self.header.fin
+    #[inline]
+    pub const fn payload_len(&self) -> usize {
+        self.payload_len
     }
 
     pub fn has_masking(&self) -> bool {
-        self.header.masking_key.is_some()
+        self.masking_key.is_some()
     }
 
     pub fn masking_key(&self) -> Option<&[u8; 4]> {
-        self.header.masking_key.as_ref()
+        self.masking_key.as_ref()
     }
 
     pub fn read_bytes_remaining(&self) -> usize {
-        self.header.payload_len - self.read_idx
+        self.payload_len - self.read_idx
     }
 
     pub fn read_bytes(&self) -> usize {
@@ -197,33 +192,14 @@ impl WSPayloadReader {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.read_idx >= self.header.payload_len
-    }
-
-    pub fn decode_payload(&mut self, payload_dst: &mut [u8], payload_src: &[u8]) -> usize {
-        let payload_rest = self.header.payload_len - self.read_idx;
-
-        let size = min(min(payload_src.len(), payload_dst.len()), payload_rest);
-
-        if let Some(masking_key_bytes) = self.header.masking_key {
-            for i in 0..size {
-                let j = (self.read_idx + i) % masking_key_bytes.len();
-                let key_byte = masking_key_bytes[j];
-                payload_dst[i] = payload_src[i] ^ key_byte;
-            }
-        } else {
-            payload_dst[..size].copy_from_slice(&payload_src[..size]);
-        }
-
-        self.read_idx += size;
-        size
+        self.read_idx >= self.payload_len
     }
 
     pub fn decode_payload_in_place(&mut self, payload_src: &mut [u8]) -> usize {
-        let payload_rest = self.header.payload_len - self.read_idx;
+        let payload_rest = self.payload_len - self.read_idx;
         let size = min(payload_src.len(), payload_rest);
 
-        if let Some(masking_key_bytes) = self.header.masking_key {
+        if let Some(masking_key_bytes) = self.masking_key {
             for i in 0..size {
                 let j = (self.read_idx + i) % masking_key_bytes.len();
                 let key_byte = masking_key_bytes[j];
@@ -233,6 +209,26 @@ impl WSPayloadReader {
 
         self.read_idx += size;
         size
+    }
+
+    /// Consumes the specified number of bytes from the payload, updating the internal read index.
+    ///
+    /// ### Returns
+    /// - The actual number of bytes consumed, which may be less than the requested size if it exceeds the remaining payload length.
+    pub fn consume_payload(&mut self, size: usize) -> usize {
+        let payload_rest = self.payload_len - self.read_idx;
+        let consume_size = min(size, payload_rest);
+        self.read_idx += consume_size;
+        consume_size
+    }
+
+    /// Consumes all remaining bytes in the payload, updating the internal read index to the end of the payload.
+    ///
+    /// ### Returns
+    /// - The actual number of bytes consumed, which will be equal to the remaining payload length before consumption.
+    pub fn consume_all(&mut self) -> usize {
+        self.read_idx = self.payload_len;
+        self.payload_len
     }
 }
 
@@ -301,42 +297,85 @@ mod tests {
 
         let mut header_reader = WSHeaderReader::new();
         let (header, read_size) = header_reader.try_read_header(src_buf).unwrap_ready();
-        assert_eq!(read_size, 6);
-        assert_eq!(header.fin, 1);
+        assert_eq!(read_size, REAL_WS_PACKET_HEADER_SIZE);
+        assert_eq!(header.fin, REAL_WS_PACKET_FIN);
         assert_eq!(header.opcode, WSOpcode::Text);
-        assert_eq!(header.payload_len, 17);
+        assert_eq!(header.payload_len, REAL_WS_PACKET_PAYLOAD_SIZE);
         assert_eq!(
             header.masking_key.unwrap().as_slice(),
-            [0b01101000u8, 0b00010010u8, 0b11110001u8, 0b00110110u8].as_slice()
+            REAL_WS_PACKET_MASKING_KEY.as_slice()
         );
         // Remove consumed data from src_buf
         src_buf = &src_buf[read_size..];
 
-        let mut reader = WSPayloadReader::from_header(header);
-        assert_eq!(reader.payload_len(), 17);
-        assert_eq!(reader.opcode(), WSOpcode::Text);
-        assert_eq!(reader.fin(), 1);
+        let mut reader = WSPayloadReader::from_header(&header);
+        assert_eq!(reader.payload_len(), REAL_WS_PACKET_PAYLOAD_SIZE);
         assert_eq!(reader.read_bytes(), 0);
-        assert_eq!(reader.read_bytes_remaining(), 17);
+        assert_eq!(reader.read_bytes_remaining(), REAL_WS_PACKET_PAYLOAD_SIZE);
         assert!(reader.has_masking());
         assert_eq!(
             reader.masking_key().unwrap().as_slice(),
-            [0b01101000u8, 0b00010010u8, 0b11110001u8, 0b00110110u8].as_slice()
+            REAL_WS_PACKET_MASKING_KEY.as_slice()
         );
 
-        let mut payload_buf = [0u8; 17];
-        let decoded_size = reader.decode_payload(&mut payload_buf, src_buf);
+        let mut payload_buf = [0u8; REAL_WS_PACKET_PAYLOAD_SIZE];
+        payload_buf.copy_from_slice(src_buf);
+        let decoded_size = reader.decode_payload_in_place(&mut payload_buf);
         assert!(reader.is_complete());
-        assert_eq!(decoded_size, 17);
+        assert_eq!(decoded_size, REAL_WS_PACKET_PAYLOAD_SIZE);
         assert_eq!(decoded_size, reader.payload_len());
-        assert_eq!(reader.read_bytes(), 17);
+        assert_eq!(reader.read_bytes(), REAL_WS_PACKET_PAYLOAD_SIZE);
         assert_eq!(reader.read_bytes_remaining(), 0);
 
         std::println!("{}", String::from_utf8_lossy(&payload_buf));
 
-        let expected_payload: [u8; 17] = *b"Hello from client";
+        let expected_payload: [u8; REAL_WS_PACKET_PAYLOAD_SIZE] = *b"Hello from client";
 
         //fmt::Debug::fmt(&payload_buf, &mut fmt::Formatter::new());
         assert_eq!(payload_buf, expected_payload);
+    }
+
+    #[test]
+    fn test_consume_payload() {
+        let header = WSFrameHeader {
+            fin: 1,
+            opcode: WSOpcode::Binary,
+            payload_len: 10,
+            masking_key: None,
+        };
+        let mut reader = WSPayloadReader::from_header(&header);
+
+        // Consume 4 bytes
+        let consumed = reader.consume_payload(4);
+        assert_eq!(consumed, 4);
+        assert_eq!(reader.read_bytes(), 4);
+        assert_eq!(reader.read_bytes_remaining(), 6);
+
+        // Consume more than remaining bytes
+        let consumed = reader.consume_payload(10);
+        assert_eq!(consumed, 6);
+        assert_eq!(reader.read_bytes(), 10);
+        assert_eq!(reader.read_bytes_remaining(), 0);
+
+        // Consume when already complete
+        let consumed = reader.consume_payload(5);
+        assert_eq!(consumed, 0);
+        assert_eq!(reader.read_bytes(), 10);
+        assert_eq!(reader.read_bytes_remaining(), 0);
+    }
+
+    #[test]
+    fn test_consume_all() {
+        let header = WSFrameHeader {
+            fin: 1,
+            opcode: WSOpcode::Binary,
+            payload_len: 10,
+            masking_key: None,
+        };
+        let mut reader = WSPayloadReader::from_header(&header);
+        let consumed = reader.consume_all();
+        assert_eq!(consumed, 10);
+        assert_eq!(reader.read_bytes(), 10);
+        assert_eq!(reader.read_bytes_remaining(), 0);
     }
 }

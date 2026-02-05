@@ -168,7 +168,7 @@ where
                     // Next iteration will read more data
                     read_pos = header_size;
                     header_size = expected_size;
-                    assert!(read_pos < header_size);
+                    log::assert!(read_pos < header_size);
                     continue;
                 }
                 Err(_) => {
@@ -216,7 +216,8 @@ where
                     .read_exact(&mut buf[..actual_read_len])
                     .await
                     .map_err(|e| self.close_on_critical_error(e))?;
-                payload_reader.decode_payload_in_place(&mut buf[..actual_read_len]);
+                // We don't need the decoded payload, just consume it
+                payload_reader.consume_payload(actual_read_len);
             }
         }
 
@@ -229,14 +230,13 @@ where
 
             // There is more data to read, continue flushing
             let header: WSFrameHeader = self.read_header().await?;
-            let mut payload_reader = WSPayloadReader::from_header(header);
-
-            if payload_reader.opcode() == WSOpcode::Close {
+            if header.opcode == WSOpcode::Close {
                 log::trace!("WebSocket: Close frame received during flush of read stream");
                 self.receiving_state = PipeState::Closed;
-                break;
             }
+            let mut payload_reader = WSPayloadReader::from_header(&header);
 
+            // Read data
             let mut buf = self.recv_header_buffer;
             while !payload_reader.is_complete() {
                 let read_len: usize = payload_reader.payload_len();
@@ -245,7 +245,8 @@ where
                     .read_exact(&mut buf[..actual_read_len])
                     .await
                     .map_err(|e| self.close_on_critical_error(e))?;
-                payload_reader.decode_payload_in_place(&mut buf[..actual_read_len]);
+                // We don't need the decoded payload, just consume it
+                payload_reader.consume_payload(actual_read_len);
             }
         }
         Ok(())
@@ -258,7 +259,7 @@ where
     {
         loop {
             let header: WSFrameHeader = self.read_header().await?;
-            let mut payload_reader = WSPayloadReader::from_header(header);
+            let mut payload_reader = WSPayloadReader::from_header(&header);
 
             let mut buf = [0u8; 128];
             while !payload_reader.is_complete() {
@@ -271,11 +272,67 @@ where
                 payload_reader.decode_payload_in_place(&mut buf[..actual_read_len]);
             }
 
-            if payload_reader.opcode() == WSOpcode::Close {
+            if header.opcode == WSOpcode::Close {
                 log::trace!("WebSocket: Close frame received");
                 return Ok(());
             }
         }
+    }
+
+    /// Retrieves the active payload reader if any, otherwise reads a new frame header
+    /// and creates a new payload reader.
+    ///
+    /// Side effect: If the received header is a close frame, the receiving pipe state is marked as
+    /// closed but the reader is still returned.
+    ///
+    /// ### Errors:
+    /// - `WebSocketError::Closed`: If the receiving pipe is closed.
+    /// - `WebSocketError::InvalidHeader`: If the frame header is invalid.
+    /// - `WebSocketError::SocketError`: If there is an error while reading from the underlying socket
+    async fn get_active_payload_reader(
+        &mut self,
+    ) -> Result<WSPayloadReader, WebSocketError<S::Error>>
+    where
+        S: Read,
+        WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
+    {
+        if let Some(payload_reader) = self.active_payload_reader.take() {
+            log::trace!("WebSocket: Prossede reading next binary frame portion");
+            Ok(payload_reader)
+        } else {
+            if self.receiving_state == PipeState::Closed {
+                return Err(WebSocketError::Closed);
+            }
+            log::trace!("WebSocket: Reading new binary frame");
+            let header: WSFrameHeader = self.read_header().await?;
+
+            if header.opcode == WSOpcode::Close {
+                // Mark receiving pipe as closed
+                log::debug!("WebSocket: The close frame received from remote side");
+                self.receiving_state = PipeState::Closed;
+            }
+
+            Ok(WSPayloadReader::from_header(&header))
+        }
+    }
+
+    /// Sets the provided payload reader as an active one in case the provided
+    /// one is not complete yet, otherwise doses nothing.
+    ///
+    /// ### Panics:
+    /// - If there is already an active payload reader stored
+    #[inline]
+    fn set_active_payload_reader(&mut self, payload_reader: WSPayloadReader) {
+        if payload_reader.is_complete() {
+            // No need to store completed payload reader
+            return;
+        }
+
+        log::debug_assert!(
+            self.active_payload_reader.is_none(),
+            "WebSocket: Attempt to overwrite active payload reader stored"
+        );
+        self.active_payload_reader.replace(payload_reader);
     }
 }
 
@@ -291,16 +348,21 @@ where
     S: Read + ErrorType,
     WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
 {
+    /// Reads data from the WebSocket stream to the provided buffer. Reading will stop when either the buffer is full
+    /// or the current WebSocket frame is fully read.
+    /// Returns the number of bytes read.
+    ///
+    //// ### Errors:
+    /// - `WebSocketError::Closed`: If the WebSocket receiving pipe is closed.
+    /// - `WebSocketError::InvalidHeader`: If the frame header is invalid.
+    /// - `WebSocketError::SocketError`: If there is an error while reading from the underlying socket.
+    ///
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, WebSocketError<S::Error>> {
-        let mut payload_reader = if let Some(payload_reader) = self.active_payload_reader.take() {
-            payload_reader
-        } else {
-            if self.receiving_state == PipeState::Closed {
-                return Err(WebSocketError::Closed);
-            }
-            let header: WSFrameHeader = self.read_header().await?;
-            WSPayloadReader::from_header(header)
-        };
+        log::trace!(
+            "WebSocket: Reading binary frame to the buffer of size {}",
+            buf.len()
+        );
+        let mut payload_reader = self.get_active_payload_reader().await?;
 
         let read_len: usize = payload_reader.payload_len();
         let actual_read_len = core::cmp::min(read_len, buf.len());
@@ -308,17 +370,10 @@ where
             .read_exact(&mut buf[..actual_read_len])
             .await
             .map_err(|e| self.close_on_critical_error(e))?;
-        payload_reader.decode_payload_in_place(&mut buf[..actual_read_len]);
 
-        if payload_reader.opcode() == WSOpcode::Close {
-            // Mark receiving pipe as closed
-            log::info!("WebSocket: Received close frame during read");
-            self.receiving_state = PipeState::Closed;
-        }
+        payload_reader.decode_payload_in_place(&mut buf[0..actual_read_len]);
 
-        if !payload_reader.is_complete() {
-            self.active_payload_reader = Some(payload_reader);
-        }
+        self.set_active_payload_reader(payload_reader);
         Ok(actual_read_len)
     }
 }
@@ -339,7 +394,7 @@ where
         if self.sending_state == PipeState::Closed {
             return Err(WebSocketError::Closed);
         }
-
+        log::trace!("WebSocket: Writing binary frame of size {}", buf.len());
         let header_size =
             write_frame_header(buf.len(), &mut self.send_header_buffer, WSOpcode::Binary, 1);
 
