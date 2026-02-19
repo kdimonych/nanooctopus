@@ -4,7 +4,7 @@ use crate::read_with::ReadWith;
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[defmt_or_log::derive_format_or_debug]
 pub enum ReadError<SocketReadErrorT> {
     /// The connection was reset.
     ///

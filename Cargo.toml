@@ -28,11 +28,21 @@ defmt = [
     "abstarct_socket/defmt",
     "defmt-or-log/defmt",
 ]
-log = ["defmt-or-log/log", "abstarct_socket/log", "protocols/log"]
+log = [
+    "dep:env_logger",
+    "dep:log",
+    "defmt-or-log/log",
+    "abstarct_socket/log",
+    "protocols/log",
+]
 
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4.29", optional = true }
+env_logger = { version = "0.11", optional = true }
+defmt-or-log = { version = "0.2.3", default-features = false }
+
 embassy-net = { version = "0.7.1", features = [
     "dns",
     "medium-ethernet",
@@ -55,7 +65,6 @@ protocols = { path = "./protocols", features = [
     "ws",
 ], default-features = false }
 abstarct_socket = { path = "./abstarct_socket", default-features = false }
-defmt-or-log = { version = "0.2.3" }
 
 [dev-dependencies]
 futures-lite = "2.0"
@@ -67,4 +76,6 @@ abstarct_socket = { path = "./abstarct_socket", features = [
 protocols = { path = "./protocols", features = ["ws", "std", "mocks"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
+log = { version = "0.4.29" }
+env_logger = { version = "0.11" }
 defmt-or-log = { version = "0.2.3", features = ["log"] }

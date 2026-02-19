@@ -25,10 +25,14 @@ binascii = { version = "0.1.4", default-features = false, features = [
 modular-bitfield = { version = "0.13.0", optional = true }
 embassy-net = { version = "0.7.1", features = ["tcp", "dns"] }
 abstarct_socket = { path = "../abstarct_socket", default-features = false }
+
 defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4.29", optional = true }
+env_logger = { version = "0.11", optional = true }
+defmt-or-log = { version = "0.2.3", default-features = false }
+
 embedded-tls = { version = "0.17.0", default-features = false, optional = true }
 embedded-io-async = "0.6.1"
-defmt-or-log = { version = "0.2.3", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -42,6 +46,8 @@ binascii = { version = "0.1.4", default-features = false, features = [
     "encode",
 ] }
 modular-bitfield = { version = "0.13.0" }
+log = { version = "0.4.29" }
+env_logger = { version = "0.11" }
 defmt-or-log = { version = "0.2.3", features = ["log"] }
 
 [features]
@@ -56,7 +62,7 @@ defmt = [
 ]
 tls = ["dep:embedded-tls"]
 mocks = ["abstarct_socket/mocks"]
-log = ["defmt-or-log/log", "abstarct_socket/log"]
+log = ["dep:env_logger", "dep:log", "defmt-or-log/log", "abstarct_socket/log"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]
