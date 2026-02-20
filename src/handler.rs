@@ -72,8 +72,8 @@ impl HttpHandler for SimpleHandler {
     #[cfg(feature = "ws")]
     async fn handle_websocket_connection<'a>(
         &mut self,
-        request: &HttpRequest<'_>,
-        web_socket: WebSocket<'a, '_>,
+        _request: &HttpRequest<'_>,
+        _web_socket: WebSocket<'a, '_>,
     ) -> Result<(), ()> {
         Err(()) // Close the connection immediately
     }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::web_socket::header::*;
 
 pub struct WSEncodeWriter {

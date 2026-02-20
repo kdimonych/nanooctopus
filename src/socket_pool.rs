@@ -92,6 +92,7 @@ pub struct SocketPool<'stack, const POOL_SIZE: usize> {
     port: u16,
 }
 
+#[allow(dead_code)]
 impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     /// Create a new SocketPool
     fn new<const RX_SIZE: usize, const TX_SIZE: usize>(

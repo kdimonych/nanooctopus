@@ -214,11 +214,6 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
         Ok(Some(HttpHeader::new(key_str.trim(), value_str.trim())))
     }
 
-    /// Check if pending headers are available to be read
-    fn has_pending_headers(&self) -> bool {
-        !self.state.all_parsed
-    }
-
     /// This method finalizes the header parsing process and release the stream so it can be used for reading the body directly.
     /// It ensures that all headers are read and the Content-Length header is present.
     ///

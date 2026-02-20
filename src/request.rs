@@ -99,7 +99,7 @@ impl<'a> HttpRequest<'a> {
             return Err(Error::ReadBufferOverflow);
         }
 
-        let actually_read = stream
+        stream
             .read_exact(&mut buffer.as_mut_slice()[..body_size])
             .await?;
         request.body = buffer.take_front(body_size);

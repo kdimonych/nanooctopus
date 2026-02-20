@@ -13,12 +13,12 @@ use heapless::spsc::Queue;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
 #[cfg(feature = "ws")]
-use protocols::web_socket::{WebSocket, WebSocketError, WebSocketState};
+use protocols::web_socket::WebSocket;
 #[cfg(feature = "ws")]
 use sha1::{Digest, Sha1};
 
 #[cfg(feature = "ws")]
-pub const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -51,10 +51,6 @@ impl ServerTimeouts {
             handler_timeout,
         }
     }
-}
-enum HttpProcessResult<'a> {
-    Done,
-    WebSocketRequest(HttpRequest<'a>, &'a str),
 }
 
 /// Simple HTTP server implementation

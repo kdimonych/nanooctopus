@@ -10,7 +10,6 @@ pub const MAX_WS_FRAME_HEADER_SIZE: usize =
 pub type MaskKey = [u8; WS_MASKING_KEY_LEN];
 
 pub type WSRequiredSizeHint = usize;
-pub type WSReadSize = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WebSocketProtoError {
@@ -200,6 +199,7 @@ pub(crate) fn write_frame_header_with_mask_key(
 struct WebSocketFrameHeaderPacked {
     // Byte 0
     #[bits = 4]
+    #[allow(dead_code)]
     opcode: WSOpcode,
     #[skip]
     __: B3,
