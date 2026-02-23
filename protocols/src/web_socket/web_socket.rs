@@ -28,6 +28,17 @@ pub enum WebSocketError<E> {
     SocketError(E),
 }
 
+impl<E: Debug> core::fmt::Display for WebSocketError<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            WebSocketError::InvalidHeader => write!(f, "Invalid WebSocket header"),
+            WebSocketError::BufferOverflow => write!(f, "WebSocket buffer overflow"),
+            WebSocketError::Closed => write!(f, "WebSocket closed"),
+            WebSocketError::SocketError(e) => write!(f, "WebSocket socket error: {:?}", e),
+        }
+    }
+}
+
 impl<E: embedded_io_async::Error> embedded_io_async::Error for WebSocketError<E> {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
@@ -39,7 +50,7 @@ impl<E: embedded_io_async::Error> embedded_io_async::Error for WebSocketError<E>
     }
 }
 
-impl<E> From<WebSocketProtoError> for WebSocketError<E> {
+impl<E: Debug> From<WebSocketProtoError> for WebSocketError<E> {
     fn from(_err: WebSocketProtoError) -> Self {
         WebSocketError::InvalidHeader
     }
@@ -222,11 +233,7 @@ where
             }
         }
 
-        while self
-            .socket
-            .read_ready()
-            .map_err(|e| self.close_on_critical_error(e))?
-        {
+        while self.socket.read_ready().map_err(|e| self.close_on_critical_error(e))? {
             log::trace!("WebSocket: Flushing additional data from read stream");
 
             // There is more data to read, continue flushing
@@ -291,9 +298,7 @@ where
     /// - `WebSocketError::Closed`: If the receiving pipe is closed.
     /// - `WebSocketError::InvalidHeader`: If the frame header is invalid.
     /// - `WebSocketError::SocketError`: If there is an error while reading from the underlying socket
-    async fn get_active_payload_reader(
-        &mut self,
-    ) -> Result<WSPayloadReader, WebSocketError<S::Error>>
+    async fn get_active_payload_reader(&mut self) -> Result<WSPayloadReader, WebSocketError<S::Error>>
     where
         S: Read,
         WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
@@ -360,10 +365,7 @@ where
     /// - `WebSocketError::SocketError`: If there is an error while reading from the underlying socket.
     ///
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, WebSocketError<S::Error>> {
-        log::trace!(
-            "WebSocket: Reading binary frame to the buffer of size {}",
-            buf.len()
-        );
+        log::trace!("WebSocket: Reading binary frame to the buffer of size {}", buf.len());
         let mut payload_reader = self.get_active_payload_reader().await?;
 
         let read_len: usize = payload_reader.payload_len();
@@ -397,8 +399,7 @@ where
             return Err(WebSocketError::Closed);
         }
         log::trace!("WebSocket: Writing binary frame of size {}", buf.len());
-        let header_size =
-            write_frame_header(buf.len(), &mut self.send_header_buffer, WSOpcode::Binary, 1);
+        let header_size = write_frame_header(buf.len(), &mut self.send_header_buffer, WSOpcode::Binary, 1);
 
         self.socket
             .write_all(&self.send_header_buffer[..header_size])
@@ -415,18 +416,13 @@ where
 
     #[inline]
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.socket
-            .flush()
-            .await
-            .map_err(|e| self.close_on_critical_error(e))?;
+        self.socket.flush().await.map_err(|e| self.close_on_critical_error(e))?;
         Ok(())
     }
 
     #[inline]
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.write(buf)
-            .await
-            .map_err(|e| self.close_on_critical_error(e))?;
+        self.write(buf).await.map_err(|e| self.close_on_critical_error(e))?;
         Ok(())
     }
 }

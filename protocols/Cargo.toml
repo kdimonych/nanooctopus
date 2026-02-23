@@ -31,8 +31,8 @@ log = { version = "0.4.29", optional = true }
 env_logger = { version = "0.11", optional = true }
 defmt-or-log = { version = "0.2.3", default-features = false }
 
-embedded-tls = { version = "0.17.0", default-features = false, optional = true }
-embedded-io-async = "0.6.1"
+embedded-tls = { version = "0.18.0", default-features = false, optional = true }
+embedded-io-async = "0.6"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
