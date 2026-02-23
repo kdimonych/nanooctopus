@@ -14,10 +14,7 @@ pub struct SliceView<'a> {
 impl<'a> SliceView<'a> {
     /// Create a new `Serializer`
     pub fn new(buf: &'a mut [u8]) -> Self {
-        SliceView {
-            buf,
-            current_length: 0,
-        }
+        SliceView { buf, current_length: 0 }
     }
 
     /// Push a byte into the buffer

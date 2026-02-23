@@ -69,13 +69,7 @@ impl RoundRobinSocketPoolBuilder {
         self
     }
 
-    pub fn build<
-        'socket,
-        'stack,
-        const POOL_SIZE: usize,
-        const RX_SIZE: usize,
-        const TX_SIZE: usize,
-    >(
+    pub fn build<'socket, 'stack, const POOL_SIZE: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
         &self,
         buffers: &'socket mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
         stack: Stack<'stack>,
@@ -134,10 +128,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     /// (ready means has established stated and data is available for reading).
     /// All ready sockets are enqueued into the provided `ready` queue.
     ///
-    pub async fn acquire_next_request<'b>(
-        &'b self,
-        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, POOL_SIZE>,
-    ) {
+    pub async fn acquire_next_request<'b>(&'b self, ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, POOL_SIZE>) {
         //let mut ready: Queue<RefMut<'_, TcpSocket<'stack>>, POOL_SIZE> = Queue::new();
         Self::collect_ready(&self.sockets, self.port, ready).await;
     }
@@ -183,57 +174,27 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
 }
 
 trait PollSocket {
-    fn poll_accept_once(
-        &mut self,
-        cx: &mut Context<'_>,
-        port: u16,
-    ) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_wait_read_ready_once(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_wait_write_ready_once(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), SocketPoolError>>;
+    fn poll_accept_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>>;
+    fn poll_wait_read_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>>;
+    fn poll_wait_write_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>>;
     fn poll_flush_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_wait_next_request_once(
-        &mut self,
-        cx: &mut Context<'_>,
-        port: u16,
-    ) -> Poll<Result<(), SocketPoolError>>;
+    fn poll_wait_next_request_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>>;
 }
 
 impl PollSocket for TcpSocket<'_> {
-    fn poll_accept_once(
-        &mut self,
-        cx: &mut Context<'_>,
-        port: u16,
-    ) -> Poll<Result<(), SocketPoolError>> {
+    fn poll_accept_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>> {
         pin!(self.accept(port))
             .as_mut()
             .poll(cx)
             .map(|res| res.map_err(|e| SocketPoolError::AcceptError(e)))
     }
 
-    fn poll_wait_read_ready_once(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), SocketPoolError>> {
-        pin!(self.wait_read_ready())
-            .as_mut()
-            .poll(cx)
-            .map(|_| Ok(()))
+    fn poll_wait_read_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>> {
+        pin!(self.wait_read_ready()).as_mut().poll(cx).map(|_| Ok(()))
     }
 
-    fn poll_wait_write_ready_once(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), SocketPoolError>> {
-        pin!(self.wait_write_ready())
-            .as_mut()
-            .poll(cx)
-            .map(|_| Ok(()))
+    fn poll_wait_write_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>> {
+        pin!(self.wait_write_ready()).as_mut().poll(cx).map(|_| Ok(()))
     }
 
     fn poll_flush_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>> {
@@ -243,11 +204,7 @@ impl PollSocket for TcpSocket<'_> {
             .map(|res| res.map_err(|e| SocketPoolError::IOError(e)))
     }
 
-    fn poll_wait_next_request_once(
-        &mut self,
-        cx: &mut Context<'_>,
-        port: u16,
-    ) -> Poll<Result<(), SocketPoolError>> {
+    fn poll_wait_next_request_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>> {
         log::trace!(
             "SocketPool: Socket {:?} in state {:?}",
             self.remote_endpoint(),
@@ -272,10 +229,7 @@ impl PollSocket for TcpSocket<'_> {
                 );
                 match self.poll_accept_once(cx, port) {
                     Poll::Ready(Ok(())) => {
-                        log::debug!(
-                            "SocketPool: New connection {:?} at socket",
-                            self.remote_endpoint()
-                        );
+                        log::debug!("SocketPool: New connection {:?} at socket", self.remote_endpoint());
                         self.poll_wait_read_ready_once(cx)
                     } // We got a new connection, start waiting for data
                     Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
@@ -283,11 +237,7 @@ impl PollSocket for TcpSocket<'_> {
                 }
             }
 
-            State::TimeWait
-            | State::FinWait1
-            | State::Closing
-            | State::LastAck
-            | State::CloseWait => {
+            State::TimeWait | State::FinWait1 | State::Closing | State::LastAck | State::CloseWait => {
                 // In this case we have to gracefully bring the socket down first.
                 log::trace!(
                     "SocketPool: Close socket {:?} in state {:?}",

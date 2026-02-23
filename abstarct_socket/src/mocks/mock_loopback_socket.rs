@@ -40,10 +40,7 @@ impl<const BUFFER_SIZE: usize> WriteWith for MockLoopbackSocket<BUFFER_SIZE> {
     {
         let mut temp_buf = [0u8; BUFFER_SIZE];
         let (written_size, result) = f(&mut temp_buf);
-        assert!(
-            written_size <= BUFFER_SIZE,
-            "Wrote more bytes than available in buffer"
-        );
+        assert!(written_size <= BUFFER_SIZE, "Wrote more bytes than available in buffer");
         self.rb.push_slice(&temp_buf[..written_size]);
         Ok(result)
     }
@@ -59,15 +56,9 @@ impl<const BUFFER_SIZE: usize> ReadWith for MockLoopbackSocket<BUFFER_SIZE> {
         let mut temp_buf = [0u8; BUFFER_SIZE];
         let read_size = self.rb.peek_slice(&mut temp_buf);
         let (read_size, result) = f(&mut temp_buf[..read_size]);
-        assert!(
-            read_size <= read_size,
-            "Read more bytes than available in buffer"
-        );
+        assert!(read_size <= read_size, "Read more bytes than available in buffer");
         let skipped = self.rb.skip(read_size);
-        assert!(
-            skipped == read_size,
-            "Read more bytes than available in buffer"
-        );
+        assert!(skipped == read_size, "Read more bytes than available in buffer");
 
         Ok(result)
     }

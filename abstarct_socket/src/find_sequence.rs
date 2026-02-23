@@ -14,10 +14,7 @@ impl<'a, Item> FindSequence<'a, Item> {
             panic!("Empty sequence is not allowed");
         }
 
-        Self {
-            needle,
-            position: 0,
-        }
+        Self { needle, position: 0 }
     }
 
     /// Push a byte into the sequence finder

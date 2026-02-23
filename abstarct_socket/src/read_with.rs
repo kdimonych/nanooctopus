@@ -11,10 +11,7 @@ pub trait ReadWith: embedded_io_async::ErrorType {
     /// ## Errors
     /// - Returns `Self::Error` if an error occurs while reading from the stream.
     ///
-    fn read_with<F, R>(
-        &mut self,
-        f: F,
-    ) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    fn read_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R);
 }
@@ -22,10 +19,7 @@ pub trait ReadWith: embedded_io_async::ErrorType {
 /// Implement ReadWith for mutable references to types that implement ReadWith
 impl<T: ?Sized + ReadWith> ReadWith for &mut T {
     #[inline]
-    fn read_with<F, R>(
-        &mut self,
-        f: F,
-    ) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    fn read_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {

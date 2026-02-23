@@ -9,10 +9,7 @@ pub struct MockReadStream<'a> {
 
 impl<'a> MockReadStream<'a> {
     pub fn new(buffer: &'a mut [u8]) -> Self {
-        Self {
-            buffer,
-            position: 0,
-        }
+        Self { buffer, position: 0 }
     }
 }
 
@@ -27,10 +24,7 @@ impl<'a> ReadWith for MockReadStream<'a> {
 
         let data = &mut self.buffer[self.position..];
         let (read_bytes, res) = f(data);
-        assert!(
-            read_bytes <= data.len(),
-            "Read more bytes than available in buffer"
-        );
+        assert!(read_bytes <= data.len(), "Read more bytes than available in buffer");
         self.position += read_bytes;
         Ok(res)
     }

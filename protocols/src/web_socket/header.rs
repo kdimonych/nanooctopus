@@ -4,8 +4,7 @@ pub const MIN_WS_FRAME_HEADER_SIZE: usize = 2;
 pub(crate) const WS_EXTENDEDPAYLOAD_LEN_SHORT: usize = 2;
 pub(crate) const WS_EXTENDEDPAYLOAD_LEN_LONG: usize = 8;
 pub(crate) const WS_MASKING_KEY_LEN: usize = 4;
-pub const MAX_WS_FRAME_HEADER_SIZE: usize =
-    MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG + WS_MASKING_KEY_LEN; // 2 + 8 + 4
+pub const MAX_WS_FRAME_HEADER_SIZE: usize = MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG + WS_MASKING_KEY_LEN; // 2 + 8 + 4
 
 pub type MaskKey = [u8; WS_MASKING_KEY_LEN];
 
@@ -47,21 +46,11 @@ pub fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSoc
     };
 
     // Safety: We have already checked that the buffer length is at least MIN_WS_FRAME_HEADER_SIZE
-    let header_bytes = unsafe {
-        *buffer
-            .first_chunk::<MIN_WS_FRAME_HEADER_SIZE>()
-            .unwrap_unchecked()
-    };
+    let header_bytes = unsafe { *buffer.first_chunk::<MIN_WS_FRAME_HEADER_SIZE>().unwrap_unchecked() };
     let header = WebSocketFrameHeaderPacked::from_bytes(header_bytes);
-    let opcode = header
-        .opcode_or_err()
-        .map_err(|_| WebSocketProtoError::InvalidFrame)?;
+    let opcode = header.opcode_or_err().map_err(|_| WebSocketProtoError::InvalidFrame)?;
 
-    expected_size += if header.mask() == 1 {
-        WS_MASKING_KEY_LEN
-    } else {
-        0
-    };
+    expected_size += if header.mask() == 1 { WS_MASKING_KEY_LEN } else { 0 };
 
     let payload_len = match header.payload_len() {
         len @ 0..=125 => {
@@ -85,8 +74,7 @@ pub fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSoc
             // The value is stored in network byte order (big-endian)
             const VALUE_START: usize = MIN_WS_FRAME_HEADER_SIZE;
             const VALUE_END: usize = MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT;
-            let extended_length: u16 =
-                u16::from_be_bytes(buffer[VALUE_START..VALUE_END].try_into().unwrap());
+            let extended_length: u16 = u16::from_be_bytes(buffer[VALUE_START..VALUE_END].try_into().unwrap());
             extended_length as usize
         }
         127 => {
@@ -100,8 +88,7 @@ pub fn read_frame_header(buffer: &[u8]) -> Result<(WSFrameHeader, usize), WebSoc
             // The value is stored in network byte order (big-endian)
             const VALUE_START: usize = MIN_WS_FRAME_HEADER_SIZE;
             const VALUE_END: usize = MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG;
-            let extended_length =
-                u64::from_be_bytes(buffer[VALUE_START..VALUE_END].try_into().unwrap());
+            let extended_length = u64::from_be_bytes(buffer[VALUE_START..VALUE_END].try_into().unwrap());
             if extended_length >> 63 != 0 {
                 // Most significant bit must be 0
                 return Err(WebSocketProtoError::InvalidFrame);
@@ -215,10 +202,9 @@ struct WebSocketFrameHeaderPacked {
 mod tests {
     use super::*;
     const REAL_WS_PACKET: [u8; 23] = [
-        0b10000001, 0b10010001, 0b01101000, 0b00010010, 0b11110001, 0b00110110, 0b00100000,
-        0b01110111, 0b10011101, 0b01011010, 0b00000111, 0b00110010, 0b10010111, 0b01000100,
-        0b00000111, 0b01111111, 0b11010001, 0b01010101, 0b00000100, 0b01111011, 0b10010100,
-        0b01011000, 0b00011100,
+        0b10000001, 0b10010001, 0b01101000, 0b00010010, 0b11110001, 0b00110110, 0b00100000, 0b01110111, 0b10011101,
+        0b01011010, 0b00000111, 0b00110010, 0b10010111, 0b01000100, 0b00000111, 0b01111111, 0b11010001, 0b01010101,
+        0b00000100, 0b01111011, 0b10010100, 0b01011000, 0b00011100,
     ];
 
     #[test]
@@ -319,8 +305,7 @@ mod tests {
 
     #[test]
     fn test_header_masking_key_decoding_some() {
-        let (reading, read_size) =
-            read_frame_header(&[0b0000_0000, 0b1000_0000, 0x12, 0x34, 0x56, 0x78]).unwrap();
+        let (reading, read_size) = read_frame_header(&[0b0000_0000, 0b1000_0000, 0x12, 0x34, 0x56, 0x78]).unwrap();
         assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE + WS_MASKING_KEY_LEN);
         assert_eq!(reading.masking_key.unwrap(), 0x12345678u32.to_be_bytes());
     }
@@ -335,32 +320,15 @@ mod tests {
     #[test]
     fn test_header_payload_len_decoding_short() {
         let (reading, read_size) = read_frame_header(&[0b0000_0000, 0x7E, 0x01, 0x2C]).unwrap();
-        assert_eq!(
-            read_size,
-            MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT
-        );
+        assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT);
         assert_eq!(reading.payload_len, 300usize);
     }
 
     #[test]
     fn test_header_payload_len_decoding_long() {
-        let (reading, read_size) = read_frame_header(&[
-            0b0000_0000,
-            0x7F,
-            0x01,
-            0x23,
-            0x45,
-            0x67,
-            0x89,
-            0xab,
-            0xcd,
-            0xef,
-        ])
-        .unwrap();
-        assert_eq!(
-            read_size,
-            MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG
-        );
+        let (reading, read_size) =
+            read_frame_header(&[0b0000_0000, 0x7F, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]).unwrap();
+        assert_eq!(read_size, MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG);
         assert_eq!(reading.payload_len, 0x0123456789abcdefusize);
     }
 
@@ -372,9 +340,7 @@ mod tests {
         };
         assert_eq!(
             e,
-            WebSocketProtoError::NotEnoughData(
-                MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT
-            )
+            WebSocketProtoError::NotEnoughData(MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_SHORT)
         );
     }
 
@@ -396,9 +362,7 @@ mod tests {
         };
         assert_eq!(
             e,
-            WebSocketProtoError::NotEnoughData(
-                MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG
-            )
+            WebSocketProtoError::NotEnoughData(MIN_WS_FRAME_HEADER_SIZE + WS_EXTENDEDPAYLOAD_LEN_LONG)
         );
     }
 
@@ -426,10 +390,7 @@ mod tests {
         let Err(e) = read_frame_header(&[0b0000_0000]) else {
             panic!("Expected NotEnoughData error");
         };
-        assert_eq!(
-            e,
-            WebSocketProtoError::NotEnoughData(MIN_WS_FRAME_HEADER_SIZE)
-        );
+        assert_eq!(e, WebSocketProtoError::NotEnoughData(MIN_WS_FRAME_HEADER_SIZE));
     }
 
     #[test]
@@ -437,16 +398,12 @@ mod tests {
         let Err(e) = read_frame_header(&[]) else {
             panic!("Expected NotEnoughData error");
         };
-        assert_eq!(
-            e,
-            WebSocketProtoError::NotEnoughData(MIN_WS_FRAME_HEADER_SIZE)
-        );
+        assert_eq!(e, WebSocketProtoError::NotEnoughData(MIN_WS_FRAME_HEADER_SIZE));
     }
 
     #[test]
     fn test_read_frame_header_returns_not_enough_data_when_masking_key_not_enough() {
-        let Err(e) = read_frame_header(&[0b0000_0000, 0b1000_0000, 0x12, 0x34, 0x56 /*0x78*/])
-        else {
+        let Err(e) = read_frame_header(&[0b0000_0000, 0b1000_0000, 0x12, 0x34, 0x56 /*0x78*/]) else {
             panic!("Expected NotEnoughData error");
         };
         assert_eq!(
@@ -463,8 +420,7 @@ mod tests {
         let payload_len = 300;
         let masking_key = 0xAABBCCDDu32.to_be_bytes();
 
-        let header_size =
-            write_frame_header_with_mask_key(payload_len, &mut buffer, opcode, fin, masking_key);
+        let header_size = write_frame_header_with_mask_key(payload_len, &mut buffer, opcode, fin, masking_key);
 
         let (reading, read_size) = read_frame_header(&buffer).unwrap();
 

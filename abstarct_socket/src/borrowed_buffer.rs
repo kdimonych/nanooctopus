@@ -7,10 +7,7 @@ pub struct BorrowedBuffer<'a> {
 impl<'a> BorrowedBuffer<'a> {
     /// Create a new BorrowedBuffer wrapping the given mutable slice.
     pub const fn new(buffer: &'a mut [u8]) -> Self {
-        Self {
-            inner: buffer,
-            len: 0,
-        }
+        Self { inner: buffer, len: 0 }
     }
 
     const fn from_parts(buffer: &'a mut [u8], len: usize) -> Self {
@@ -385,9 +382,7 @@ pub mod tests {
         borrowed_buffer.extend_from_slice(&[4, 5]).unwrap();
         assert_eq!(borrowed_buffer.as_slice(), &[1, 2, 3, 4, 5]);
 
-        borrowed_buffer
-            .extend_from_slice(&[6, 7, 8, 9, 10])
-            .unwrap();
+        borrowed_buffer.extend_from_slice(&[6, 7, 8, 9, 10]).unwrap();
         assert_eq!(borrowed_buffer.as_slice(), &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
         assert!(borrowed_buffer.extend_from_slice(&[11]).is_err());

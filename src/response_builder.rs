@@ -38,10 +38,7 @@ impl HttpResponseBufferRef<'_> {
     }
 
     /// Binds a mutable byte slice to the HttpResponseBuffer.
-    pub fn bind<'a>(
-        buffer: &'a mut [u8],
-        auto_close_connection: bool,
-    ) -> HttpResponseBufferRef<'a> {
+    pub fn bind<'a>(buffer: &'a mut [u8], auto_close_connection: bool) -> HttpResponseBufferRef<'a> {
         HttpResponseBufferRef {
             inner: buffer,
             auto_close_connection,
@@ -84,16 +81,12 @@ impl<'a> HttpResponseBuilder<'a, NotCreated> {
 
 impl<'a> HttpResponseBuilder<'a, BuildStatus> {
     /// Adds a header to the HTTP response.
-    pub fn with_status(
-        mut self,
-        status_code: StatusCode,
-    ) -> Result<HttpResponseBuilder<'a, BuildHaader>, Error> {
+    pub fn with_status(mut self, status_code: StatusCode) -> Result<HttpResponseBuilder<'a, BuildHaader>, Error> {
         // Write "HTTP/1.1 "
         self.base.extend_from_str("HTTP/1.1 ")?;
 
         // Write status code as decimal
-        self.base
-            .extend_from_decimal(status_code.as_u16() as usize)?;
+        self.base.extend_from_decimal(status_code.as_u16() as usize)?;
 
         // Write " <reason>\r\n"
         self.base.extend_from_str(" ")?;
@@ -133,11 +126,7 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
     }
 
     /// Adds a header with value filled by a custom filler function.
-    pub fn add_header_value_from_filler<Filler>(
-        &mut self,
-        name: &str,
-        filler: Filler,
-    ) -> Result<(), Error>
+    pub fn add_header_value_from_filler<Filler>(&mut self, name: &str, filler: Filler) -> Result<(), Error>
     where
         Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
     {
@@ -152,11 +141,7 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
     }
 
     /// Adds a header with value filled by a custom filler function and returns self for chaining.
-    pub fn with_header_value_from_filler<Filler>(
-        mut self,
-        name: &str,
-        filler: Filler,
-    ) -> Result<Self, Error>
+    pub fn with_header_value_from_filler<Filler>(mut self, name: &str, filler: Filler) -> Result<Self, Error>
     where
         Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
     {
@@ -205,8 +190,7 @@ impl<'a> HttpResponseBuilder<'a, BuildHaader> {
         let content_length = self.base.buffer.fill_with(filler)?;
         // Update Content-Length placeholder
         self.base.buffer.modify_inner(|inner_buf| {
-            let placeholder_slice =
-                &mut inner_buf[placeholder_pos..placeholder_pos + CONTENT_LENGTH_PLACEHOLDER_SIZE];
+            let placeholder_slice = &mut inner_buf[placeholder_pos..placeholder_pos + CONTENT_LENGTH_PLACEHOLDER_SIZE];
             write_decimal_to_placeholder(placeholder_slice, content_length).unwrap();
         });
 
@@ -309,9 +293,7 @@ impl BuilderBase<'_> {
     /// Write a decimal number to the buffer
     pub fn extend_from_decimal(&mut self, mut num: usize) -> Result<(), Error> {
         if num == 0 {
-            self.buffer
-                .push(b'0')
-                .map_err(|_| Error::InvalidStatusCode)?;
+            self.buffer.push(b'0').map_err(|_| Error::InvalidStatusCode)?;
             return Ok(());
         }
 
@@ -329,9 +311,7 @@ impl BuilderBase<'_> {
 
         // Write digits in reverse order
         for j in (0..i).rev() {
-            self.buffer
-                .push(digits[j])
-                .map_err(|_| Error::InvalidStatusCode)?;
+            self.buffer.push(digits[j]).map_err(|_| Error::InvalidStatusCode)?;
         }
 
         Ok(())

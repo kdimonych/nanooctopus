@@ -110,13 +110,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
     pub async fn parse_first_line<'buf>(
         self,
         buffer: &mut HeadArena<'buf>,
-    ) -> Result<
-        (
-            HttpFirstLine<'buf>,
-            HttpHeaderParser<'reader, Reader, ReadHeaders>,
-        ),
-        HttpParseError<Reader::Error>,
-    >
+    ) -> Result<(HttpFirstLine<'buf>, HttpHeaderParser<'reader, Reader, ReadHeaders>), HttpParseError<Reader::Error>>
     where
         Reader: ReadWith,
     {
@@ -147,15 +141,10 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
             return Err(HttpParseError::NoVersion);
         }
 
-        let method =
-            HttpMethod::try_from(method_str).map_err(|_| HttpParseError::UnsupportedMethod)?;
+        let method = HttpMethod::try_from(method_str).map_err(|_| HttpParseError::UnsupportedMethod)?;
 
         Ok((
-            HttpFirstLine {
-                method,
-                path,
-                version,
-            },
+            HttpFirstLine { method, path, version },
             HttpHeaderParser {
                 reader: self.reader,
                 state: ReadHeaders::new(),
@@ -224,10 +213,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     ///   that the stream is in invalid state.
     ///   It is responsibility of the caller to close the stream in this case.
     ///
-    pub async fn finalize(
-        mut self,
-        buffer: &mut HeadArena<'_>,
-    ) -> Result<(), HttpParseError<Reader::Error>>
+    pub async fn finalize(mut self, buffer: &mut HeadArena<'_>) -> Result<(), HttpParseError<Reader::Error>>
     where
         Reader: ReadWith,
     {
@@ -333,10 +319,7 @@ mod tests {
             .map(|_| ())
             .expect_err("Expected failure due to insufficient buffer size");
 
-        assert!(matches!(
-            e,
-            HttpParseError::ReadError(ReadError::TargetBufferOverflow)
-        ));
+        assert!(matches!(e, HttpParseError::ReadError(ReadError::TargetBufferOverflow)));
 
         assert_eq!(buffer.len(), FIRST_LINE.len() - 1);
     }
@@ -438,10 +421,7 @@ mod tests {
     {
         let parser = HttpHeaderParser::new(stream);
 
-        let (_, header_parser) = parser
-            .parse_first_line(buffer)
-            .await
-            .expect("Failed to parse method");
+        let (_, header_parser) = parser.parse_first_line(buffer).await.expect("Failed to parse method");
 
         header_parser
     }
@@ -496,10 +476,7 @@ mod tests {
             .expect("Expected header")
             .expect("Expected at least one header line");
 
-        let opt = parser
-            .parse_next_header(&mut buffer)
-            .await
-            .expect("Expected header");
+        let opt = parser.parse_next_header(&mut buffer).await.expect("Expected header");
         assert!(opt.is_none());
 
         assert!(!parser.has_pending_headers());
@@ -540,8 +517,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_header_with_content_length() {
         const FIRST_LINE: &str = "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
-        const EXPECTED_PARSED_PART: &str =
-            "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
+        const EXPECTED_PARSED_PART: &str = "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
         assert_eq!(FIRST_LINE, EXPECTED_PARSED_PART);
 
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
@@ -556,10 +532,7 @@ mod tests {
             .await
             .expect("Expected header")
             .expect("Expected at least one header line");
-        parser
-            .parse_next_header(&mut buffer)
-            .await
-            .expect("Expected header");
+        parser.parse_next_header(&mut buffer).await.expect("Expected header");
 
         assert!(!parser.has_pending_headers());
 
@@ -569,8 +542,7 @@ mod tests {
     #[tokio::test]
     async fn test_finalize() {
         const FIRST_LINE: &str = "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
-        const EXPECTED_PARSED_PART: &str =
-            "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
+        const EXPECTED_PARSED_PART: &str = "GET /index.html HTTP/1.1\r\nContent-Length: 123\r\n\r\n";
         assert_eq!(FIRST_LINE, EXPECTED_PARSED_PART);
 
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());

@@ -329,10 +329,7 @@ mod tests {
     fn test_text() {
         assert_eq!(StatusCode::Ok.text(), "OK");
         assert_eq!(StatusCode::NotFound.text(), "Not Found");
-        assert_eq!(
-            StatusCode::InternalServerError.text(),
-            "Internal Server Error"
-        );
+        assert_eq!(StatusCode::InternalServerError.text(), "Internal Server Error");
         assert_eq!(StatusCode::BadRequest.text(), "Bad Request");
         assert_eq!(StatusCode::TemporaryRedirect.text(), "Temporary Redirect");
     }

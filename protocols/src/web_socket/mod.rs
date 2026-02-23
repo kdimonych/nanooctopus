@@ -18,8 +18,8 @@ pub use web_socket::{WebSocket, WebSocketError, WebSocketState};
 
 // Re-export the traits to make implementations visible
 pub use embedded_io_async::{
-    Error as WebSocketIoError, Read as WebSocketRead, ReadReady as WebSocketReadReady,
-    Write as WebSocketWrite, WriteReady as WebSocketWriteReady,
+    Error as WebSocketIoError, Read as WebSocketRead, ReadReady as WebSocketReadReady, Write as WebSocketWrite,
+    WriteReady as WebSocketWriteReady,
 };
 
 // Tests
@@ -62,8 +62,7 @@ mod tests {
             header.fin,
             reader.masking_key().unwrap().clone(),
         );
-        encoded_frame_buf[..encoded_header_size]
-            .copy_from_slice(&header_bytes[..encoded_header_size]);
+        encoded_frame_buf[..encoded_header_size].copy_from_slice(&header_bytes[..encoded_header_size]);
         encoded_frame_buf[encoded_header_size..encoded_header_size + decoded_payload_size]
             .copy_from_slice(&decoded_payload_buf[..decoded_payload_size]);
 

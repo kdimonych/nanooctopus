@@ -16,8 +16,7 @@ impl WSEncodeWriter {
         fin: u8,
         masking_key: [u8; 4],
     ) -> (Self, usize) {
-        let header_size: usize =
-            write_frame_header_with_mask_key(payload_len, out_buf, opcode, fin, masking_key);
+        let header_size: usize = write_frame_header_with_mask_key(payload_len, out_buf, opcode, fin, masking_key);
 
         let result = Self {
             free_space: payload_len,
@@ -67,8 +66,8 @@ mod tests {
         const PAYLOAD: &[u8] = b"Hello, WebSocket!";
         const MASKING_KEY: [u8; 4] = [0x12, 0x34, 0x56, 0x78];
         const EXPECTED_WS_PACKET: &[u8] = &[
-            0x81, 0x91, 0x12, 0x34, 0x56, 0x78, 0x5A, 0x51, 0x3A, 0x14, 0x7D, 0x18, 0x76, 0x2F,
-            0x77, 0x56, 0x05, 0x17, 0x71, 0x5F, 0x33, 0x0C, 0x33,
+            0x81, 0x91, 0x12, 0x34, 0x56, 0x78, 0x5A, 0x51, 0x3A, 0x14, 0x7D, 0x18, 0x76, 0x2F, 0x77, 0x56, 0x05, 0x17,
+            0x71, 0x5F, 0x33, 0x0C, 0x33,
         ]; // Masked frame with "Hello, WebSocket!" payload
 
         let payload: &[u8] = PAYLOAD; //17 bytes
@@ -76,26 +75,16 @@ mod tests {
         let mut buf = [0u8; MAX_WS_FRAME_HEADER_SIZE + PAYLOAD.len()];
         let mut header_buffer = [0u8; MAX_WS_FRAME_HEADER_SIZE];
 
-        let (mut writer, header_size) = WSEncodeWriter::encode_header(
-            payload.len(),
-            &mut header_buffer,
-            WSOpcode::Text,
-            1,
-            masking_key,
-        );
+        let (mut writer, header_size) =
+            WSEncodeWriter::encode_header(payload.len(), &mut header_buffer, WSOpcode::Text, 1, masking_key);
         assert_eq!(header_size, MIN_WS_FRAME_HEADER_SIZE + WS_MASKING_KEY_LEN);
 
         buf[..header_size].copy_from_slice(&header_buffer[..header_size]);
 
         buf[header_size..header_size + payload.len()].copy_from_slice(payload);
-        let encoded_payload_size = writer
-            .encode_payload_in_place(&mut buf[header_size..])
-            .unwrap();
+        let encoded_payload_size = writer.encode_payload_in_place(&mut buf[header_size..]).unwrap();
         assert_eq!(encoded_payload_size, payload.len());
-        assert_eq!(
-            &buf[..header_size + encoded_payload_size],
-            EXPECTED_WS_PACKET
-        );
+        assert_eq!(&buf[..header_size + encoded_payload_size], EXPECTED_WS_PACKET);
     }
 
     #[test]
@@ -114,12 +103,9 @@ mod tests {
 
         buf[..header_size].copy_from_slice(&header_buffer[..header_size]);
 
-        buf[header_size..header_size + REAL_WS_PACKET_PAYLOAD.len()]
-            .copy_from_slice(&REAL_WS_PACKET_PAYLOAD);
+        buf[header_size..header_size + REAL_WS_PACKET_PAYLOAD.len()].copy_from_slice(&REAL_WS_PACKET_PAYLOAD);
         let encoded_payload_size = writer
-            .encode_payload_in_place(
-                &mut buf[header_size..header_size + REAL_WS_PACKET_PAYLOAD.len()],
-            )
+            .encode_payload_in_place(&mut buf[header_size..header_size + REAL_WS_PACKET_PAYLOAD.len()])
             .unwrap();
         assert_eq!(encoded_payload_size, REAL_WS_PACKET_PAYLOAD.len());
         assert_eq!(&buf[..header_size + encoded_payload_size], REAL_WS_PACKET);

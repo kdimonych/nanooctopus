@@ -60,14 +60,9 @@ mod embedded_io_impls {
                 return Ok(0);
             }
 
-            let to_read = core::cmp::min(
-                buf.len(),
-                self.multipart_buffer[self.part].len() - self.position,
-            );
+            let to_read = core::cmp::min(buf.len(), self.multipart_buffer[self.part].len() - self.position);
 
-            buf[..to_read].copy_from_slice(
-                &self.multipart_buffer[self.part][self.position..self.position + to_read],
-            );
+            buf[..to_read].copy_from_slice(&self.multipart_buffer[self.part][self.position..self.position + to_read]);
             self.position += to_read;
 
             if self.position >= self.multipart_buffer[self.part].len() {
@@ -81,8 +76,7 @@ mod embedded_io_impls {
 
     impl embedded_io_async::ReadReady for MockMultipartReadStream {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.part < self.multipart_buffer.len()
-                && self.position < self.multipart_buffer[self.part].len())
+            Ok(self.part < self.multipart_buffer.len() && self.position < self.multipart_buffer[self.part].len())
         }
     }
 }
@@ -98,10 +92,7 @@ mod tests {
         let mut stream = MockMultipartReadStream::new(&multipart_buffer);
         let mut buf = [0u8; 10];
 
-        let result = stream
-            .read(&mut buf)
-            .await
-            .expect("Failed to read from stream");
+        let result = stream.read(&mut buf).await.expect("Failed to read from stream");
         assert_eq!(result, 0);
     }
 

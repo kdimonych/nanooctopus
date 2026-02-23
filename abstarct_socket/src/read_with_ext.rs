@@ -85,8 +85,7 @@ pub trait ReadStreamExt: ReadWith {
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             let mut finder = FindSequence::new(stop_sequence);
-            self.read_untill(buffer, |chank| finder.check_next_slice(chank))
-                .await
+            self.read_untill(buffer, |chank| finder.check_next_slice(chank)).await
         }
     }
 
@@ -107,10 +106,7 @@ pub trait ReadStreamExt: ReadWith {
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
             self.read_untill(buffer, |chank| {
-                chank
-                    .iter()
-                    .position(|&b| b == stop_byte)
-                    .map(|pos| pos + 1)
+                chank.iter().position(|&b| b == stop_byte).map(|pos| pos + 1)
             })
             .await
         }
@@ -122,10 +118,7 @@ pub trait ReadStreamExt: ReadWith {
     /// - Returns `ReadError::SocketReadError` if an error occurs while reading from
     /// the stream.
     ///   
-    fn consume(
-        &mut self,
-        size: usize,
-    ) -> impl core::future::Future<Output = Result<(), ReadError<Self::Error>>> {
+    fn consume(&mut self, size: usize) -> impl core::future::Future<Output = Result<(), ReadError<Self::Error>>> {
         async move {
             let mut bytes_to_consume = size;
 
@@ -191,13 +184,8 @@ pub trait ReadStreamExt: ReadWith {
         stop_byte: u8,
     ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
         async move {
-            self.consume_till_stop(|chank| {
-                chank
-                    .iter()
-                    .position(|&b| b == stop_byte)
-                    .map(|pos| pos + 1)
-            })
-            .await
+            self.consume_till_stop(|chank| chank.iter().position(|&b| b == stop_byte).map(|pos| pos + 1))
+                .await
         }
     }
 
@@ -348,10 +336,7 @@ pub mod tests {
 
         assert!(matches!(e, ReadError::SocketReadError(_)));
 
-        let res = stream
-            .read(&mut buffer)
-            .await
-            .expect("Expect Ok(0) due to EOF");
+        let res = stream.read(&mut buffer).await.expect("Expect Ok(0) due to EOF");
         assert_eq!(res, 0);
     }
 }

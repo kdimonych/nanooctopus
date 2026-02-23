@@ -35,12 +35,10 @@ pub use protocols::status_code::StatusCode;
 
 #[cfg(feature = "ws")]
 pub use handler::{
-    WebSocket, WebSocketError, WebSocketIoError, WebSocketRead, WebSocketReadReady, WebSocketState,
-    WebSocketWrite, WebSocketWriteReady,
+    WebSocket, WebSocketError, WebSocketIoError, WebSocketRead, WebSocketReadReady, WebSocketState, WebSocketWrite,
+    WebSocketWriteReady,
 };
 
 pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
-pub use server::{
-    DefaultHttpServer, HttpServer, HttpServerBuffers, ServerTimeouts, SmallHttpServer,
-};
+pub use server::{DefaultHttpServer, HttpServer, HttpServerBuffers, ServerTimeouts, SmallHttpServer};

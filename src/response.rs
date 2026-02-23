@@ -143,10 +143,7 @@ impl HttpResponse<'_> {
 }
 
 /// Write HTTP status line to the given buffer
-fn write_status_line<const MAX_RESPONSE_SIZE: usize>(
-    bytes: &mut Vec<u8, MAX_RESPONSE_SIZE>,
-    status_code: StatusCode,
-) {
+fn write_status_line<const MAX_RESPONSE_SIZE: usize>(bytes: &mut Vec<u8, MAX_RESPONSE_SIZE>, status_code: StatusCode) {
     // Write "HTTP/1.1 "
     let _ = bytes.extend_from_slice(b"HTTP/1.1 ");
 
@@ -160,10 +157,7 @@ fn write_status_line<const MAX_RESPONSE_SIZE: usize>(
 }
 
 /// Write a decimal number to the buffer
-fn write_decimal_to_buffer<const MAX_RESPONSE_SIZE: usize>(
-    bytes: &mut Vec<u8, MAX_RESPONSE_SIZE>,
-    mut num: usize,
-) {
+fn write_decimal_to_buffer<const MAX_RESPONSE_SIZE: usize>(bytes: &mut Vec<u8, MAX_RESPONSE_SIZE>, mut num: usize) {
     if num == 0 {
         let _ = bytes.push(b'0');
         return;

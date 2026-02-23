@@ -108,10 +108,7 @@ impl ReadWith for MockSocket {
             buf.resize(1024, 0); // Temporary buffer
             let size = receive_callback(buf.as_mut_slice())?;
             let (written_size, result) = f(&mut buf[..size]);
-            assert!(
-                written_size <= size,
-                "Read more bytes than available in buffer"
-            );
+            assert!(written_size <= size, "Read more bytes than available in buffer");
             Ok(result)
         } else {
             Err(MockStreamError::ConnectionReset)
@@ -130,10 +127,7 @@ impl WriteWith for MockSocket {
             buf.resize(1024, 0); // Temporary buffer
 
             let (written_size, result) = f(buf.as_mut_slice());
-            assert!(
-                written_size <= buf.len(),
-                "Wrote more bytes than available in buffer"
-            );
+            assert!(written_size <= buf.len(), "Wrote more bytes than available in buffer");
             send_callback(&buf[..written_size])?;
 
             Ok(result)

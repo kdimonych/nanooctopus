@@ -69,8 +69,7 @@ impl<'a> HttpRequest<'a> {
 
         while let Some(header) = parser.parse_next_header(&mut buffer).await? {
             #[cfg(feature = "ws")]
-            let is_filtered_out =
-                { content_length_search.process(&header)? || web_socket_search.process(&header) };
+            let is_filtered_out = { content_length_search.process(&header)? || web_socket_search.process(&header) };
             #[cfg(not(feature = "ws"))]
             let is_filtered_out = content_length_search.process(&header)?;
 
@@ -99,9 +98,7 @@ impl<'a> HttpRequest<'a> {
             return Err(Error::ReadBufferOverflow);
         }
 
-        stream
-            .read_exact(&mut buffer.as_mut_slice()[..body_size])
-            .await?;
+        stream.read_exact(&mut buffer.as_mut_slice()[..body_size]).await?;
         request.body = buffer.take_front(body_size);
 
         Ok(request)
@@ -217,8 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_parse_from_stream() {
-        let mut request =
-            b"GET /index.html HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n".to_vec();
+        let mut request = b"GET /index.html HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n".to_vec();
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];

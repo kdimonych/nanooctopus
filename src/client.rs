@@ -90,14 +90,8 @@ pub struct HttpClient<
     options: HttpClientOptions,
 }
 
-impl<
-    'a,
-    const TCP_RX: usize,
-    const TCP_TX: usize,
-    const TLS_READ: usize,
-    const TLS_WRITE: usize,
-    const RQ: usize,
-> HttpClient<'a, TCP_RX, TCP_TX, TLS_READ, TLS_WRITE, RQ>
+impl<'a, const TCP_RX: usize, const TCP_TX: usize, const TLS_READ: usize, const TLS_WRITE: usize, const RQ: usize>
+    HttpClient<'a, TCP_RX, TCP_TX, TLS_READ, TLS_WRITE, RQ>
 {
     /// Create a new HTTP client with custom buffer sizes and default options
     #[must_use]
@@ -269,8 +263,7 @@ impl<
         let mut tls = TlsConnection::new(socket, &mut read_record_buffer, &mut write_record_buffer);
         let mut rng = ChaCha8Rng::from_seed(timeseed());
 
-        tls.open::<_, NoVerify>(TlsContext::new(&tls_config, &mut rng))
-            .await?;
+        tls.open::<_, NoVerify>(TlsContext::new(&tls_config, &mut rng)).await?;
 
         let http_request = Self::build_http_request(method, host, path, headers, body)?;
 
@@ -356,13 +349,10 @@ impl<
 
         let http_request = Self::build_http_request(method, host, path, headers, body)?;
 
-        socket
-            .write_all(http_request.as_bytes())
-            .await
-            .map_err(|e| {
-                socket.abort();
-                Error::from(e)
-            })?;
+        socket.write_all(http_request.as_bytes()).await.map_err(|e| {
+            socket.abort();
+            Error::from(e)
+        })?;
 
         if let Some(body_data) = body {
             socket.write_all(body_data).await.map_err(|e| {
@@ -426,14 +416,8 @@ impl<
         body: &[u8],
         response_buffer: &'b mut [u8],
     ) -> Result<(HttpResponse<'b>, usize), Error> {
-        self.request(
-            HttpMethod::PATCH,
-            endpoint,
-            headers,
-            Some(body),
-            response_buffer,
-        )
-        .await
+        self.request(HttpMethod::PATCH, endpoint, headers, Some(body), response_buffer)
+            .await
     }
 
     /// Convenience method for making a HEAD request
@@ -478,14 +462,8 @@ impl<
         headers: &[HttpHeader<'_>],
         response_buffer: &'b mut [u8],
     ) -> Result<(HttpResponse<'b>, usize), Error> {
-        self.request(
-            HttpMethod::OPTIONS,
-            endpoint,
-            headers,
-            None,
-            response_buffer,
-        )
-        .await
+        self.request(HttpMethod::OPTIONS, endpoint, headers, None, response_buffer)
+            .await
     }
 
     /// Convenience method for making a TRACE request
@@ -530,14 +508,8 @@ impl<
         headers: &[HttpHeader<'_>],
         response_buffer: &'b mut [u8],
     ) -> Result<(HttpResponse<'b>, usize), Error> {
-        self.request(
-            HttpMethod::CONNECT,
-            endpoint,
-            headers,
-            None,
-            response_buffer,
-        )
-        .await
+        self.request(HttpMethod::CONNECT, endpoint, headers, None, response_buffer)
+            .await
     }
 
     /// Convenience method for making a GET request
@@ -584,14 +556,8 @@ impl<
         body: &[u8],
         response_buffer: &'b mut [u8],
     ) -> Result<(HttpResponse<'b>, usize), Error> {
-        self.request(
-            HttpMethod::POST,
-            endpoint,
-            headers,
-            Some(body),
-            response_buffer,
-        )
-        .await
+        self.request(HttpMethod::POST, endpoint, headers, Some(body), response_buffer)
+            .await
     }
 
     /// Convenience method for making a PUT request
@@ -615,14 +581,8 @@ impl<
         body: &[u8],
         response_buffer: &'b mut [u8],
     ) -> Result<(HttpResponse<'b>, usize), Error> {
-        self.request(
-            HttpMethod::PUT,
-            endpoint,
-            headers,
-            Some(body),
-            response_buffer,
-        )
-        .await
+        self.request(HttpMethod::PUT, endpoint, headers, Some(body), response_buffer)
+            .await
     }
 
     /// Convenience method for making a DELETE request
@@ -650,8 +610,8 @@ impl<
 
     /// Parse HTTP response from raw data with zero-copy handling
     fn parse_http_response_zero_copy(data: &[u8]) -> Result<HttpResponse<'_>, Error> {
-        let response_str = core::str::from_utf8(data)
-            .map_err(|_| Error::InvalidData("Invalid HTTP response encoding"))?;
+        let response_str =
+            core::str::from_utf8(data).map_err(|_| Error::InvalidData("Invalid HTTP response encoding"))?;
 
         let status_line_end = response_str
             .find("\r\n")
@@ -702,10 +662,7 @@ impl<
     }
 
     /// Parse response body based on content type and data (zero-copy)
-    fn parse_response_body<'b>(
-        headers: &[HttpHeader<'_>],
-        body_data: &'b [u8],
-    ) -> ResponseBody<'b> {
+    fn parse_response_body<'b>(headers: &[HttpHeader<'_>], body_data: &'b [u8]) -> ResponseBody<'b> {
         if body_data.is_empty() {
             return ResponseBody::Empty;
         }
@@ -788,12 +745,7 @@ impl<
         if !content_length_present && body.is_some() {
             try_push!(http_request.push_str("Content-Length: "));
             let mut len_str = heapless::String::<8>::new();
-            if core::fmt::write(
-                &mut len_str,
-                format_args!("{}", body.unwrap_or_default().len()),
-            )
-            .is_err()
-            {
+            if core::fmt::write(&mut len_str, format_args!("{}", body.unwrap_or_default().len())).is_err() {
                 return Err(Error::InvalidData("Failed to write content length"));
             }
             try_push!(http_request.push_str(&len_str));
@@ -816,12 +768,9 @@ impl<
 
         // Check for Content-Length header to determine if we have the full body
         if let Some(content_length_pos) = response_str.find("Content-Length:") {
-            let content_length_end = response_str[content_length_pos..]
-                .find("\r\n")
-                .unwrap_or_default()
-                + content_length_pos;
-            let content_length_str =
-                &response_str[content_length_pos + 15..content_length_end].trim();
+            let content_length_end =
+                response_str[content_length_pos..].find("\r\n").unwrap_or_default() + content_length_pos;
+            let content_length_str = &response_str[content_length_pos + 15..content_length_end].trim();
 
             if let Ok(content_length) = content_length_str.parse::<usize>() {
                 let headers_end = response_str.find("\r\n\r\n").unwrap_or_default() + 4;
