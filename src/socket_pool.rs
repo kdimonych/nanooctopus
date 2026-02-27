@@ -37,7 +37,6 @@ impl<const RX_SIZE: usize, const TX_SIZE: usize> Default for SocketBuffers<RX_SI
     }
 }
 
-#[derive(Debug)]
 #[defmt_or_log::derive_format_or_debug]
 pub enum SocketPoolError {
     AcceptError(AcceptError),

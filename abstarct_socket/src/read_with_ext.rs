@@ -3,7 +3,7 @@ use crate::find_sequence::FindSequence;
 use crate::read_with::ReadWith;
 
 /// Error returned by TcpSocket read/write functions.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 #[defmt_or_log::derive_format_or_debug]
 pub enum ReadError<SocketReadErrorT> {
     /// The connection was reset.

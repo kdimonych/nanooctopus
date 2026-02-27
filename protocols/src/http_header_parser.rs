@@ -10,7 +10,7 @@ const LINE_DELIMITTER_SIZE: usize = LINE_DELIMITTER.len();
 const KEY_VALUE_DELIMITTER: char = ':';
 
 /// Errors that can occur during HTTP header parsing
-#[derive(Debug)]
+#[defmt_or_log::derive_format_or_debug]
 pub enum HttpParseError<SocketReadErrorT> {
     /// Error occurred while reading from the stream
     ReadError(ReadError<SocketReadErrorT>),
