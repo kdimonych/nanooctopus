@@ -126,18 +126,20 @@ impl ContentLengthSearch {
     /// the value is invalid.
     pub fn process(&mut self, header: &HttpHeader<'_>) -> Result<bool, Error> {
         let mut res: bool = false;
-        if self.length.is_none() {
-            if header.name.eq_ignore_ascii_case("Content-Length") {
+
+        if header.name.eq_ignore_ascii_case("Content-Length") {
+            if self.length.is_none() {
                 let val = header
                     .value
                     .parse::<usize>()
                     .map_err(|_| Error::InvalidData("Invalid Content-Length header value"))?;
                 self.length = Some(val);
                 res = true;
+            } else {
+                return Err(Error::InvalidData("Multiple Content-Length headers found"));
             }
-        } else {
-            return Err(Error::InvalidData("Multiple Content-Length headers found"));
         }
+
         Ok(res)
     }
 
@@ -365,5 +367,61 @@ mod tests {
 
             assert_eq!(request.method, *expected_method);
         }
+    }
+
+    #[tokio::test]
+    async fn test_content_length_search() {
+        let mut search = ContentLengthSearch::new();
+
+        // Test with no Content-Length header
+        let header1 = HttpHeader::new("Host", "example.com");
+        assert_eq!(search.process(&header1).unwrap(), false);
+        assert_eq!(search.content_length(), None);
+
+        // Test with valid Content-Length header
+        let header2 = HttpHeader::new("Content-Length", "123");
+        assert_eq!(search.process(&header2).unwrap(), true);
+        assert_eq!(search.content_length(), Some(123));
+
+        let header1 = HttpHeader::new("Host", "example.com");
+        assert_eq!(search.process(&header1).unwrap(), false);
+        assert_eq!(search.content_length(), Some(123));
+
+        // Test with multiple Content-Length headers
+        let header3 = HttpHeader::new("Content-Length", "456");
+        assert!(search.process(&header3).is_err());
+    }
+
+    #[cfg(feature = "ws")]
+    #[tokio::test]
+    async fn test_web_socket_key_search() {
+        let mut search = WebSocketKeySearch::new();
+
+        // Test with no relevant headers
+        let header1 = HttpHeader::new("Host", "example.com");
+        assert_eq!(search.process(&header1), false);
+        assert_eq!(search.web_socket_key(), None);
+
+        // Test with Upgrade header only
+        let header2 = HttpHeader::new("Upgrade", "websocket");
+        assert_eq!(search.process(&header2), true);
+        assert_eq!(search.web_socket_key(), None);
+
+        // Test with Connection header only
+        let header3 = HttpHeader::new("Connection", "upgrade");
+        assert_eq!(search.process(&header3), true);
+        assert_eq!(search.web_socket_key(), None);
+
+        // Test with Sec-WebSocket-Key header only
+        let header4 = HttpHeader::new("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==");
+        assert_eq!(search.process(&header4), true);
+        assert_eq!(search.web_socket_key(), None);
+
+        // Test with all headers present
+        let mut search2 = WebSocketKeySearch::new();
+        search2.process(&header2);
+        search2.process(&header3);
+        search2.process(&header4);
+        assert_eq!(search2.web_socket_key(), Some("dGhlIHNhbXBsZSBub25jZQ=="));
     }
 }
