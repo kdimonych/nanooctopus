@@ -19,7 +19,6 @@ pub mod server;
 /// Slice view utilities for HTTP responses.
 pub mod slice_view;
 
-// /// WebSocket support module
 // #[cfg(feature = "ws")]
 // pub mod ws;
 
