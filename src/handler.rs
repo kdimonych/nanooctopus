@@ -36,10 +36,10 @@ pub trait HttpHandler {
     /// will remain open and server will process further HTTP requests on it.
     ///
     /// If the handler returns Err() the TCP socket will be closed and the server will wait for a new connection.
-    async fn handle_websocket_connection<'a>(
+    async fn handle_websocket_connection(
         &mut self,
         request: &HttpRequest<'_>,
-        web_socket: WebSocket<'a, '_>,
+        web_socket: WebSocket<'_, '_>,
     ) -> Result<(), ()>;
 }
 
@@ -70,10 +70,10 @@ impl HttpHandler for SimpleHandler {
     }
 
     #[cfg(feature = "ws")]
-    async fn handle_websocket_connection<'a>(
+    async fn handle_websocket_connection(
         &mut self,
         _request: &HttpRequest<'_>,
-        _web_socket: WebSocket<'a, '_>,
+        _web_socket: WebSocket<'_, '_>,
     ) -> Result<(), ()> {
         Err(()) // Close the connection immediately
     }
