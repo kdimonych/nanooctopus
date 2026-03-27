@@ -16,8 +16,9 @@ use heapless::spsc::Queue;
 const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
 const SOCKET_IO_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 
-type GuardedSocket<'stack> = RwLock<NoopRawMutex, TcpSocket<'stack>>;
-pub type SocketRef<'a, 'stack> = RwLockWriteGuard<'a, NoopRawMutex, TcpSocket<'stack>>;
+type GuardedSocket<'tcp_stack> = RwLock<NoopRawMutex, TcpSocket<'tcp_stack>>;
+pub type SocketRef<'buffer, 'tcp_stack> = RwLockWriteGuard<'buffer, NoopRawMutex, TcpSocket<'tcp_stack>>;
+pub type SocketQueue<'buffer, 'tcp_stack, const POOL_SIZE: usize> = Queue<SocketRef<'buffer, 'tcp_stack>, POOL_SIZE>;
 
 /// Type alias for socket buffers
 pub struct SocketBuffers<const RX_SIZE: usize, const TX_SIZE: usize> {
@@ -72,29 +73,29 @@ impl RoundRobinSocketPoolBuilder {
         self
     }
 
-    pub fn build<'socket, 'stack, const POOL_SIZE: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
+    pub fn build<'socket, 'tcp_stack, const POOL_SIZE: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
         &self,
         buffers: &'socket mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
-        stack: Stack<'stack>,
-    ) -> SocketPool<'stack, POOL_SIZE>
+        stack: Stack<'tcp_stack>,
+    ) -> SocketPool<'tcp_stack, POOL_SIZE>
     where
-        'socket: 'stack,
+        'socket: 'tcp_stack,
     {
         SocketPool::new(buffers, stack, self.port)
     }
 }
 
-pub struct SocketPool<'stack, const POOL_SIZE: usize> {
-    sockets: [GuardedSocket<'stack>; POOL_SIZE],
+pub struct SocketPool<'tcp_stack, const POOL_SIZE: usize> {
+    sockets: [GuardedSocket<'tcp_stack>; POOL_SIZE],
     port: u16,
 }
 
 #[allow(dead_code)]
-impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
+impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     /// Create a new SocketPool
     fn new<const RX_SIZE: usize, const TX_SIZE: usize>(
-        buffers: &'stack mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
-        stack: Stack<'stack>,
+        buffers: &'tcp_stack mut [SocketBuffers<RX_SIZE, TX_SIZE>; POOL_SIZE],
+        stack: Stack<'tcp_stack>,
         port: u16,
     ) -> Self {
         let mut it = buffers.iter_mut();
@@ -131,7 +132,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     /// (ready means has established stated and data is available for reading).
     /// All ready sockets are enqueued into the provided `ready` queue.
     ///
-    pub async fn acquire_next_request<'b>(&'b self, ready: &mut Queue<SocketRef<'b, 'stack>, POOL_SIZE>) {
+    pub async fn acquire_next_request<'b>(&'b self, ready: &mut SocketQueue<'b, 'tcp_stack, POOL_SIZE>) {
         Self::collect_ready(&self.sockets, self.port, ready).await;
     }
 
@@ -147,9 +148,9 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     }
 
     async fn collect_ready<'a, 'b>(
-        sockets: &'a [GuardedSocket<'stack>],
+        sockets: &'a [GuardedSocket<'tcp_stack>],
         port: u16,
-        ready: &mut Queue<SocketRef<'b, 'stack>, POOL_SIZE>,
+        ready: &mut SocketQueue<'b, 'tcp_stack, POOL_SIZE>,
     ) where
         'a: 'b,
     {
