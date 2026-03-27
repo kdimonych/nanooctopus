@@ -133,6 +133,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     }
 
     /// Get the capacity of the socket pool
+    #[inline(always)]
     pub const fn capacity(&self) -> usize {
         POOL_SIZE
     }
