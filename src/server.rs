@@ -1,5 +1,5 @@
 use crate::{
-    HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
+    HttpResponse, HttpResponseBufferRef, HttpResponseBuilder, SocketPool,
     handler::HttpHandler,
     request::HttpRequest,
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
@@ -19,6 +19,8 @@ use sha1::{Digest, Sha1};
 
 #[cfg(feature = "ws")]
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+use bump_into::{self, BumpInto};
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -65,30 +67,18 @@ pub struct HttpServer {
 }
 
 /// Resources required for the HTTP server
-pub struct HttpServerBuffers<
-    const SOCKETS: usize,
-    const RX_SIZE: usize,
-    const TX_SIZE: usize,
-    const REQ_SIZE: usize,
-    const MAX_RESPONSE_SIZE: usize,
-> {
-    socket_buffers: [SocketBuffers<RX_SIZE, TX_SIZE>; SOCKETS],
+pub struct HttpServerBuffers<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize> {
     request_buf: [u8; REQ_SIZE],
     response_buf: [u8; MAX_RESPONSE_SIZE],
 }
 
-impl<
-    const SOCKETS: usize,
-    const RX_SIZE: usize,
-    const TX_SIZE: usize,
-    const REQ_SIZE: usize,
-    const MAX_RESPONSE_SIZE: usize,
-> HttpServerBuffers<SOCKETS, RX_SIZE, TX_SIZE, REQ_SIZE, MAX_RESPONSE_SIZE>
-{
+/// Type alias for the bump allocator used for dynamic memory management in the HTTP servers
+pub type BumpAllocator<'a> = BumpInto<'a>;
+
+impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize> HttpServerBuffers<REQ_SIZE, MAX_RESPONSE_SIZE> {
     /// Create new HTTP server resources
     pub const fn new() -> Self {
         Self {
-            socket_buffers: [const { SocketBuffers::<RX_SIZE, TX_SIZE>::new() }; SOCKETS],
             request_buf: [0; REQ_SIZE],
             response_buf: [0; MAX_RESPONSE_SIZE],
         }
@@ -121,34 +111,40 @@ impl HttpServer {
         self
     }
 
+    /// Create a socket pool for managing TCP connections
+    pub fn create_socket_pool<'buffer, 'stack, const SOCKETS: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
+        &self,
+        allocator: &'buffer mut BumpInto,
+        stack: Stack<'stack>,
+    ) -> SocketPool<'stack, SOCKETS>
+    where
+        'buffer: 'stack,
+    {
+        let socket_buffers = allocator
+            .alloc_with(|| [const { SocketBuffers::<RX_SIZE, TX_SIZE>::new() }; SOCKETS])
+            .unwrap_or_else(|_| panic!("Not enough memory to store the socket pool buffers."));
+
+        //The tcp socket life cycle
+        RoundRobinSocketPoolBuilder::new(self.port)
+            .with_socket_io_timeout(Duration::from_secs(self.timeouts.accept_timeout))
+            .with_keep_alive_timeout(Duration::from_secs(5))
+            .build(socket_buffers, stack)
+    }
+
     /// Start the HTTP server and handle incoming connections
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<
-        'stack,
-        const SOCKETS: usize,
-        const RX_SIZE: usize,
-        const TX_SIZE: usize,
-        const REQ_SIZE: usize,
-        const MAX_RESPONSE_SIZE: usize,
-        H,
-    >(
+    pub async fn serve<'stack, const SOCKETS: usize, const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
         &mut self,
-        stack: Stack<'stack>,
-        buffers: &mut HttpServerBuffers<SOCKETS, RX_SIZE, TX_SIZE, REQ_SIZE, MAX_RESPONSE_SIZE>,
+        socket_pool: &mut SocketPool<'stack, SOCKETS>,
+        buffers: &mut HttpServerBuffers<REQ_SIZE, MAX_RESPONSE_SIZE>,
         handler: &mut H,
     ) -> !
     where
         H: HttpHandler,
     {
         log::info!("WebServer: HTTP server started on port {}", self.port);
-
-        //The tcp socket life cycle
-        let socket_pool = RoundRobinSocketPoolBuilder::new(self.port)
-            .with_socket_io_timeout(Duration::from_secs(self.timeouts.accept_timeout))
-            .with_keep_alive_timeout(Duration::from_secs(5))
-            .build(&mut buffers.socket_buffers, stack);
 
         log::debug!("WebServer: HTTP server started listening");
         log::info!("WebServer: Auto-close connection is {}", self.auto_close_connection);
