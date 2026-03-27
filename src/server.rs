@@ -135,9 +135,9 @@ impl HttpServer {
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<'stack, const SOCKETS: usize, const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
+    pub async fn serve<const SOCKETS: usize, const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
         &mut self,
-        socket_pool: &mut SocketPool<'stack, SOCKETS>,
+        socket_pool: &mut SocketPool<'_, SOCKETS>,
         buffers: &mut HttpServerBuffers<REQ_SIZE, MAX_RESPONSE_SIZE>,
         handler: &mut H,
     ) -> !
