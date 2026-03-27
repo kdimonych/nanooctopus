@@ -66,24 +66,8 @@ pub struct HttpServer {
     auto_close_connection: bool,
 }
 
-/// Resources required for the HTTP server
-pub struct HttpServerBuffers<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize> {
-    request_buf: [u8; REQ_SIZE],
-    response_buf: [u8; MAX_RESPONSE_SIZE],
-}
-
 /// Type alias for the bump allocator used for dynamic memory management in the HTTP servers
-pub type BumpAllocator<'a> = BumpInto<'a>;
-
-impl<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize> HttpServerBuffers<REQ_SIZE, MAX_RESPONSE_SIZE> {
-    /// Create new HTTP server resources
-    pub const fn new() -> Self {
-        Self {
-            request_buf: [0; REQ_SIZE],
-            response_buf: [0; MAX_RESPONSE_SIZE],
-        }
-    }
-}
+pub type HttpAllocator<'a> = BumpInto<'a>;
 
 impl HttpServer {
     /// Create a new HTTP server with default timeouts
@@ -114,7 +98,7 @@ impl HttpServer {
     /// Create a socket pool for managing TCP connections
     pub fn create_socket_pool<'buffer, 'stack, const SOCKETS: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
         &self,
-        allocator: &mut BumpInto<'buffer>,
+        allocator: &mut HttpAllocator<'buffer>,
         stack: Stack<'stack>,
     ) -> SocketPool<'stack, SOCKETS>
     where
@@ -137,7 +121,7 @@ impl HttpServer {
     /// HTTPS/TLS is not supported by the server (only by the client).
     pub async fn serve<const SOCKETS: usize, const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
         &mut self,
-        allocator: &mut BumpInto<'_>,
+        allocator: &mut HttpAllocator<'_>,
         socket_pool: &mut SocketPool<'_, SOCKETS>,
         handler: &mut H,
     ) -> !
