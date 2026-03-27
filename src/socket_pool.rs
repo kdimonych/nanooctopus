@@ -10,10 +10,15 @@ use core::pin::pin;
 use core::task::Context;
 use core::task::Poll;
 use defmt_or_log as log;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::rwlock::{self, RwLock, RwLockWriteGuard};
 use heapless::spsc::Queue;
 
 const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
 const SOCKET_IO_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+
+type GuardedSocket<'stack> = RwLock<NoopRawMutex, TcpSocket<'stack>>;
+pub type SocketRef<'a, 'stack> = RwLockWriteGuard<'a, NoopRawMutex, TcpSocket<'stack>>;
 
 /// Type alias for socket buffers
 pub struct SocketBuffers<const RX_SIZE: usize, const TX_SIZE: usize> {
@@ -81,7 +86,7 @@ impl RoundRobinSocketPoolBuilder {
 }
 
 pub struct SocketPool<'stack, const POOL_SIZE: usize> {
-    sockets: [RefCell<TcpSocket<'stack>>; POOL_SIZE],
+    sockets: [GuardedSocket<'stack>; POOL_SIZE],
     port: u16,
 }
 
@@ -115,7 +120,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
                     RX_SIZE,
                     TX_SIZE
                 );
-                RefCell::new(socket)
+                RwLock::new(socket)
             }),
             port,
         }
@@ -127,8 +132,7 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     /// (ready means has established stated and data is available for reading).
     /// All ready sockets are enqueued into the provided `ready` queue.
     ///
-    pub async fn acquire_next_request<'b>(&'b self, ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, POOL_SIZE>) {
-        //let mut ready: Queue<RefMut<'_, TcpSocket<'stack>>, POOL_SIZE> = Queue::new();
+    pub async fn acquire_next_request<'b>(&'b self, ready: &mut Queue<SocketRef<'b, 'stack>, POOL_SIZE>) {
         Self::collect_ready(&self.sockets, self.port, ready).await;
     }
 
@@ -139,24 +143,23 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     }
 
     async fn collect_ready<'a, 'b>(
-        sockets: &'a [RefCell<TcpSocket<'stack>>],
+        sockets: &'a [GuardedSocket<'stack>],
         port: u16,
-        ready: &mut Queue<RefMut<'b, TcpSocket<'stack>>, POOL_SIZE>,
+        ready: &mut Queue<SocketRef<'b, 'stack>, POOL_SIZE>,
     ) where
         'a: 'b,
     {
         poll_fn(|cx| -> Poll<()> {
-            let mut ready_it = sockets
-                .iter()
-                .filter_map(|s| s.try_borrow_mut().ok())
-                .filter_map(|mut s| match s.poll_wait_next_request_once(cx, port) {
+            let mut ready_it = sockets.iter().filter_map(|s| s.try_write().ok()).filter_map(|mut s| {
+                match s.poll_wait_next_request_once(cx, port) {
                     Poll::Ready(Ok(())) => Some(s),
                     Poll::Ready(Err(error)) => {
                         log::error!("SocketPool: Error while polling socket: {:?}", error);
                         None
                     }
                     Poll::Pending => None,
-                });
+                }
+            });
 
             while let Some(socket) = ready_it.next() {
                 log::debug!("SocketPool: Socket {:?} is ready", socket.remote_endpoint());
