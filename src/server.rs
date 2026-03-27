@@ -137,7 +137,7 @@ impl HttpServer {
         &mut self,
         stack: Stack<'stack>,
         buffers: &mut HttpServerBuffers<SOCKETS, RX_SIZE, TX_SIZE, REQ_SIZE, MAX_RESPONSE_SIZE>,
-        mut handler: H,
+        handler: &mut H,
     ) -> !
     where
         H: HttpHandler,
@@ -217,7 +217,7 @@ impl HttpServer {
                         .handle_connection(
                             &request,
                             HttpResponseBufferRef::bind(&mut buffers.response_buf, self.auto_close_connection),
-                            &mut handler,
+                            handler,
                         )
                         .await
                     {
