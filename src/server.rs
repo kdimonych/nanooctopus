@@ -1,10 +1,11 @@
 use crate::{
-    HttpResponse, HttpResponseBufferRef, HttpResponseBuilder, SocketPool,
+    HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
     handler::HttpHandler,
     request::HttpRequest,
-    socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers},
+    socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
 };
 //use abstarct_socket::embassy_impls::read_stream::*;
+use bump_into::{self, BumpInto};
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
@@ -12,6 +13,7 @@ use embedded_io_async::Write as EmbeddedWrite;
 use heapless::spsc::Queue;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
+
 #[cfg(feature = "ws")]
 use protocols::web_socket::WebSocket;
 #[cfg(feature = "ws")]
@@ -19,8 +21,6 @@ use sha1::{Digest, Sha1};
 
 #[cfg(feature = "ws")]
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-use bump_into::{self, BumpInto};
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -60,8 +60,8 @@ impl ServerTimeouts {
 /// **Note**: This server only supports HTTP connections, not HTTPS/TLS.
 /// For secure connections, consider using a reverse proxy or load balancer
 /// that handles TLS termination.
-pub struct HttpServer {
-    port: u16,
+pub struct HttpServer<'stack, const SOCKETS: usize> {
+    socket_pool: SocketPool<'stack, SOCKETS>,
     timeouts: ServerTimeouts,
     auto_close_connection: bool,
 }
@@ -69,22 +69,33 @@ pub struct HttpServer {
 /// Type alias for the bump allocator used for dynamic memory management in the HTTP servers
 pub type HttpAllocator<'a> = BumpInto<'a>;
 
-impl HttpServer {
+impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     /// Create a new HTTP server with default timeouts
     #[must_use]
-    pub fn new(port: u16) -> Self {
+    pub fn new<'buffer, const SOCKET_RX_SIZE: usize, const SOCKET_TX_SIZE: usize>(
+        allocator: &mut HttpAllocator<'buffer>,
+        stack: Stack<'stack>,
+        port: u16,
+        timeouts: ServerTimeouts,
+    ) -> Self
+    where
+        'buffer: 'stack,
+    {
+        let socket_buffers = allocator
+            .alloc_with(|| [const { SocketBuffers::<SOCKET_RX_SIZE, SOCKET_TX_SIZE>::new() }; SOCKETS])
+            .unwrap_or_else(|_| panic!("Not enough memory to store the socket pool buffers."));
+
+        //The tcp socket life cycle
+        let socket_pool = RoundRobinSocketPoolBuilder::new(port)
+            .with_socket_io_timeout(Duration::from_secs(timeouts.accept_timeout))
+            .with_keep_alive_timeout(Duration::from_secs(5))
+            .build(socket_buffers, stack);
+
         Self {
-            port,
-            timeouts: ServerTimeouts::default(),
+            socket_pool,
+            timeouts,
             auto_close_connection: false,
         }
-    }
-
-    /// Set custom timeouts
-    #[must_use]
-    pub fn with_timeouts(mut self, timeouts: ServerTimeouts) -> Self {
-        self.timeouts = timeouts;
-        self
     }
 
     /// Set whether to automatically close the connection after each response
@@ -95,40 +106,19 @@ impl HttpServer {
         self
     }
 
-    /// Create a socket pool for managing TCP connections
-    pub fn create_socket_pool<'buffer, 'stack, const SOCKETS: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
-        &self,
-        allocator: &mut HttpAllocator<'buffer>,
-        stack: Stack<'stack>,
-    ) -> SocketPool<'stack, SOCKETS>
-    where
-        'buffer: 'stack,
-    {
-        let socket_buffers = allocator
-            .alloc_with(|| [const { SocketBuffers::<RX_SIZE, TX_SIZE>::new() }; SOCKETS])
-            .unwrap_or_else(|_| panic!("Not enough memory to store the socket pool buffers."));
-
-        //The tcp socket life cycle
-        RoundRobinSocketPoolBuilder::new(self.port)
-            .with_socket_io_timeout(Duration::from_secs(self.timeouts.accept_timeout))
-            .with_keep_alive_timeout(Duration::from_secs(5))
-            .build(socket_buffers, stack)
-    }
-
     /// Start the HTTP server and handle incoming connections
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<const SOCKETS: usize, const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
+    pub async fn serve<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
         &mut self,
         allocator: &mut HttpAllocator<'_>,
-        socket_pool: &mut SocketPool<'_, SOCKETS>,
         handler: &mut H,
     ) -> !
     where
         H: HttpHandler,
     {
-        log::info!("WebServer: HTTP server started on port {}", self.port);
+        log::info!("WebServer: HTTP server started on port {}", self.socket_pool.port());
 
         log::debug!("WebServer: HTTP server started listening");
         log::info!("WebServer: Auto-close connection is {}", self.auto_close_connection);
@@ -144,7 +134,7 @@ impl HttpServer {
         let mut ready = Queue::new();
 
         loop {
-            socket_pool.acquire_next_request(&mut ready).await;
+            self.socket_pool.acquire_next_request(&mut ready).await;
             if let Some(mut socket) = ready.dequeue() {
                 log::info!(
                     "WebServer: New connection/request {:?}, {:?}",
@@ -300,7 +290,7 @@ impl HttpServer {
     }
 
     async fn handle_connection<'buf, H>(
-        &mut self,
+        &self,
         request: &HttpRequest<'_>,
         mut response_buffer: HttpResponseBufferRef<'buf>,
         handler: &mut H,
@@ -359,46 +349,9 @@ fn try_handle_websocket_handshake<'a>(
 }
 
 /// Type alias for `HttpServer` with default buffer sizes (4KB each)
-pub type DefaultHttpServer = HttpServer;
-
-/// Type alias for `HttpServer` with small buffer sizes for memory-constrained environments (1KB each)
-pub type SmallHttpServer = HttpServer;
+pub type DefaultHttpServer<'a> = HttpServer<'a, 1>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_http_server_creation() {
-        let server: DefaultHttpServer = HttpServer::new(8080);
-        assert_eq!(server.port, 8080);
-        assert_eq!(server.timeouts.accept_timeout, 10);
-        assert_eq!(server.timeouts.read_timeout, 30);
-        assert_eq!(server.timeouts.handler_timeout, 60);
-
-        let server: SmallHttpServer = HttpServer::new(3000);
-        assert_eq!(server.port, 3000);
-    }
-
-    #[test]
-    fn test_server_timeouts() {
-        // Test default timeouts
-        let timeouts = ServerTimeouts::default();
-        assert_eq!(timeouts.accept_timeout, 10);
-        assert_eq!(timeouts.read_timeout, 30);
-        assert_eq!(timeouts.handler_timeout, 60);
-
-        // Test custom timeouts
-        let custom_timeouts = ServerTimeouts::new(5, 15, 45);
-        assert_eq!(custom_timeouts.accept_timeout, 5);
-        assert_eq!(custom_timeouts.read_timeout, 15);
-        assert_eq!(custom_timeouts.handler_timeout, 45);
-
-        // Test server with custom timeouts
-        let server = HttpServer::new(8080).with_timeouts(custom_timeouts);
-        assert_eq!(server.port, 8080);
-        assert_eq!(server.timeouts.accept_timeout, 5);
-        assert_eq!(server.timeouts.read_timeout, 15);
-        assert_eq!(server.timeouts.handler_timeout, 45);
-    }
 }

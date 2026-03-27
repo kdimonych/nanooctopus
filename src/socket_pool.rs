@@ -3,7 +3,6 @@ use embassy_net::{
     tcp::{AcceptError, Error, State, TcpSocket},
 };
 
-use core::cell::{RefCell, RefMut};
 use core::future::Future;
 use core::future::poll_fn;
 use core::pin::pin;
@@ -11,7 +10,7 @@ use core::task::Context;
 use core::task::Poll;
 use defmt_or_log as log;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::rwlock::{self, RwLock, RwLockWriteGuard};
+use embassy_sync::rwlock::{RwLock, RwLockWriteGuard};
 use heapless::spsc::Queue;
 
 const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
@@ -140,6 +139,11 @@ impl<'stack, const POOL_SIZE: usize> SocketPool<'stack, POOL_SIZE> {
     #[inline(always)]
     pub const fn capacity(&self) -> usize {
         POOL_SIZE
+    }
+
+    #[inline(always)]
+    pub fn port(&self) -> u16 {
+        self.port
     }
 
     async fn collect_ready<'a, 'b>(

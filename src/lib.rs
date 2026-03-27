@@ -40,5 +40,4 @@ pub use handler::{
 
 pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
-pub use server::{DefaultHttpServer, HttpAllocator, HttpServer, ServerTimeouts, SmallHttpServer};
-pub use socket_pool::{SocketBuffers, SocketPool};
+pub use server::{DefaultHttpServer, HttpAllocator, HttpServer, ServerTimeouts};
