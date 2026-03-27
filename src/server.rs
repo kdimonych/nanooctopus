@@ -114,7 +114,7 @@ impl HttpServer {
     /// Create a socket pool for managing TCP connections
     pub fn create_socket_pool<'buffer, 'stack, const SOCKETS: usize, const RX_SIZE: usize, const TX_SIZE: usize>(
         &self,
-        allocator: &'buffer mut BumpInto,
+        allocator: &mut BumpInto<'buffer>,
         stack: Stack<'stack>,
     ) -> SocketPool<'stack, SOCKETS>
     where
@@ -137,8 +137,8 @@ impl HttpServer {
     /// HTTPS/TLS is not supported by the server (only by the client).
     pub async fn serve<const SOCKETS: usize, const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
         &mut self,
+        allocator: &mut BumpInto<'_>,
         socket_pool: &mut SocketPool<'_, SOCKETS>,
-        buffers: &mut HttpServerBuffers<REQ_SIZE, MAX_RESPONSE_SIZE>,
         handler: &mut H,
     ) -> !
     where
@@ -148,6 +148,14 @@ impl HttpServer {
 
         log::debug!("WebServer: HTTP server started listening");
         log::info!("WebServer: Auto-close connection is {}", self.auto_close_connection);
+
+        // Allocate request and response buffers from the bump allocator
+        let request_buf = allocator
+            .alloc_with(|| [0_u8; REQ_SIZE])
+            .unwrap_or_else(|_| panic!("Not enough memory to store the request buffer."));
+        let response_buf = allocator
+            .alloc_with(|| [0_u8; MAX_RESPONSE_SIZE])
+            .unwrap_or_else(|_| panic!("Not enough memory to store the request buffer."));
 
         let mut ready = Queue::new();
 
@@ -162,7 +170,7 @@ impl HttpServer {
 
                 let request = match with_timeout(
                     Duration::from_secs(self.timeouts.read_timeout),
-                    HttpRequest::try_parse_from_stream(&mut socket.split().0, &mut buffers.request_buf),
+                    HttpRequest::try_parse_from_stream(&mut socket.split().0, request_buf),
                 )
                 .await
                 {
@@ -201,24 +209,19 @@ impl HttpServer {
                         Self::close_connection(&mut socket).await;
                         continue;
                     }
-
-                    // // After WebSocket handling is done, close the WebSocket connection gracefully
-                    // // and return back the socket. The TCP socket may remain open for further HTTP
-                    // //requests.
-                    // Self::close_connection(&mut socket).await;
                 } else {
                     log::info!("WebServer: Process the request of, {:?}", socket.remote_endpoint());
 
                     match self
                         .handle_connection(
                             &request,
-                            HttpResponseBufferRef::bind(&mut buffers.response_buf, self.auto_close_connection),
+                            HttpResponseBufferRef::bind(response_buf, self.auto_close_connection),
                             handler,
                         )
                         .await
                     {
                         Ok(response) => {
-                            if Self::send_response(&mut socket, &buffers.response_buf[..response.len()])
+                            if Self::send_response(&mut socket, &response_buf[..response.len()])
                                 .await
                                 .is_err()
                             {
@@ -245,8 +248,6 @@ impl HttpServer {
                     "WebServer: It is about to process following request... {:?}",
                     socket.remote_endpoint()
                 );
-                // // Close the connection after handling
-                // Self::close_connection(&mut socket).await;
             } else {
                 log::warn!("WebServer: No available sockets in the pool, retrying...");
                 Timer::after(Duration::from_millis(10)).await;
