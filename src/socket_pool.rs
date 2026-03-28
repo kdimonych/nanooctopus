@@ -17,8 +17,7 @@ const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_
 const SOCKET_IO_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 
 type GuardedSocket<'tcp_stack> = RwLock<NoopRawMutex, TcpSocket<'tcp_stack>>;
-pub type SocketRef<'buffer, 'tcp_stack> = RwLockWriteGuard<'buffer, NoopRawMutex, TcpSocket<'tcp_stack>>;
-pub type SocketQueue<'buffer, 'tcp_stack, const POOL_SIZE: usize> = Queue<SocketRef<'buffer, 'tcp_stack>, POOL_SIZE>;
+pub type SocketRef<'pool, 'tcp_stack> = RwLockWriteGuard<'pool, NoopRawMutex, TcpSocket<'tcp_stack>>;
 
 /// Type alias for socket buffers
 pub struct SocketBuffers<const RX_SIZE: usize, const TX_SIZE: usize> {
@@ -87,6 +86,7 @@ impl RoundRobinSocketPoolBuilder {
 
 pub struct SocketPool<'tcp_stack, const POOL_SIZE: usize> {
     sockets: [GuardedSocket<'tcp_stack>; POOL_SIZE],
+    ready: RwLock<NoopRawMutex, Queue<usize, POOL_SIZE>>,
     port: u16,
 }
 
@@ -122,6 +122,7 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
                 );
                 RwLock::new(socket)
             }),
+            ready: RwLock::new(Queue::new()),
             port,
         }
     }
@@ -132,8 +133,35 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     /// (ready means has established stated and data is available for reading).
     /// All ready sockets are enqueued into the provided `ready` queue.
     ///
-    pub async fn acquire_next_request<'b>(&'b self, ready: &mut SocketQueue<'b, 'tcp_stack, POOL_SIZE>) {
-        Self::collect_ready(&self.sockets, self.port, ready).await;
+    pub async fn acquire_next_request<'buffer>(&self) -> SocketRef<'_, 'tcp_stack> {
+        let sockets = &self.sockets;
+        let mut ready = self.ready.write().await;
+        let port = self.port;
+
+        poll_fn(|cx| -> Poll<SocketRef<'_, '_>> {
+            sockets.iter().enumerate().for_each(|(idx, s_lock)| {
+                if let Ok(mut socket) = s_lock.try_write() {
+                    if ready.iter().find(|n| **n == idx).is_some() {
+                        // This socket is already marked as ready, skip it
+                        return;
+                    }
+                    match socket.poll_wait_next_request_once(cx, port) {
+                        Poll::Ready(Ok(())) => {
+                            ready.enqueue(idx).ok();
+                        }
+                        Poll::Ready(Err(error)) => {
+                            log::error!("SocketPool: Error while polling socket: {:?}", error);
+                        }
+                        Poll::Pending => {}
+                    };
+                }
+            });
+
+            ready
+                .dequeue()
+                .map_or(Poll::Pending, |idx| Poll::Ready(sockets[idx].try_write().unwrap())) // SAFETY: We have at most POOL_SIZE sockets and we only enqueue indices of ready sockets, so this is safe
+        })
+        .await
     }
 
     /// Get the capacity of the socket pool
@@ -145,39 +173,6 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     #[inline(always)]
     pub fn port(&self) -> u16 {
         self.port
-    }
-
-    async fn collect_ready<'a, 'b>(
-        sockets: &'a [GuardedSocket<'tcp_stack>],
-        port: u16,
-        ready: &mut SocketQueue<'b, 'tcp_stack, POOL_SIZE>,
-    ) where
-        'a: 'b,
-    {
-        poll_fn(|cx| -> Poll<()> {
-            let mut ready_it = sockets.iter().filter_map(|s| s.try_write().ok()).filter_map(|mut s| {
-                match s.poll_wait_next_request_once(cx, port) {
-                    Poll::Ready(Ok(())) => Some(s),
-                    Poll::Ready(Err(error)) => {
-                        log::error!("SocketPool: Error while polling socket: {:?}", error);
-                        None
-                    }
-                    Poll::Pending => None,
-                }
-            });
-
-            while let Some(socket) = ready_it.next() {
-                log::debug!("SocketPool: Socket {:?} is ready", socket.remote_endpoint());
-                ready.enqueue(socket).ok();
-            }
-
-            if ready.is_empty() {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
     }
 }
 
