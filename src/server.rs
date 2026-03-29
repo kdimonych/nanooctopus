@@ -1,11 +1,14 @@
+use core::mem::MaybeUninit;
+
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
+    allocator::HttpAllocator,
     handler::HttpHandler,
     request::HttpRequest,
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
 };
-//use abstarct_socket::embassy_impls::read_stream::*;
-use bump_into::{self, BumpInto};
+
+use abstarct_socket::head_arena::HeadArena;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, with_timeout};
@@ -65,9 +68,6 @@ pub struct HttpServer<'stack, const SOCKETS: usize> {
     auto_close_connection: bool,
 }
 
-/// Type alias for the bump allocator used for dynamic memory management in the HTTP servers
-pub type HttpAllocator<'a> = BumpInto<'a>;
-
 impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     /// Create a new HTTP server with default timeouts
     #[must_use]
@@ -115,11 +115,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<const REQ_SIZE: usize, const MAX_RESPONSE_SIZE: usize, H>(
-        &self,
-        worker_allocator: &mut HttpAllocator<'_>,
-        handler: &mut H,
-    ) -> !
+    pub async fn serve<H>(&self, worker_memory_buf: &mut [MaybeUninit<u8>], handler: &mut H) -> !
     where
         H: HttpHandler,
     {
@@ -128,15 +124,14 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         log::debug!("WebServer: HTTP server started listening");
         log::info!("WebServer: Auto-close connection is {}", self.auto_close_connection);
 
-        // Allocate request and response buffers from the bump allocator
-        let request_buf = worker_allocator
-            .alloc_with(|| [0_u8; REQ_SIZE])
-            .unwrap_or_else(|_| panic!("Not enough memory to store the request buffer."));
-        let response_buf = worker_allocator
-            .alloc_with(|| [0_u8; MAX_RESPONSE_SIZE])
-            .unwrap_or_else(|_| panic!("Not enough memory to store the response buffer."));
+        // SAFETY: We are not dependant of initial state of the buffer,
+        // and we will only write to it before reading, so it is safe to treat it as a mutable byte slice.
+        let worker_memory_buf = unsafe { core::mem::transmute::<_, &mut [u8]>(worker_memory_buf) };
 
         loop {
+            // Create arena allocator for this connection's request and response processing
+            let mut head_arena_alloc = HeadArena::new(worker_memory_buf);
+
             let mut socket = self.socket_pool.acquire_next_request().await;
 
             log::info!(
@@ -147,7 +142,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
             let request = match with_timeout(
                 Duration::from_secs(self.timeouts.read_timeout),
-                HttpRequest::try_parse_from_stream(&mut socket.split().0, request_buf),
+                HttpRequest::try_parse_from_stream(&mut socket.split().0, &mut head_arena_alloc),
             )
             .await
             {
@@ -188,6 +183,8 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                 }
             } else {
                 log::info!("WebServer: Process the request of, {:?}", socket.remote_endpoint());
+
+                let response_buf = head_arena_alloc.as_mut_slice();
 
                 match self
                     .handle_connection(
