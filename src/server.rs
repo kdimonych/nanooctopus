@@ -31,6 +31,8 @@ pub struct ServerTimeouts {
     pub accept_timeout: u64,
     /// Socket read timeout in seconds  
     pub read_timeout: u64,
+    /// Keep-alive timeout in seconds (currently not used, placeholder for future functionality)
+    pub keep_alive_timeout: u64,
     /// Request handler timeout in seconds
     pub handler_timeout: u64,
 }
@@ -40,6 +42,7 @@ impl Default for ServerTimeouts {
         Self {
             accept_timeout: 10,
             read_timeout: 30,
+            keep_alive_timeout: 5,
             handler_timeout: 60,
         }
     }
@@ -48,10 +51,11 @@ impl Default for ServerTimeouts {
 impl ServerTimeouts {
     /// Create new server timeouts with custom values
     #[must_use]
-    pub fn new(accept_timeout: u64, read_timeout: u64, handler_timeout: u64) -> Self {
+    pub fn new(accept_timeout: u64, read_timeout: u64, keep_alive_timeout: u64, handler_timeout: u64) -> Self {
         Self {
             accept_timeout,
             read_timeout,
+            keep_alive_timeout,
             handler_timeout,
         }
     }
@@ -93,7 +97,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         //The tcp socket life cycle
         let socket_pool = RoundRobinSocketPoolBuilder::new(port)
             .with_socket_io_timeout(Duration::from_secs(timeouts.accept_timeout))
-            .with_keep_alive_timeout(Duration::from_secs(5))
+            .with_keep_alive_timeout(Duration::from_secs(timeouts.keep_alive_timeout))
             .build(socket_buffers, stack);
 
         Self {
