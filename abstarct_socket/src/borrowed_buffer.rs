@@ -1,28 +1,31 @@
 #[derive(Debug)]
 pub struct BorrowedBuffer<'a> {
     inner: &'a mut [u8],
-    len: usize,
+    used: usize,
 }
 
 impl<'a> BorrowedBuffer<'a> {
     /// Create a new BorrowedBuffer wrapping the given mutable slice.
     pub const fn new(buffer: &'a mut [u8]) -> Self {
-        Self { inner: buffer, len: 0 }
+        Self { inner: buffer, used: 0 }
     }
 
     const fn from_parts(buffer: &'a mut [u8], len: usize) -> Self {
-        Self { inner: buffer, len }
+        Self {
+            inner: buffer,
+            used: len,
+        }
     }
 
     /// Push a byte into the buffer, returning an error if there is not enough capacity.
     ///
     /// Returns Ok(()) on success, Err(()) if there is not enough capacity.
     pub fn push(&mut self, byte: u8) -> Result<(), ()> {
-        if self.len >= self.inner.len() {
+        if self.used >= self.inner.len() {
             return Err(());
         }
-        self.inner[self.len] = byte;
-        self.len += 1;
+        self.inner[self.used] = byte;
+        self.used += 1;
         Ok(())
     }
 
@@ -30,26 +33,26 @@ impl<'a> BorrowedBuffer<'a> {
     ///
     /// Returns Ok(()) on success, Err(()) if there is not enough capacity.
     pub fn extend_from_slice(&mut self, slice: &[u8]) -> Result<(), ()> {
-        if self.len + slice.len() > self.inner.len() {
+        if self.used + slice.len() > self.inner.len() {
             return Err(());
         }
-        self.inner[self.len..self.len + slice.len()].copy_from_slice(slice);
-        self.len += slice.len();
+        self.inner[self.used..self.used + slice.len()].copy_from_slice(slice);
+        self.used += slice.len();
         Ok(())
     }
 
     /// Append the data from a slice, returning the number of bytes actually appended.
     pub fn append_from_slice(&mut self, slice: &[u8]) -> usize {
         let to_fill = core::cmp::min(self.remaining_capacity(), slice.len());
-        self.inner[self.len..self.len + to_fill].copy_from_slice(&slice[..to_fill]);
-        self.len += to_fill;
+        self.inner[self.used..self.used + to_fill].copy_from_slice(&slice[..to_fill]);
+        self.used += to_fill;
         return to_fill;
     }
 
     /// Split the buffer into used and remaining parts, returning two BorrowedBuffers
     /// for each part.
     pub fn take_splited_mut(self) -> (BorrowedBuffer<'a>, BorrowedBuffer<'a>) {
-        let (used, remaining) = self.inner.split_at_mut(self.len);
+        let (used, remaining) = self.inner.split_at_mut(self.used);
         (
             BorrowedBuffer::from_parts(used, used.len()),
             BorrowedBuffer::from_parts(remaining, 0),
@@ -58,27 +61,27 @@ impl<'a> BorrowedBuffer<'a> {
 
     /// Get the used portion as a slice
     pub fn as_slice(&'a self) -> &'a [u8] {
-        &self.inner[..self.len]
+        &self.inner[..self.used]
     }
 
     /// Get the used portion as a mutable slice
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        &mut self.inner[..self.len]
+        &mut self.inner[..self.used]
     }
 
     /// Get the remaining portion as a slice
     pub fn as_remaining_slice(&self) -> &[u8] {
-        &self.inner[self.len..]
+        &self.inner[self.used..]
     }
 
     /// Get the remaining portion as a mutable slice
     pub fn as_mut_remaining_slice(&mut self) -> &mut [u8] {
-        &mut self.inner[self.len..]
+        &mut self.inner[self.used..]
     }
 
     /// Get the length of the whole anderling buffer
     pub const fn len(&self) -> usize {
-        self.len
+        self.used
     }
 
     /// Get the total capacity of the buffer
@@ -87,42 +90,42 @@ impl<'a> BorrowedBuffer<'a> {
     }
 
     pub const fn remaining_capacity(&self) -> usize {
-        self.inner.len() - self.len
+        self.inner.len() - self.used
     }
 
     /// Clear the buffer
     pub fn clear(&mut self) {
-        self.len = 0;
+        self.used = 0;
     }
 
     /// Take the used portion as a mutable slice, consuming self
     pub fn take_used(self) -> &'a mut [u8] {
-        &mut self.inner[..self.len]
+        &mut self.inner[..self.used]
     }
 
     // Split off the used portion and return the rest
     pub fn split_off_remaining(self) -> &'a mut [u8] {
-        &mut self.inner[self.len..]
+        &mut self.inner[self.used..]
     }
 
     /// Consume bytes as used, returning an error if it exceeds capacity
     pub fn consume(&mut self, used: usize) -> Result<(), ()> {
-        if self.len + used > self.inner.len() {
+        if self.used + used > self.inner.len() {
             return Err(());
         }
-        self.len += used;
+        self.used += used;
         Ok(())
     }
 
     /// Unsafely consume bytes as used without checking capacity
     pub unsafe fn consume_unchecked(&mut self, used: usize) {
-        debug_assert!(used + self.len <= self.inner.len());
-        self.len += used;
+        debug_assert!(used + self.used <= self.inner.len());
+        self.used += used;
     }
 
     // Get the full buffer back
     pub fn into_inner(self) -> (&'a [u8], &'a mut [u8]) {
-        let (used, remaining) = self.inner.split_at_mut(self.len);
+        let (used, remaining) = self.inner.split_at_mut(self.used);
         (used, remaining)
     }
 }
