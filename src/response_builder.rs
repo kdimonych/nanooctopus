@@ -7,7 +7,7 @@ pub struct NotCreated;
 /// Marker type for building status stage
 pub struct BuildStatus;
 /// Marker type for building body stage
-pub struct BuildHaader;
+pub struct BuildHeader;
 
 /// HTTP Response Builder for constructing HTTP responses in a staged manner.
 pub struct HttpResponseBuilder<'a, Stage = NotCreated> {
@@ -81,7 +81,7 @@ impl<'a> HttpResponseBuilder<'a, NotCreated> {
 
 impl<'a> HttpResponseBuilder<'a, BuildStatus> {
     /// Adds a header to the HTTP response.
-    pub fn with_status(mut self, status_code: StatusCode) -> Result<HttpResponseBuilder<'a, BuildHaader>, Error> {
+    pub fn with_status(mut self, status_code: StatusCode) -> Result<HttpResponseBuilder<'a, BuildHeader>, Error> {
         // Write "HTTP/1.1 "
         self.base.extend_from_str("HTTP/1.1 ")?;
 
@@ -112,7 +112,7 @@ impl<'a> HttpResponseBuilder<'a, BuildStatus> {
     }
 }
 
-impl<'a> HttpResponseBuilder<'a, BuildHaader> {
+impl<'a> HttpResponseBuilder<'a, BuildHeader> {
     /// Adds a header to the HTTP response.
     pub fn add_header(&mut self, name: &str, value: &str) -> Result<(), Error> {
         // Write header name
