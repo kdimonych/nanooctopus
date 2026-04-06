@@ -97,8 +97,9 @@ impl<'a> HttpRequest<'a> {
             return Err(Error::ReadBufferOverflow);
         }
 
-        stream.read_exact(&mut allocator.as_mut_slice()[..body_size]).await?;
-        request.body = allocator.take_front(body_size);
+        let read_buffer = unsafe { allocator.take_front_mut_unchecked(body_size) };
+        stream.read_exact(read_buffer).await?;
+        request.body = read_buffer;
 
         Ok(request)
     }

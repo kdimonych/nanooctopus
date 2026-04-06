@@ -188,7 +188,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
             } else {
                 log::info!("WebServer: Process the request of, {:?}", socket.remote_endpoint());
 
-                let response_buf = head_arena_alloc.as_mut_slice();
+                let response_buf = unsafe { head_arena_alloc.borrow_mut_slice_unchecked() };
 
                 match self
                     .handle_connection(

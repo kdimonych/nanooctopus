@@ -116,9 +116,9 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
     {
         let read_size = self
             .reader
-            .read_till_stop_sequence(LINE_DELIMITTER, buffer.as_mut_slice())
+            .read_till_stop_sequence(LINE_DELIMITTER, unsafe { buffer.borrow_mut_slice_unchecked() })
             .await?;
-        let line = buffer.take_front(read_size);
+        let line = unsafe { buffer.take_front_mut_unchecked(read_size) };
 
         let line_str: &str = core::str::from_utf8(&line[..read_size - LINE_DELIMITTER_SIZE]) // Exclude the delimiter
             .map_err(|_| HttpParseError::MalformedRequest)?;
@@ -182,10 +182,10 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
 
         let read_size = self
             .reader
-            .read_till_stop_sequence(LINE_DELIMITTER, buffer.as_mut_slice())
+            .read_till_stop_sequence(LINE_DELIMITTER, unsafe { buffer.borrow_mut_slice_unchecked() })
             .await?;
 
-        let header = buffer.take_front(read_size);
+        let header = unsafe { buffer.take_front_mut_unchecked(read_size) };
 
         if read_size == LINE_DELIMITTER_SIZE {
             // Empty line indicates end of headers

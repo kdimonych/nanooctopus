@@ -1,3 +1,5 @@
+use core::mem::MaybeUninit;
+
 /// A simple bump allocator that allows detaching front portions of a buffer.
 /// This is useful for scenarios where data is read into a buffer
 /// and then parts of it need to be processed or handed off without copying.
@@ -7,48 +9,77 @@
 /// The `HeadArena` does not track initialization of data; it simply manages
 /// the buffer space.
 pub struct HeadArena<'a> {
-    arena: Option<&'a mut [u8]>,
+    arena: Option<&'a mut [MaybeUninit<u8>]>,
 }
 
 impl<'a> HeadArena<'a> {
-    /// Creates a new HeadArena allocator over the provided arena buffer.
+    #[inline(always)]
     pub const fn new(arena: &'a mut [u8]) -> Self {
+        // SAFETY: Transmuting a mutable slice of u8 to a mutable slice of MaybeUninit<u8> is safe
+        // because MaybeUninit<u8> has the same memory layout as u8 and does not require any special handling.
+        Self::from_uninitialized(unsafe { core::mem::transmute(arena) })
+    }
+
+    #[inline]
+    pub const fn from_uninitialized(arena: &'a mut [MaybeUninit<u8>]) -> Self {
         Self { arena: Some(arena) }
     }
 
     /// Returns the length of free arena.
+    #[inline]
     pub const fn len(&self) -> usize {
         // SAFETY: self.arena is guaranteed to be Some
         unsafe { self.arena.as_ref().unwrap_unchecked().len() }
     }
 
     /// Returns true if the arena is empty.
+    #[inline(always)]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns a slice to the entire arena.
-    pub fn as_slice(&self) -> &[u8] {
+    #[inline]
+    pub fn as_slice(&self) -> &[MaybeUninit<u8>] {
         // SAFETY: self.arena is guaranteed to be Some
         unsafe { self.arena.as_ref().unwrap_unchecked() }
     }
 
-    /// Returns a mutable slice to the entire arena.
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: self.buffer is guaranteed to be Some
+    /// Returns a slice to the entire arena.
+    /// The caller is responsible for ensuring that the data is properly initialized before use.
+    #[inline(always)]
+    pub unsafe fn as_slice_unchecked(&self) -> &[u8] {
+        // SAFETY: self.arena is guaranteed to be Some
+        unsafe { core::mem::transmute(self.as_slice()) }
+    }
+
+    /// Borrows an inner space as a mutable slice.
+    #[inline]
+    pub fn borrow_mut_slice(&mut self) -> &mut [MaybeUninit<u8>] {
+        // SAFETY: self.arena is guaranteed to be Some
         unsafe { self.arena.as_mut().unwrap_unchecked() }
     }
 
-    /// Takes a front portion of the arena of size `used_size` and returns it.
+    /// Borrows an inner space as a mutable slice.
+    /// The caller is responsible for ensuring that the data is properly initialized before use.
+    #[inline(always)]
+    pub unsafe fn borrow_mut_slice_unchecked(&mut self) -> &mut [u8] {
+        // SAFETY: self.arena is guaranteed to be Some
+        unsafe { core::mem::transmute(self.borrow_mut_slice()) }
+    }
+
+    /// Takes a front portion of the arena of size `used_size` and returns it as a mutable slice.
     /// The remaining arena will be adjusted accordingly.
     ///
     /// ### Note: The remaining arena will be treated as uninitialized even if there were some data.
     /// This primitive doesn't keep track whether data were actually initialized or not within front n bytes.
+    /// ### Note: The returned slice should be considered as not initialized, even if the original buffer contained some data.
+    /// The caller is responsible for initializing it before use.
     ///
     /// ### Panics
     /// Panics if `n` is greater than the current buffer size.
     ///
-    pub fn take_front(&mut self, n: usize) -> &'a mut [u8] {
+    pub fn take_front_mut(&mut self, n: usize) -> &'a mut [MaybeUninit<u8>] {
         // SAFETY: self.arena is guaranteed to be Some
         let buffer = unsafe { self.arena.take().unwrap_unchecked() };
         let (used, remainig) = buffer.split_at_mut(n);
@@ -56,8 +87,36 @@ impl<'a> HeadArena<'a> {
         used
     }
 
-    /// Takes the remaining arena space. This consumes the HeadArena.
-    pub fn take_remaining(mut self) -> &'a mut [u8] {
+    /// Takes a front portion of the arena of size `used_size` and returns it as a mutable slice.
+    /// The remaining arena will be adjusted accordingly.
+    /// The caller is responsible for ensuring that the data in the returned slice is properly initialized before use.
+    ///
+    /// ### Note: The remaining arena will be treated as uninitialized even if there were some data.
+    /// This primitive doesn't keep track whether data were actually initialized or not within front n bytes.
+    /// ### Note: The returned slice should be considered as not initialized, even if the original buffer contained some data.
+    /// The caller is responsible for initializing it before use.
+    ///
+    /// ### Panics
+    /// Panics if `n` is greater than the current buffer size.
+    ///
+    #[inline(always)]
+    pub unsafe fn take_front_mut_unchecked(&mut self, n: usize) -> &'a mut [u8] {
+        unsafe { core::mem::transmute(self.take_front_mut(n)) }
+    }
+
+    /// Borrows the rest of as a subordinate arena. This allows for nested allocations within the remaining buffer.
+    /// The returned arena shares the same underlying buffer but has its own independent state.
+    /// The original arena will be consumed and should not be used after this call.
+    pub fn nested<'b>(&'b mut self) -> HeadArena<'b> {
+        // SAFETY: self.arena is guaranteed to be Some
+        let buffer = unsafe { self.arena.as_mut().unwrap_unchecked() };
+
+        HeadArena::from_uninitialized(buffer)
+    }
+
+    /// Takes the remaining arena space as a mutable slice. This consumes the HeadArena.
+    /// The caller is responsible for initializing the returned slice before use.
+    pub fn take_remaining_mut(mut self) -> &'a mut [MaybeUninit<u8>] {
         // SAFETY: self.arena is guaranteed to be Some
         unsafe { self.arena.take().unwrap_unchecked() }
     }
@@ -69,9 +128,21 @@ impl<'a> From<&'a mut [u8]> for HeadArena<'a> {
     }
 }
 
+impl<'a> From<&'a mut [MaybeUninit<u8>]> for HeadArena<'a> {
+    fn from(buffer: &'a mut [MaybeUninit<u8>]) -> Self {
+        Self::from_uninitialized(buffer)
+    }
+}
+
 impl<'a, const N: usize> From<&'a mut [u8; N]> for HeadArena<'a> {
     fn from(buffer: &'a mut [u8; N]) -> Self {
         Self::new(&mut buffer[..])
+    }
+}
+
+impl<'a, const N: usize> From<&'a mut [MaybeUninit<u8>; N]> for HeadArena<'a> {
+    fn from(buffer: &'a mut [MaybeUninit<u8>; N]) -> Self {
+        Self::from_uninitialized(&mut buffer[..])
     }
 }
 
@@ -80,7 +151,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_head_arena() {
+    fn test_init_from_initialized() {
         let mut data = [1, 2, 3, 4, 5];
         let head_arena = HeadArena::new(&mut data);
         assert_eq!(head_arena.len(), 5);
@@ -88,11 +159,30 @@ mod tests {
     }
 
     #[test]
+    fn test_init_from_uninitialized() {
+        let mut data = [1, 2, 3, 4, 5];
+        let head_arena =
+            HeadArena::from_uninitialized(unsafe { core::mem::transmute::<_, &mut [MaybeUninit<u8>; 5]>(&mut data) });
+        assert_eq!(head_arena.len(), 5);
+        assert!(!head_arena.is_empty());
+    }
+
+    #[test]
     fn test_from_slice() {
         let mut data = [1, 2, 3, 4, 5];
-        let head_arena = HeadArena::from(&mut data[..]);
+        let head_arena = HeadArena::new(&mut data[..]);
         assert_eq!(head_arena.len(), 5);
-        assert_eq!(head_arena.as_slice(), &[1, 2, 3, 4, 5]);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_from_uninitialized_slice() {
+        let data: [u8; 5] = [1, 2, 3, 4, 5];
+        let mut uninit_data = unsafe { core::mem::transmute::<_, [MaybeUninit<u8>; 5]>(data) };
+
+        let head_arena = HeadArena::from_uninitialized(&mut uninit_data);
+        assert_eq!(head_arena.len(), 5);
+        assert!(!head_arena.is_empty());
     }
 
     #[test]
@@ -114,16 +204,16 @@ mod tests {
     fn test_as_slice() {
         let mut data = [1, 2, 3, 4, 5];
         let head_arena = HeadArena::new(&mut data);
-        assert_eq!(head_arena.as_slice(), &[1, 2, 3, 4, 5]);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[1, 2, 3, 4, 5]);
     }
 
     #[test]
     fn test_as_mut_slice() {
         let mut data = [1, 2, 3, 4, 5];
         let mut head_arena = HeadArena::new(&mut data);
-        let slice = head_arena.as_mut_slice();
+        let slice = unsafe { head_arena.borrow_mut_slice_unchecked() };
         slice[0] = 10;
-        assert_eq!(head_arena.as_slice(), &[10, 2, 3, 4, 5]);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[10, 2, 3, 4, 5]);
     }
 
     #[test]
@@ -131,10 +221,10 @@ mod tests {
         let mut data = [1, 2, 3, 4, 5];
         let mut head_arena = HeadArena::new(&mut data);
 
-        let detached = head_arena.take_front(2);
+        let detached = unsafe { head_arena.take_front_mut_unchecked(2) };
         assert_eq!(detached, &[1, 2]);
         assert_eq!(head_arena.len(), 3);
-        assert_eq!(head_arena.as_slice(), &[3, 4, 5]);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[3, 4, 5]);
     }
 
     #[test]
@@ -142,7 +232,7 @@ mod tests {
         let mut data = [1, 2, 3];
         let mut head_arena = HeadArena::new(&mut data);
 
-        let detached = head_arena.take_front(3);
+        let detached = unsafe { head_arena.take_front_mut_unchecked(3) };
         assert_eq!(detached, &[1, 2, 3]);
         assert_eq!(head_arena.len(), 0);
         assert!(head_arena.is_empty());
@@ -152,14 +242,14 @@ mod tests {
     fn test_multiple_take_fronts() {
         let mut data = [1, 2, 3, 4, 5, 6];
         let mut head_arena = HeadArena::new(&mut data);
-        let first = head_arena.take_front(2);
+        let first = unsafe { head_arena.take_front_mut_unchecked(2) };
         assert_eq!(first, &[1, 2]);
         assert_eq!(head_arena.len(), 4);
 
-        let second = head_arena.take_front(2);
+        let second = unsafe { head_arena.take_front_mut_unchecked(2) };
         assert_eq!(second, &[3, 4]);
         assert_eq!(head_arena.len(), 2);
-        assert_eq!(head_arena.as_slice(), &[5, 6]);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[5, 6]);
     }
 
     #[test]
@@ -167,7 +257,7 @@ mod tests {
     fn test_take_front_too_large() {
         let mut data = [1, 2, 3];
         let mut head_arena = HeadArena::new(&mut data);
-        head_arena.take_front(4);
+        head_arena.take_front_mut(4);
     }
 
     #[test]
@@ -175,10 +265,10 @@ mod tests {
         let mut data = [1, 2, 3];
         let mut head_arena = HeadArena::new(&mut data);
 
-        let detached = head_arena.take_front(0);
+        let detached = head_arena.take_front_mut(0);
         assert_eq!(detached.len(), 0);
         assert_eq!(head_arena.len(), 3);
-        assert_eq!(head_arena.as_slice(), &[1, 2, 3]);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[1, 2, 3]);
     }
 
     #[test]
@@ -191,7 +281,7 @@ mod tests {
 
         while !head_arena.is_empty() {
             let to_detach = core::cmp::min(head_arena.len(), PART_SIZE);
-            let detached = head_arena.take_front(to_detach);
+            let detached = unsafe { head_arena.take_front_mut_unchecked(to_detach) };
             detached_parts.push(detached);
         }
 
@@ -213,10 +303,14 @@ mod tests {
         while !head_arena.is_empty() {
             let to_detach = core::cmp::min(head_arena.len(), PART_SIZE);
             // Mutate buffer only within detach to avoid borrowing issues
-            head_arena.as_mut_slice()[0] += 1; // Example mutation
-            let detached = head_arena.take_front(to_detach);
+            unsafe {
+                head_arena.borrow_mut_slice_unchecked()[0] += 1;
+            } // Example mutation
+            let detached = unsafe { head_arena.take_front_mut_unchecked(to_detach) };
             if !head_arena.is_empty() {
-                head_arena.as_mut_slice()[0] += 1; // Example mutation
+                unsafe {
+                    head_arena.borrow_mut_slice_unchecked()[0] += 1;
+                } // Example mutation
             }
             detached_parts.push(detached);
         }
@@ -224,6 +318,7 @@ mod tests {
         for detached in detached_parts {
             // Process detached data (here we just print it)
             detached[0] -= 1; // Example mutation on detached
+
             println!("Detached: {:?}", detached);
         }
     }
@@ -233,7 +328,68 @@ mod tests {
     fn test_take_remaining() {
         let mut data = [1, 2, 3, 4, 5];
         let head_arena = HeadArena::new(&mut data);
-        let remaining = head_arena.take_remaining();
+        let remaining = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.take_remaining_mut()) };
         assert_eq!(remaining, &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn subsequent_take_remaining() {
+        let mut data = [1, 2, 3, 4, 5];
+        let mut head_arena = HeadArena::new(&mut data);
+        let _ = head_arena.take_front_mut(2); // Detach first 2 bytes
+        let remaining = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.take_remaining_mut()) };
+        assert_eq!(remaining, &[3, 4, 5]);
+    }
+
+    #[test]
+    fn test_nested_arena() {
+        let mut data = [1, 2, 3, 4, 5, 6];
+        let mut head_arena = HeadArena::new(&mut data);
+        let _ = head_arena.take_front_mut(2); // Detach first 2 bytes
+
+        let mut nested_arena = head_arena.nested();
+        assert_eq!(unsafe { nested_arena.as_slice_unchecked() }, &[3, 4, 5, 6]);
+
+        let detached = unsafe { nested_arena.take_front_mut_unchecked(3) };
+        assert_eq!(detached, &[3, 4, 5]);
+        assert_eq!(unsafe { nested_arena.as_slice_unchecked() }, &[6]);
+    }
+
+    #[test]
+    fn test_nested_arena_could_mutate_delegated_memory_of_original() {
+        let mut data = [1, 2, 3, 4, 5, 6];
+        let mut head_arena = HeadArena::new(&mut data);
+        let _ = head_arena.take_front_mut(2); // Detach first 2 bytes
+
+        {
+            let mut nested_arena = head_arena.nested();
+            unsafe {
+                nested_arena.take_front_mut_unchecked(2)[0] = 10; // Mutate original arena's buffer
+            }
+            assert_eq!(unsafe { nested_arena.as_slice_unchecked() }, &[5, 6]);
+        }
+
+        let detached = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.take_remaining_mut()) };
+        assert_eq!(detached, &[10, 4, 5, 6]);
+    }
+
+    #[test]
+    fn test_nested_arena_returns_space_to_original_when_goes_out_of_scope() {
+        let mut data = [1, 2, 3, 4, 5, 6];
+        let mut head_arena = HeadArena::new(&mut data);
+        let _ = head_arena.take_front_mut(2); // Detach first 2 bytes
+
+        {
+            let mut nested_arena = head_arena.nested();
+            assert_eq!(nested_arena.len(), 4);
+            assert_eq!(unsafe { nested_arena.as_slice_unchecked() }, &[3, 4, 5, 6]);
+
+            let detached = unsafe { nested_arena.take_front_mut_unchecked(3) };
+            assert_eq!(detached, &[3, 4, 5]);
+            assert_eq!(unsafe { nested_arena.as_slice_unchecked() }, &[6]);
+        }
+
+        assert_eq!(head_arena.len(), 4);
+        assert_eq!(unsafe { head_arena.as_slice_unchecked() }, &[3, 4, 5, 6]);
     }
 }
