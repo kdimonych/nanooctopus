@@ -2,7 +2,6 @@ use core::mem::MaybeUninit;
 
 use crate::{
     HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
-    allocator::HttpAllocator,
     handler::HttpHandler,
     request::HttpRequest,
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
@@ -76,7 +75,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     /// Create a new HTTP server with default timeouts
     #[must_use]
     pub fn new<'buffer, const SOCKET_RX_SIZE: usize, const SOCKET_TX_SIZE: usize>(
-        server_allocator: &mut HttpAllocator<'buffer>,
+        socket_buffers: &'buffer mut [SocketBuffers<SOCKET_RX_SIZE, SOCKET_TX_SIZE>; SOCKETS],
         stack: Stack<'stack>,
         port: u16,
         timeouts: ServerTimeouts,
@@ -84,16 +83,6 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     where
         'buffer: 'stack,
     {
-        let socket_buffers = server_allocator
-            .alloc_with(|| [const { SocketBuffers::<SOCKET_RX_SIZE, SOCKET_TX_SIZE>::new() }; SOCKETS])
-            .unwrap_or_else(|_| {
-                panic!(
-                    "Not enough memory to store the socket pool buffers. Required: {} bytes but only {} bytes available.",
-                    SOCKETS * core::mem::size_of::<SocketBuffers<SOCKET_RX_SIZE, SOCKET_TX_SIZE>>(),
-                    server_allocator.available_bytes()
-                )
-            });
-
         //The tcp socket life cycle
         let socket_pool = RoundRobinSocketPoolBuilder::new(port)
             .with_socket_io_timeout(Duration::from_secs(timeouts.accept_timeout))

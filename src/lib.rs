@@ -1,9 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
-
-/// HTTP Server allocator
-pub mod allocator;
 /// HTTP client implementation and request logic.
 pub mod client;
 /// HTTP request handlers and traits.
@@ -40,7 +37,7 @@ pub use handler::{
     WebSocketWriteReady,
 };
 
-pub use allocator::HttpAllocator;
 pub use request::HttpRequest;
 pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
 pub use server::{DefaultHttpServer, HttpServer, ServerTimeouts};
+pub use socket_pool::SocketBuffers;

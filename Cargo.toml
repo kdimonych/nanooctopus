@@ -67,9 +67,6 @@ protocols = { path = "./protocols", features = [
 ], default-features = false }
 abstarct_socket = { path = "./abstarct_socket", default-features = false }
 
-#Bump allocator for heap usage tracking
-bump-into = "0.8"
-
 [dev-dependencies]
 futures-lite = "2.0"
 abstarct_socket = { path = "./abstarct_socket", features = [
