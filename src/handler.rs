@@ -79,64 +79,7 @@ impl HttpHandler for SimpleHandler {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::{HttpMethod, HttpRequest, StatusCode};
-//     use heapless::Vec;
-
-//     // TODO: Fix these tests
-//     #[test]
-//     fn test_simple_handler() {
-//         // Test root path
-//         let mut handler = SimpleHandler;
-//         let request = HttpRequest {
-//             method: HttpMethod::GET,
-//             path: "/",
-//             version: "HTTP/1.1",
-//             headers: Vec::new(),
-//             body: b"",
-//         };
-
-//         let buffer = &mut [0u8; 128];
-//         let response_builder: HttpResponseBuilder<'_, BuildStatus> =
-//             HttpResponseBuilder::new(buffer);
-//         let response =
-//             futures_lite::future::block_on(handler.handle_request(&request, response_builder))
-//                 .unwrap();
-//         let resp_str = heapless::String::<256>::from_utf8_lossy(response);
-//         assert_eq!(resp_str, StatusCode::Ok);
-//         assert_eq!(
-//             response.body.as_str(),
-//             Some("<h1>Hello from nanofish HTTP server!</h1>")
-//         );
-
-//         // Test health endpoint
-//         let mut handler = SimpleHandler;
-//         let request = HttpRequest {
-//             method: HttpMethod::GET,
-//             path: "/health",
-//             version: "HTTP/1.1",
-//             headers: Vec::new(),
-//             body: b"",
-//         };
-
-//         let response = futures_lite::future::block_on(handler.handle_request(&request)).unwrap();
-//         assert_eq!(response.status_code, StatusCode::Ok);
-//         assert_eq!(response.body.as_str(), Some("{\"status\":\"ok\"}"));
-
-//         // Test 404 path
-//         let mut handler = SimpleHandler;
-//         let request = HttpRequest {
-//             method: HttpMethod::GET,
-//             path: "/nonexistent",
-//             version: "HTTP/1.1",
-//             headers: Vec::new(),
-//             body: b"",
-//         };
-
-//         let response = futures_lite::future::block_on(handler.handle_request(&request)).unwrap();
-//         assert_eq!(response.status_code, StatusCode::NotFound);
-//         assert_eq!(response.body.as_str(), Some("404 Not Found"));
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+}
