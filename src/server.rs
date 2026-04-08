@@ -7,7 +7,7 @@ use crate::{
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
 };
 
-use abstarct_socket::head_arena::HeadArena;
+use abstarct_socket::head_arena_buffer::HeadArenaBuffer;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, with_timeout};
@@ -123,7 +123,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
         loop {
             // Create arena allocator for this connection's request and response processing
-            let mut head_arena_alloc = HeadArena::new(worker_memory_buf);
+            let mut head_arena_alloc = HeadArenaBuffer::from_uninitialized(worker_memory_buf);
 
             let mut socket = self.socket_pool.acquire_next_request().await;
 

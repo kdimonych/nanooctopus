@@ -3,7 +3,7 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
-use abstarct_socket::head_arena::HeadArena;
+use abstarct_socket::head_arena_buffer::HeadArenaBuffer;
 use abstarct_socket::read_with::ReadWith;
 use embedded_io_async::Read;
 use protocols::http_header_parser::HttpHeaderParser;
@@ -51,7 +51,7 @@ impl<'a> HttpRequest<'a> {
     ///
     pub async fn try_parse_from_stream<'buf, Reader>(
         stream: &'_ mut Reader,
-        allocator: &mut HeadArena<'buf>,
+        allocator: &mut HeadArenaBuffer<'buf>,
     ) -> Result<HttpRequest<'buf>, Error>
     where
         Reader: ReadWith + Read,
@@ -220,7 +220,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let request = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -247,7 +247,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let request = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -278,7 +278,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -293,7 +293,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -308,7 +308,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -323,7 +323,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -338,7 +338,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -367,7 +367,7 @@ mod tests {
 
             let mut stream = create_mock_stream(request_bytes.as_mut_slice());
             let mut buffer = [0u8; 256];
-            let mut allocator = HeadArena::new(&mut buffer);
+            let mut allocator = HeadArenaBuffer::new(&mut buffer);
 
             let request = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
                 .await
