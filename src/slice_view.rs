@@ -1,3 +1,5 @@
+use core::mem::MaybeUninit;
+
 /// A simple serializer that writes JSON data into a fixed-size buffer.
 /// Errors if the buffer is full.
 pub enum SerializerError {
@@ -6,20 +8,24 @@ pub enum SerializerError {
 }
 
 /// A structure that serializes Rust values as JSON into a buffer.
-pub struct SliceView<'a> {
-    buf: &'a mut [u8],
+pub struct SliceView<'buf> {
+    buffer: &'buf mut [MaybeUninit<u8>],
     current_length: usize,
 }
 
-impl<'a> SliceView<'a> {
+impl<'buf> SliceView<'buf> {
     /// Create a new `Serializer`
-    pub fn new(buf: &'a mut [u8]) -> Self {
-        SliceView { buf, current_length: 0 }
+
+    pub fn new(buffer: &'buf mut [MaybeUninit<u8>]) -> Self {
+        SliceView {
+            buffer,
+            current_length: 0,
+        }
     }
 
     /// Push a byte into the buffer
     pub fn push(&mut self, c: u8) -> Result<(), SerializerError> {
-        if self.current_length < self.buf.len() {
+        if self.current_length < self.buffer.len() {
             unsafe { self.push_unchecked(c) };
             Ok(())
         } else {
@@ -39,23 +45,23 @@ impl<'a> SliceView<'a> {
 
     /// Returns the total capacity of the buffer.
     pub fn capacity(&self) -> usize {
-        self.buf.len()
+        self.buffer.len()
     }
 
     /// Returns the remaining capacity of the buffer.
     pub fn remaining_capacity(&self) -> usize {
-        self.buf.len() - self.current_length
+        self.buffer.len() - self.current_length
     }
 
     /// Push a byte into the buffer without checking capacity.
     unsafe fn push_unchecked(&mut self, c: u8) {
-        self.buf[self.current_length] = c;
+        self.buffer[self.current_length].write(c);
         self.current_length += 1;
     }
 
     /// Extend the buffer with a slice
     pub fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), SerializerError> {
-        if self.current_length + other.len() > self.buf.len() {
+        if self.current_length + other.len() > self.buffer.len() {
             // won't fit in the buf; don't modify anything and return an error
             Err(SerializerError::BufferFull)
         } else {
@@ -66,17 +72,23 @@ impl<'a> SliceView<'a> {
         }
     }
 
+    /// Extend the buffer with a string slice
+    #[inline]
+    pub fn extend_from_str(&mut self, s: &str) -> Result<(), SerializerError> {
+        self.extend_from_slice(s.as_bytes())
+    }
+
     /// Allocate a slice of the given size from the buffer without checking capacity.
     #[must_use]
     unsafe fn allocate_unchecked(&mut self, size: usize) -> &mut [u8] {
         let start = self.current_length;
         self.current_length += size;
-        &mut self.buf[start..start + size]
+        unsafe { core::mem::transmute(&mut self.buffer[start..start + size]) }
     }
 
     /// Try to allocate a slice of the given size from the buffer.
     pub fn try_allocate(&mut self, size: usize) -> Result<&mut [u8], SerializerError> {
-        if self.current_length + size > self.buf.len() {
+        if self.current_length + size > self.buffer.len() {
             // won't fit in the buf; don't modify anything and return an error
             Err(SerializerError::BufferFull)
         } else {
@@ -88,7 +100,7 @@ impl<'a> SliceView<'a> {
     #[must_use]
     pub fn remaining_buffer(&mut self) -> &mut [u8] {
         self.current_length = self.capacity();
-        &mut self.buf[self.current_length..]
+        unsafe { core::mem::transmute(&mut self.buffer[self.current_length..]) }
     }
 
     /// Modify the inner buffer part that is initialized.
@@ -96,7 +108,7 @@ impl<'a> SliceView<'a> {
     where
         Modifier: FnOnce(&mut [u8]),
     {
-        modifier(&mut self.buf[..self.current_length]);
+        modifier(unsafe { core::mem::transmute(&mut self.buffer[..self.current_length]) });
     }
 
     /// Fill the remaining buffer space using the provided filler function.
@@ -110,10 +122,10 @@ impl<'a> SliceView<'a> {
     /// and return the number of bytes written.
     pub fn fill_with<Filler, Error>(&mut self, filler: Filler) -> Result<usize, Error>
     where
-        Filler: FnOnce(&mut [u8]) -> Result<usize, Error>,
+        Filler: FnOnce(&mut [MaybeUninit<u8>]) -> Result<usize, Error>,
     {
         let capacity = self.capacity();
-        let filled_size = filler(&mut self.buf[self.current_length..])?;
+        let filled_size = filler(&mut self.buffer[self.current_length..])?;
         if filled_size + self.current_length > capacity {
             panic!("Filler function wrote beyond buffer capacity");
         }
@@ -121,8 +133,18 @@ impl<'a> SliceView<'a> {
         Ok(filled_size)
     }
 
+    /// Resets the buffer to an empty state without modifying the underlying memory.
+    pub fn reset(&mut self) {
+        self.current_length = 0;
+    }
+
+    /// Returns a slice of the initialized portion of the buffer.
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { core::mem::transmute(&self.buffer[..self.current_length]) }
+    }
+
     /// Returns the serialized data as a byte slice.
-    pub fn as_slice(self) -> &'a [u8] {
-        &self.buf[..self.current_length]
+    pub fn take_slice(self) -> &'buf [u8] {
+        unsafe { core::mem::transmute(&self.buffer[..self.current_length]) }
     }
 }
