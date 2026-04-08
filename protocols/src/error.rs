@@ -10,23 +10,15 @@ use abstarct_socket::read_with_ext::ReadError;
 pub enum Error {
     /// The provided URL was invalid or malformed
     InvalidUrl,
-    /// DNS resolution failed
-    DnsError(embassy_net::dns::Error),
-    /// No IP addresses were returned by DNS resolution
-    IpAddressEmpty,
-    /// Failed to establish a TCP connection
-    ConnectionError(embassy_net::tcp::ConnectError),
     /// TCP read/write error
-    SocketError(embassy_net::tcp::Error),
+    SocketError,
     /// Read buffer overflowed
     ReadBufferOverflow,
     /// No response was received from the server
-    NoResponse,
+    ServerError,
     /// The response/request could not be parsed
     InvalidData(&'static str),
     /// This error occurs when there is an issue with the TLS handshake or communication.
-    #[cfg(feature = "tls")]
-    TlsError(embedded_tls::TlsError),
     /// Scheme not supported
     UnsupportedScheme(&'static str),
     /// Header error, e.g. too long name or value
@@ -42,28 +34,9 @@ impl defmt::Format for Error {
     }
 }
 
-impl From<embassy_net::dns::Error> for Error {
-    fn from(err: embassy_net::dns::Error) -> Self {
-        Error::DnsError(err)
-    }
-}
-
-impl From<embassy_net::tcp::ConnectError> for Error {
-    fn from(err: embassy_net::tcp::ConnectError) -> Self {
-        Error::ConnectionError(err)
-    }
-}
-
 impl From<embassy_net::tcp::Error> for Error {
-    fn from(err: embassy_net::tcp::Error) -> Self {
-        Error::SocketError(err)
-    }
-}
-
-#[cfg(feature = "tls")]
-impl From<embedded_tls::TlsError> for Error {
-    fn from(err: embedded_tls::TlsError) -> Self {
-        Error::TlsError(err)
+    fn from(_: embassy_net::tcp::Error) -> Self {
+        Error::SocketError
     }
 }
 
@@ -83,12 +56,9 @@ impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::InvalidUrl => write!(f, "Invalid URL"),
-            Error::DnsError(_) => write!(f, "DNS resolution failed"),
-            Error::IpAddressEmpty => write!(f, "No IP addresses returned by DNS"),
-            Error::ConnectionError(_) => write!(f, "Failed to establish TCP connection"),
-            Error::SocketError(_) => write!(f, "TCP communication error"),
+            Error::SocketError => write!(f, "TCP communication error"),
             Error::ReadBufferOverflow => write!(f, "Read buffer overflowed"),
-            Error::NoResponse => write!(f, "No response received from server"),
+            Error::ServerError => write!(f, "Server error"),
             Error::InvalidData(msg) => write!(f, "Invalid response: {msg}"),
             #[cfg(feature = "tls")]
             Error::TlsError(_) => write!(f, "TLS error occurred"),
@@ -106,9 +76,7 @@ where
 {
     fn from(err: embedded_io_async::ReadExactError<ErrorT>) -> Self {
         match err {
-            embedded_io_async::ReadExactError::UnexpectedEof => {
-                Error::SocketError(embassy_net::tcp::Error::ConnectionReset)
-            }
+            embedded_io_async::ReadExactError::UnexpectedEof => Error::SocketError,
             embedded_io_async::ReadExactError::Other(e) => Error::from(e),
         }
     }
@@ -127,10 +95,7 @@ mod tests {
     fn test_from_read_error() {
         let mut read_error = ReadError::SocketReadError(embassy_net::tcp::Error::ConnectionReset);
         let mut err: Error = read_error.into();
-        assert!(matches!(
-            err,
-            Error::SocketError(embassy_net::tcp::Error::ConnectionReset)
-        ));
+        assert!(matches!(err, Error::SocketError));
 
         read_error = ReadError::TargetBufferOverflow;
         err = read_error.into();
@@ -143,7 +108,7 @@ mod tests {
         assert_eq!(format!("{e}"), "Invalid URL");
         let e = Error::IpAddressEmpty;
         assert_eq!(format!("{e}"), "No IP addresses returned by DNS");
-        let e = Error::NoResponse;
+        let e = Error::ServerError;
         assert_eq!(format!("{e}"), "No response received from server");
         let e = Error::InvalidData("bad");
         assert_eq!(format!("{e}"), "Invalid response: bad");
@@ -170,7 +135,7 @@ mod tests {
         let tcp_err = embassy_net::tcp::Error::ConnectionReset;
         let err: Error = tcp_err.into();
         match err {
-            Error::SocketError(_) => {}
+            Error::SocketError => {}
             _ => panic!("Expected SocketError variant"),
         }
     }

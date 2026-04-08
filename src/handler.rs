@@ -1,11 +1,9 @@
-use crate::{
-    HttpResponseBuilder,
-    request::HttpRequest,
-    response_builder::{HttpResponse, HttpResponseBufferRef},
-};
+use crate::request::HttpRequest;
+use abstarct_socket::head_arena::HeadArena;
 
 use protocols::error::Error;
-use protocols::status_code::StatusCode;
+
+pub use embedded_io_async::Write as HttpWriteSocket;
 
 /// The WebSOcket implementation
 #[cfg(feature = "ws")]
@@ -23,11 +21,12 @@ pub use protocols::web_socket::{
 #[allow(async_fn_in_trait)]
 pub trait HttpHandler {
     /// Handle an incoming HTTP request and return a response
-    async fn handle_request(
+    async fn handle_request<HttpSocket: HttpWriteSocket>(
         &mut self,
+        allocator: &mut HeadArena<'_>,
         request: &HttpRequest<'_>,
-        response_buffer: HttpResponseBufferRef<'_>,
-    ) -> Result<HttpResponse, Error>;
+        http_socket: &mut HttpSocket,
+    ) -> Result<(), Error>;
 
     #[cfg(feature = "ws")]
     /// Handle a WebSocket connection
@@ -39,44 +38,8 @@ pub trait HttpHandler {
     async fn handle_websocket_connection(
         &mut self,
         request: &HttpRequest<'_>,
-        web_socket: WebSocket<'_, '_>,
+        web_socket: &mut WebSocket<'_, '_>,
     ) -> Result<(), ()>;
-}
-
-/// A simple handler that serves basic endpoints for testing
-#[derive(Debug)]
-pub struct SimpleHandler;
-
-impl HttpHandler for SimpleHandler {
-    async fn handle_request(
-        &mut self,
-        request: &HttpRequest<'_>,
-        mut response_buffer: HttpResponseBufferRef<'_>,
-    ) -> Result<HttpResponse, Error> {
-        match request.path {
-            "/" => HttpResponseBuilder::new(response_buffer.reborrow())
-                .with_status(StatusCode::Ok)?
-                .with_header("Content-Type", "text/html")?
-                .with_body_from_str("<h1>Hello from nanofish HTTP server!</h1>"),
-            "/health" => HttpResponseBuilder::new(response_buffer.reborrow())
-                .with_status(StatusCode::Ok)?
-                .with_header("Content-Type", "application/json")?
-                .with_body_from_str("{\"status\":\"ok\"}"),
-            _ => HttpResponseBuilder::new(response_buffer.reborrow())
-                .with_status(StatusCode::Ok)?
-                .with_header("Content-Type", "text/plain")?
-                .with_body_from_str("404 Not Found"),
-        }
-    }
-
-    #[cfg(feature = "ws")]
-    async fn handle_websocket_connection(
-        &mut self,
-        _request: &HttpRequest<'_>,
-        _web_socket: WebSocket<'_, '_>,
-    ) -> Result<(), ()> {
-        Err(()) // Close the connection immediately
-    }
 }
 
 #[cfg(test)]

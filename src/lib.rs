@@ -1,16 +1,13 @@
 #![cfg_attr(not(test), no_std)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
-/// HTTP client implementation and request logic.
-pub mod client;
+
 /// HTTP request handlers and traits.
 pub mod handler;
 /// HTTP client configuration options.
 pub mod options;
 /// HTTP request types and parsing.
 pub mod request;
-/// HTTP response types and body handling.
-pub mod response;
 /// HTTP response builder utilities.
 pub mod response_builder;
 /// HTTP server implementation.
@@ -23,13 +20,17 @@ pub mod slice_view;
 
 mod socket_pool;
 
-pub use client::{DefaultHttpClient, HttpClient, SmallHttpClient};
-pub use handler::{HttpHandler, SimpleHandler};
+pub use handler::{HttpHandler, HttpWriteSocket};
 pub use options::HttpClientOptions;
 pub use protocols::error::Error;
 pub use protocols::header::{HttpHeader, headers, mime_types};
 pub use protocols::method::HttpMethod;
 pub use protocols::status_code::StatusCode;
+
+/// Re-export the HeadArena for users of the library who need to use it for request handling.
+pub mod memory {
+    pub use abstarct_socket::head_arena::*;
+}
 
 #[cfg(feature = "ws")]
 pub use handler::{
@@ -38,6 +39,6 @@ pub use handler::{
 };
 
 pub use request::HttpRequest;
-pub use response_builder::{HttpResponse, HttpResponseBufferRef, HttpResponseBuilder};
+pub use response_builder::HttpResponseBuilder;
 pub use server::{DefaultHttpServer, HttpServer, ServerTimeouts};
 pub use socket_pool::SocketBuffers;

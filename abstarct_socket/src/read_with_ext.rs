@@ -1,5 +1,6 @@
 use crate::borrowed_buffer::BorrowedBuffer;
 use crate::find_sequence::FindSequence;
+use crate::head_arena::HeadArena;
 use crate::read_with::ReadWith;
 
 /// Error returned by TcpSocket read/write functions.
@@ -25,19 +26,20 @@ pub trait ReadStreamExt: ReadWith {
     /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
     /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop condition.
     ///
-    fn read_untill<StopPredicate>(
+    fn read_untill<'alloc, 'buf, StopPredicate>(
         &mut self,
-        buffer: &mut [u8],
+        allocator: &'alloc mut HeadArena<'buf>,
         mut stop_predicate: StopPredicate,
-    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>>
+    ) -> impl core::future::Future<Output = Result<&'buf mut [u8], ReadError<Self::Error>>>
     where
         StopPredicate: FnMut(&mut [u8]) -> Option<usize>,
+        'buf: 'alloc,
     {
         async move {
             let mut read_size = 0;
             let mut result = Ok(());
 
-            let mut buffer = BorrowedBuffer::new(buffer);
+            let mut buffer = BorrowedBuffer::new(allocator);
 
             loop {
                 let stop_triggered = self
@@ -49,7 +51,7 @@ pub trait ReadStreamExt: ReadWith {
                             stoped = true;
                         }
 
-                        let actually_appended = buffer.append_from_slice(&mut chank);
+                        let actually_appended = buffer.try_append_from_slice(&mut chank);
                         if actually_appended < chank.len() {
                             result = Err(ReadError::TargetBufferOverflow);
                             stoped = true;
@@ -62,7 +64,7 @@ pub trait ReadStreamExt: ReadWith {
                     .map_err(|e| ReadError::SocketReadError(e))?;
 
                 if stop_triggered {
-                    return result.map(|_| read_size);
+                    return result.map(|_| buffer.take_used());
                 }
             }
         }
@@ -78,14 +80,18 @@ pub trait ReadStreamExt: ReadWith {
     /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop sequence.
     /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
     ///
-    fn read_till_stop_sequence(
+    fn read_till_stop_sequence<'alloc, 'buf>(
         &mut self,
         stop_sequence: &[u8],
-        buffer: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
+        allocator: &'alloc mut HeadArena<'buf>,
+    ) -> impl core::future::Future<Output = Result<&'buf mut [u8], ReadError<Self::Error>>>
+    where
+        'buf: 'alloc,
+    {
         async move {
             let mut finder = FindSequence::new(stop_sequence);
-            self.read_untill(buffer, |chank| finder.check_next_slice(chank)).await
+            self.read_untill(allocator, |chank| finder.check_next_slice(chank))
+                .await
         }
     }
 
@@ -99,13 +105,16 @@ pub trait ReadStreamExt: ReadWith {
     /// - Returns `ReadError::TargetBufferOverflow` if the buffer is not large enough to hold the data up to the stop byte.
     /// - Returns `ReadError::SocketReadError` if an error occurs while reading from the stream.
     ///
-    fn read_till_stop_byte(
+    fn read_till_stop_byte<'buf, 'allocator>(
         &mut self,
         stop_byte: u8,
-        buffer: &mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, ReadError<Self::Error>>> {
+        allocator: &'allocator mut HeadArena<'buf>,
+    ) -> impl core::future::Future<Output = Result<&'buf mut [u8], ReadError<Self::Error>>>
+    where
+        'allocator: 'buf,
+    {
         async move {
-            self.read_untill(buffer, |chank| {
+            self.read_untill(allocator, |chank| {
                 chank.iter().position(|&b| b == stop_byte).map(|pos| pos + 1)
             })
             .await
@@ -222,14 +231,15 @@ pub mod tests {
         let mut request_data = b"Hello, World!\r\nThis is a test.\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let bytes_read = stream
-            .read_till_stop_sequence(STOP, &mut buffer)
+            .read_till_stop_sequence(STOP, &mut allocator)
             .await
             .expect("Expect no error");
 
-        assert_eq!(bytes_read, b"Hello, World!".len() + STOP.len());
-        assert_eq!(&buffer[..bytes_read], b"Hello, World!\r\n");
+        assert_eq!(bytes_read.len(), b"Hello, World!".len() + STOP.len());
+        assert_eq!(bytes_read, b"Hello, World!\r\n");
     }
 
     #[tokio::test]
@@ -238,14 +248,14 @@ pub mod tests {
         let mut request_data = b"\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
-
+        let mut allocator = HeadArena::new(&mut buffer);
         let bytes_read = stream
-            .read_till_stop_sequence(STOP, &mut buffer)
+            .read_till_stop_sequence(STOP, &mut allocator)
             .await
             .expect("Expect no error");
 
-        assert_eq!(bytes_read, STOP.len());
-        assert_eq!(&buffer[..bytes_read], STOP);
+        assert_eq!(bytes_read.len(), STOP.len());
+        assert_eq!(bytes_read, STOP);
     }
 
     #[tokio::test]
@@ -254,9 +264,9 @@ pub mod tests {
         let mut request_data = b"Hello, World!".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
-
+        let mut allocator = HeadArena::new(&mut buffer);
         let error = stream
-            .read_till_stop_sequence(STOP, &mut buffer)
+            .read_till_stop_sequence(STOP, &mut allocator)
             .await
             .expect_err("Expect read error, due to read stream EOF");
 
@@ -269,9 +279,10 @@ pub mod tests {
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 4];
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let error = stream
-            .read_till_stop_sequence(STOP, &mut buffer)
+            .read_till_stop_sequence(STOP, &mut allocator)
             .await
             .expect_err("Expect buffer overflow error");
 

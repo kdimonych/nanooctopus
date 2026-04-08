@@ -3,7 +3,7 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
-use abstarct_socket::head_arena_buffer::HeadArenaBuffer;
+use abstarct_socket::head_arena::HeadArena;
 use abstarct_socket::read_with::ReadWith;
 use embedded_io_async::Read;
 use protocols::http_header_parser::HttpHeaderParser;
@@ -49,13 +49,14 @@ impl<'a> HttpRequest<'a> {
     /// - Reading from the stream fails
     /// - The request is malformed  
     ///
-    pub async fn try_parse_from_stream<'buf, Reader>(
+    pub async fn try_parse_from_stream<'alloc, 'buf, Reader>(
         stream: &'_ mut Reader,
-        allocator: &mut HeadArenaBuffer<'buf>,
+        allocator: &'alloc mut HeadArena<'buf>,
     ) -> Result<HttpRequest<'buf>, Error>
     where
         Reader: ReadWith + Read,
         Error: From<Reader::Error>,
+        'buf: 'alloc,
     {
         let parser = HttpHeaderParser::new(stream);
 
@@ -66,20 +67,22 @@ impl<'a> HttpRequest<'a> {
         let mut web_socket_search = WebSocketKeySearch::new();
         let mut content_length_search = ContentLengthSearch::new();
 
-        while let Some(header) = parser.parse_next_header(allocator).await? {
-            #[cfg(feature = "ws")]
-            let is_filtered_out = { content_length_search.process(&header)? || web_socket_search.process(&header) };
-            #[cfg(not(feature = "ws"))]
-            let is_filtered_out = content_length_search.process(&header)?;
+        {
+            while let Some(header) = parser.parse_next_header(allocator).await? {
+                #[cfg(feature = "ws")]
+                let is_filtered_out = { content_length_search.process(&header)? || web_socket_search.process(&header) };
+                #[cfg(not(feature = "ws"))]
+                let is_filtered_out = content_length_search.process(&header)?;
 
-            if is_filtered_out {
-                continue;
+                if is_filtered_out {
+                    continue;
+                }
+
+                request
+                    .headers
+                    .push(header)
+                    .map_err(|_| Error::InvalidData("Too many headers"))?;
             }
-
-            request
-                .headers
-                .push(header)
-                .map_err(|_| Error::InvalidData("Too many headers"))?;
         }
 
         #[cfg(feature = "ws")]
@@ -220,7 +223,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let request = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -247,7 +250,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let request = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -278,7 +281,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -293,7 +296,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -308,7 +311,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -323,7 +326,7 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
@@ -338,13 +341,13 @@ mod tests {
 
         let mut stream = create_mock_stream(request.as_mut_slice());
         let mut buffer = [0u8; 256];
-        let mut allocator = HeadArenaBuffer::new(&mut buffer);
+        let mut allocator = HeadArena::new(&mut buffer);
 
         let e = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
             .await
             .expect_err("Expected error due to invalid method");
 
-        assert!(matches!(e, Error::SocketError(_)));
+        assert!(matches!(e, Error::SocketError));
     }
 
     #[tokio::test]
@@ -367,7 +370,7 @@ mod tests {
 
             let mut stream = create_mock_stream(request_bytes.as_mut_slice());
             let mut buffer = [0u8; 256];
-            let mut allocator = HeadArenaBuffer::new(&mut buffer);
+            let mut allocator = HeadArena::new(&mut buffer);
 
             let request = HttpRequest::try_parse_from_stream(&mut stream, &mut allocator)
                 .await

@@ -1,13 +1,14 @@
 use core::mem::MaybeUninit;
 
+#[cfg(feature = "ws")]
 use crate::{
-    HttpResponse, HttpResponseBufferRef, HttpResponseBuilder,
+    HttpResponseBuilder,
     handler::HttpHandler,
     request::HttpRequest,
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
 };
 
-use abstarct_socket::head_arena_buffer::HeadArenaBuffer;
+use abstarct_socket::head_arena::HeadArena;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, with_timeout};
@@ -117,13 +118,9 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         log::debug!("WebServer: HTTP server started listening");
         log::info!("WebServer: Auto-close connection is {}", self.auto_close_connection);
 
-        // SAFETY: We are not dependant of initial state of the buffer,
-        // and we will only write to it before reading, so it is safe to treat it as a mutable byte slice.
-        let worker_memory_buf = unsafe { core::mem::transmute::<_, &mut [u8]>(worker_memory_buf) };
-
         loop {
             // Create arena allocator for this connection's request and response processing
-            let mut head_arena_alloc = HeadArenaBuffer::from_uninitialized(worker_memory_buf);
+            let mut head_arena_alloc = HeadArena::from_uninitialized(worker_memory_buf);
 
             let mut socket = self.socket_pool.acquire_next_request().await;
 
@@ -158,14 +155,17 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                     "WebServer: Process the websocket connection from, {:?}",
                     socket.remote_endpoint()
                 );
-                if Self::web_socket_handshake(web_socket_key, &mut socket).await.is_err() {
+                if Self::web_socket_handshake(&mut head_arena_alloc, web_socket_key, &mut socket)
+                    .await
+                    .is_err()
+                {
                     // Handshake failed, close the connection
                     Self::close_connection(&mut socket).await;
                     continue;
                 }
 
                 if handler
-                    .handle_websocket_connection(&request, WebSocket::new(&mut socket))
+                    .handle_websocket_connection(&request, &mut WebSocket::new(&mut socket))
                     .await
                     .is_err()
                 {
@@ -177,26 +177,15 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
             } else {
                 log::info!("WebServer: Process the request of, {:?}", socket.remote_endpoint());
 
-                let response_buf = unsafe { head_arena_alloc.borrow_mut_slice_unchecked() };
-
                 match self
-                    .handle_connection(
-                        &request,
-                        HttpResponseBufferRef::bind(response_buf, self.auto_close_connection),
-                        handler,
-                    )
+                    .handle_connection(&mut head_arena_alloc, &request, &mut socket, handler)
                     .await
                 {
-                    Ok(response) => {
-                        if Self::send_response(&mut socket, &response_buf[..response.len()])
-                            .await
-                            .is_err()
-                        {
-                            // Failed to send response, close the connection
-                            log::debug!("WebServer: Failed to send response, closing connection");
-                            Self::close_connection(&mut socket).await;
-                            continue;
-                        }
+                    Ok(()) => {
+                        log::info!(
+                            "WebServer: Request handled successfully, {:?}",
+                            socket.remote_endpoint()
+                        );
                     }
                     Err(e) => {
                         log::error!("WebServer: Error handling request: {:?}", e);
@@ -219,19 +208,18 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     }
 
     #[cfg(feature = "ws")]
-    async fn web_socket_handshake<'a>(web_socket_key: &'a str, tcp_socket: &mut TcpSocket<'_>) -> Result<(), ()> {
+    async fn web_socket_handshake<'a>(
+        allocator: &mut HeadArena<'_>,
+        web_socket_key: &'a str,
+        tcp_socket: &mut TcpSocket<'_>,
+    ) -> Result<(), ()> {
         log::info!("WebServer: WebSocket upgrade request detected");
-        // TODO: Reduce buffer size to fit to the handshake response only.
-        let mut response_buffer = [0; 1024];
-        let res =
-            try_handle_websocket_handshake(HttpResponseBufferRef::bind(&mut response_buffer, false), web_socket_key);
+        let res = try_handle_websocket_handshake(allocator, tcp_socket, web_socket_key).await;
 
         match res {
-            Ok(response) => {
+            Ok(()) => {
                 log::info!("WebServer: WebSocket handshake successful");
-                // Here you would typically hand off the WebSocket to a WebSocket handler
-                // For this example, we'll just close the connection
-                Self::send_response(tcp_socket, &response_buffer[..response.len()]).await
+                Ok(())
             }
             Err(e) => {
                 log::error!("WebServer: WebSocket handshake error: {:?}", e);
@@ -278,19 +266,20 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         log::info!("WebServer: Connection closed {:?}", remote_endpoint);
     }
 
-    async fn handle_connection<'buf, H>(
+    async fn handle_connection<H>(
         &self,
+        allocator: &mut HeadArena<'_>,
         request: &HttpRequest<'_>,
-        mut response_buffer: HttpResponseBufferRef<'buf>,
+        http_socket: &mut TcpSocket<'_>,
         handler: &mut H,
-    ) -> Result<HttpResponse, Error>
+    ) -> Result<(), Error>
     where
         H: HttpHandler,
     {
         // Handle the request
         match with_timeout(
             Duration::from_secs(self.timeouts.handler_timeout),
-            handler.handle_request(&request, response_buffer.reborrow()),
+            handler.handle_request(allocator, &request, http_socket),
         )
         .await
         {
@@ -298,25 +287,34 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
             Ok(Err(e)) => {
                 log::warn!("WebServer: Handler error: {:?}", e);
 
-                HttpResponseBuilder::new(response_buffer.reborrow())
-                    .with_status(StatusCode::InternalServerError)?
-                    .with_header("Content-Type", "text/plain")?
+                HttpResponseBuilder::new(http_socket)
+                    .with_status(StatusCode::InternalServerError)
+                    .await?
+                    .with_header("Content-Type", "text/plain")
+                    .await?
                     .with_body_from_str("Internal Server Error")
+                    .await
             }
-            Err(_) => HttpResponseBuilder::new(response_buffer.reborrow())
-                .with_status(StatusCode::InternalServerError)?
-                .with_header("Content-Type", "text/plain")?
-                .with_body_from_str("Request Timeout"),
+            Err(_) => {
+                HttpResponseBuilder::new(http_socket)
+                    .with_status(StatusCode::InternalServerError)
+                    .await?
+                    .with_header("Content-Type", "text/plain")
+                    .await?
+                    .with_body_from_str("Request Timeout")
+                    .await
+            }
         }
     }
 }
 
 /// Handles the WebSocket handshake process.
 #[cfg(feature = "ws")]
-fn try_handle_websocket_handshake<'a>(
-    mut response_buffer: HttpResponseBufferRef<'a>,
+async fn try_handle_websocket_handshake<'a>(
+    allocator: &mut HeadArena<'_>,
+    http_socket: &mut TcpSocket<'_>,
     web_socket_key: &'a str,
-) -> Result<HttpResponse, Error> {
+) -> Result<(), Error> {
     // Compute the Sec-WebSocket-Accept value
     let key_bytes = web_socket_key.as_bytes();
     let mut hasher = Sha1::new();
@@ -324,17 +322,23 @@ fn try_handle_websocket_handshake<'a>(
     hasher.update(WS_GUID);
     let hash = hasher.finalize();
 
-    HttpResponseBuilder::new(response_buffer.reborrow())
-        .with_status(crate::StatusCode::SwitchingProtocols)?
-        .with_header("Upgrade", "websocket")?
-        .with_header("Connection", "Upgrade")?
-        .with_header_value_from_filler("Sec-WebSocket-Accept", |buf| {
-            // Encode the hash in base64 directly into the provided response buffer
-            let encoded = binascii::b64encode(&hash, buf)
-                .map_err(|_| Error::InvalidData("Failed to encode Sec-WebSocket-Accept"))?;
-            Ok(encoded.len())
-        })?
+    let mut tmp_buf = allocator.temporary();
+    let buf = unsafe { tmp_buf.as_slice_mut_unchecked() };
+    let encoded_hash =
+        binascii::b64encode(&hash, buf).map_err(|_| Error::InvalidData("Failed to encode Sec-WebSocket-Accept"))?;
+
+    let builder = HttpResponseBuilder::new(http_socket);
+    builder
+        .with_status(crate::StatusCode::SwitchingProtocols)
+        .await?
+        .with_header("Upgrade", "websocket")
+        .await?
+        .with_header("Connection", "Upgrade")
+        .await?
+        .with_header_from_slice("Sec-WebSocket-Accept", encoded_hash)
+        .await?
         .with_no_body()
+        .await
 }
 
 /// Type alias for `HttpServer` with default buffer sizes (4KB each)
