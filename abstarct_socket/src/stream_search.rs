@@ -14,11 +14,11 @@ pub enum StreamReadError<SocketReadErrorT> {
 
 /// Search and scan helpers for [`ReadWith`] streams.
 ///
-/// The `read_*` methods collect matched data into an arena-backed buffer and return
-/// it to the caller. The `consume_*` methods advance the stream without storing the
-/// consumed bytes.
+/// The `seek_*` methods collect bytes into an arena-backed buffer and return the data
+/// read up to the matched boundary. The `skip_*` methods advance the stream without
+/// storing the skipped bytes.
 pub trait StreamSearch: ReadWith {
-    /// Reads chunks from the stream until `stop_condition` matches.
+    /// Seeks through the stream until `stop_condition` matches.
     ///
     /// Each chunk is passed to `stop_condition`. Returning `Some(len)` means that the
     /// stop condition was met in the current chunk and that only the first `len` bytes
@@ -32,7 +32,7 @@ pub trait StreamSearch: ReadWith {
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
     /// - Returns [`StreamReadError::ReadBufferOverflow`] if the allocator does not
     ///   have enough capacity for the collected bytes.
-    fn read_until_condition<'alloc, 'buf, StopPredicate>(
+    fn seek_until<'alloc, 'buf, StopPredicate>(
         &mut self,
         allocator: &'alloc mut PrefixArena<'buf>,
         mut stop_condition: StopPredicate,
@@ -74,7 +74,7 @@ pub trait StreamSearch: ReadWith {
         }
     }
 
-    /// Reads from the stream until `stop_sequence` is found.
+    /// Seeks through the stream until `stop_sequence` is found.
     ///
     /// The returned slice is stored in the provided allocator-backed buffer and
     /// includes `stop_sequence`.
@@ -83,7 +83,7 @@ pub trait StreamSearch: ReadWith {
     /// - Returns [`StreamReadError::ReadBufferOverflow`] if the allocator does not
     ///   have enough capacity for the collected bytes.
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
-    fn read_until_sequence<'alloc, 'buf>(
+    fn seek_until_sequence<'alloc, 'buf>(
         &mut self,
         stop_sequence: &[u8],
         allocator: &'alloc mut PrefixArena<'buf>,
@@ -93,12 +93,11 @@ pub trait StreamSearch: ReadWith {
     {
         async move {
             let mut finder = FindSequence::new(stop_sequence);
-            self.read_until_condition(allocator, |chunk| finder.check_next_slice(chunk))
-                .await
+            self.seek_until(allocator, |chunk| finder.check_next_slice(chunk)).await
         }
     }
 
-    /// Reads from the stream until `stop_byte` is found.
+    /// Seeks through the stream until `stop_byte` is found.
     ///
     /// The returned slice is stored in the provided allocator-backed buffer and
     /// includes `stop_byte`.
@@ -107,7 +106,7 @@ pub trait StreamSearch: ReadWith {
     /// - Returns [`StreamReadError::ReadBufferOverflow`] if the allocator does not
     ///   have enough capacity for the collected bytes.
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
-    fn read_until_byte<'buf, 'allocator>(
+    fn seek_until_byte<'buf, 'allocator>(
         &mut self,
         stop_byte: u8,
         allocator: &'allocator mut PrefixArena<'buf>,
@@ -116,22 +115,19 @@ pub trait StreamSearch: ReadWith {
         'allocator: 'buf,
     {
         async move {
-            self.read_until_condition(allocator, |chunk| {
+            self.seek_until(allocator, |chunk| {
                 chunk.iter().position(|&b| b == stop_byte).map(|pos| pos + 1)
             })
             .await
         }
     }
 
-    /// Consumes exactly `size` bytes from the stream without storing them.
+    /// Skips exactly `size` bytes from the stream without storing them.
     ///
     /// ## Errors
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails
     ///   before `size` bytes are consumed.
-    fn consume_exact(
-        &mut self,
-        size: usize,
-    ) -> impl core::future::Future<Output = Result<(), StreamReadError<Self::Error>>> {
+    fn skip(&mut self, size: usize) -> impl core::future::Future<Output = Result<(), StreamReadError<Self::Error>>> {
         async move {
             let mut bytes_to_consume = size;
 
@@ -150,7 +146,7 @@ pub trait StreamSearch: ReadWith {
         }
     }
 
-    /// Consumes bytes from the stream until `stop_condition` matches.
+    /// Skips bytes from the stream until `stop_condition` matches.
     ///
     /// `stop_condition` receives each chunk and may return `Some(len)` to stop after
     /// consuming the first `len` bytes of the current chunk. Returning `None`
@@ -161,7 +157,7 @@ pub trait StreamSearch: ReadWith {
     ///
     /// ## Errors
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
-    fn consume_until_condition<StopF>(
+    fn skip_until<StopF>(
         &mut self,
         mut stop_condition: StopF,
     ) -> impl core::future::Future<Output = Result<usize, StreamReadError<Self::Error>>>
@@ -189,36 +185,35 @@ pub trait StreamSearch: ReadWith {
         }
     }
 
-    /// Consumes bytes from the stream until `stop_byte` is found.
+    /// Skips bytes from the stream until `stop_byte` is found.
     ///
     /// The returned count includes `stop_byte`.
     ///
     /// ## Errors
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
-    fn consume_until_byte(
+    fn skip_until_byte(
         &mut self,
         stop_byte: u8,
     ) -> impl core::future::Future<Output = Result<usize, StreamReadError<Self::Error>>> {
         async move {
-            self.consume_until_condition(|chunk| chunk.iter().position(|&b| b == stop_byte).map(|pos| pos + 1))
+            self.skip_until(|chunk| chunk.iter().position(|&b| b == stop_byte).map(|pos| pos + 1))
                 .await
         }
     }
 
-    /// Consumes bytes from the stream until `stop_sequence` is found.
+    /// Skips bytes from the stream until `stop_sequence` is found.
     ///
     /// The returned count includes `stop_sequence`.
     ///
     /// ## Errors
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
-    fn consume_until_sequence(
+    fn skip_until_sequence(
         &mut self,
         stop_sequence: &[u8],
     ) -> impl core::future::Future<Output = Result<usize, StreamReadError<Self::Error>>> {
         async move {
             let mut sequence_finder = FindSequence::new(stop_sequence);
-            self.consume_until_condition(|chunk| sequence_finder.check_next_slice(chunk))
-                .await
+            self.skip_until(|chunk| sequence_finder.check_next_slice(chunk)).await
         }
     }
 }
@@ -233,7 +228,7 @@ pub mod tests {
     use prefix_arena::PrefixArena;
 
     #[tokio::test]
-    async fn test_read_until_sequence() {
+    async fn test_seek_until_sequence() {
         const STOP: &[u8] = b"\r\n";
         let mut request_data = b"Hello, World!\r\nThis is a test.\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
@@ -241,7 +236,7 @@ pub mod tests {
         let mut allocator = PrefixArena::new(&mut buffer);
 
         let bytes_read = stream
-            .read_until_sequence(STOP, &mut allocator)
+            .seek_until_sequence(STOP, &mut allocator)
             .await
             .expect("Expect no error");
 
@@ -257,7 +252,7 @@ pub mod tests {
         let mut buffer = [0u8; 64];
         let mut allocator = PrefixArena::new(&mut buffer);
         let bytes_read = stream
-            .read_until_sequence(STOP, &mut allocator)
+            .seek_until_sequence(STOP, &mut allocator)
             .await
             .expect("Expect no error");
 
@@ -273,7 +268,7 @@ pub mod tests {
         let mut buffer = [0u8; 64];
         let mut allocator = PrefixArena::new(&mut buffer);
         let error = stream
-            .read_until_sequence(STOP, &mut allocator)
+            .seek_until_sequence(STOP, &mut allocator)
             .await
             .expect_err("Expect read error, due to read stream EOF");
 
@@ -289,7 +284,7 @@ pub mod tests {
         let mut allocator = PrefixArena::new(&mut buffer);
 
         let error = stream
-            .read_until_sequence(STOP, &mut allocator)
+            .seek_until_sequence(STOP, &mut allocator)
             .await
             .expect_err("Expect buffer overflow error");
 
@@ -302,7 +297,7 @@ pub mod tests {
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
-        stream.consume_exact(7).await.expect("Expect no error");
+        stream.skip(7).await.expect("Expect no error");
 
         let read_bytes = stream.read(&mut buffer).await.expect("Expect no error");
         assert_eq!(&buffer[..read_bytes], b"World!\r\n");
@@ -316,7 +311,7 @@ pub mod tests {
         let mut buffer = [0u8; 64];
 
         let consumed = stream
-            .consume_until_condition(|chunk| chunk.iter().position(|&b| b == STOP).map(|pos| pos + 1))
+            .skip_until(|chunk| chunk.iter().position(|&b| b == STOP).map(|pos| pos + 1))
             .await
             .expect("Expect no error");
         assert_eq!(consumed, b"Hello,".len());
@@ -326,12 +321,12 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_consume_until_sequence() {
+    async fn test_skip_until_sequence() {
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
-        let consumed = stream.consume_until_sequence(b", Wo").await.expect("Expect no error");
+        let consumed = stream.skip_until_sequence(b", Wo").await.expect("Expect no error");
         assert_eq!(consumed, b"Hello, Wo".len());
 
         let read_bytes = stream.read(&mut buffer).await.expect("Expect no error");
@@ -345,7 +340,7 @@ pub mod tests {
         let mut buffer = [0u8; 64];
 
         let e = stream
-            .consume_until_sequence(b"There is no such sequence")
+            .skip_until_sequence(b"There is no such sequence")
             .await
             .expect_err("Expect error");
 

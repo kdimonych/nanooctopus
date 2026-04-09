@@ -115,7 +115,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
         Reader: ReadWith,
         'buf: 'alloc,
     {
-        let line = self.reader.read_until_sequence(LINE_DELIMITTER, allocator).await?;
+        let line = self.reader.seek_until_sequence(LINE_DELIMITTER, allocator).await?;
         let line = line
             .strip_suffix(LINE_DELIMITTER)
             .ok_or(HttpParseError::MalformedRequest)?;
@@ -181,7 +181,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
             return Ok(None);
         }
 
-        let header = self.reader.read_until_sequence(LINE_DELIMITTER, allocator).await?;
+        let header = self.reader.seek_until_sequence(LINE_DELIMITTER, allocator).await?;
 
         if header.len() == LINE_DELIMITTER_SIZE {
             // Empty line indicates end of headers
