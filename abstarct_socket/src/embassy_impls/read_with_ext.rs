@@ -1,7 +1,7 @@
-use crate::read_with_ext::ReadError;
+use crate::stream_search::StreamReadError;
 
-impl From<embassy_net::tcp::Error> for ReadError<embassy_net::tcp::Error> {
+impl From<embassy_net::tcp::Error> for StreamReadError<embassy_net::tcp::Error> {
     fn from(err: embassy_net::tcp::Error) -> Self {
-        ReadError::SocketReadError(err)
+        StreamReadError::SocketReadError(err)
     }
 }

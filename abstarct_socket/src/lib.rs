@@ -6,8 +6,8 @@ pub mod read_with;
 /// Write stream trait and error types.
 pub mod write_with;
 
-/// Read stream extention trait and error types.
-pub mod read_with_ext;
+/// Read stream extension trait and helper error types.
+pub mod stream_search;
 
 /// Utility to find value sequences in a stream.
 pub mod find_sequence;

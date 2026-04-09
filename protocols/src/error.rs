@@ -1,4 +1,4 @@
-use abstarct_socket::read_with_ext::ReadError;
+use abstarct_socket::stream_search::StreamReadError;
 
 /// Errors that can occur during HTTP operations
 ///
@@ -40,14 +40,14 @@ impl From<embassy_net::tcp::Error> for Error {
     }
 }
 
-impl<SocketReadErrorT> From<ReadError<SocketReadErrorT>> for Error
+impl<SocketReadErrorT> From<StreamReadError<SocketReadErrorT>> for Error
 where
     Error: From<SocketReadErrorT>,
 {
-    fn from(err: ReadError<SocketReadErrorT>) -> Self {
+    fn from(err: StreamReadError<SocketReadErrorT>) -> Self {
         match err {
-            ReadError::SocketReadError(e) => Error::from(e),
-            ReadError::TargetBufferOverflow => Error::ReadBufferOverflow,
+            StreamReadError::SocketReadError(e) => Error::from(e),
+            StreamReadError::ReadBufferOverflow => Error::ReadBufferOverflow,
         }
     }
 }
@@ -58,7 +58,7 @@ impl core::fmt::Display for Error {
             Error::InvalidUrl => write!(f, "Invalid URL"),
             Error::SocketError => write!(f, "TCP communication error"),
             Error::ReadBufferOverflow => write!(f, "Read buffer overflowed"),
-            Error::ServerError => write!(f, "Server error"),
+            Error::ServerError => write!(f, "No response received from server"),
             Error::InvalidData(msg) => write!(f, "Invalid response: {msg}"),
             #[cfg(feature = "tls")]
             Error::TlsError(_) => write!(f, "TLS error occurred"),
@@ -92,11 +92,11 @@ mod tests {
 
     #[test]
     fn test_from_read_error() {
-        let mut read_error = ReadError::SocketReadError(embassy_net::tcp::Error::ConnectionReset);
+        let mut read_error = StreamReadError::SocketReadError(embassy_net::tcp::Error::ConnectionReset);
         let mut err: Error = read_error.into();
         assert!(matches!(err, Error::SocketError));
 
-        read_error = ReadError::TargetBufferOverflow;
+        read_error = StreamReadError::ReadBufferOverflow;
         err = read_error.into();
         assert!(matches!(err, Error::ReadBufferOverflow));
     }

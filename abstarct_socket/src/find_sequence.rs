@@ -18,7 +18,7 @@ impl<'a, Item> FindSequence<'a, Item> {
     }
 
     /// Push a byte into the sequence finder
-    pub fn check_next_byte(&mut self, byte: Item) -> bool
+    pub fn check_next(&mut self, byte: Item) -> bool
     where
         Item: PartialEq + Copy,
     {
@@ -48,7 +48,7 @@ impl<'a, Item> FindSequence<'a, Item> {
         Item: PartialEq + Copy,
     {
         for (i, &byte) in subsequence.iter().enumerate() {
-            if self.check_next_byte(byte) {
+            if self.check_next(byte) {
                 return Some(i + 1);
             }
         }
@@ -67,7 +67,7 @@ pub mod tests {
         let data = b"Hello, World!\r\nThis is a test.\r\n";
         let mut found_positions = Vec::new();
         for (i, &byte) in data.iter().enumerate() {
-            if finder.check_next_byte(byte) {
+            if finder.check_next(byte) {
                 found_positions.push(i + 1 - sequence.len());
             }
         }

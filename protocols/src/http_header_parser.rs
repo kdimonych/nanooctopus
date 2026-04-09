@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
 use abstarct_socket::read_with::ReadWith;
-use abstarct_socket::read_with_ext::{ReadError, ReadStreamExt};
+use abstarct_socket::stream_search::{ReadWithExt, StreamReadError};
 use prefix_arena::PrefixArena;
 
 const LINE_DELIMITTER: &[u8; 2] = b"\r\n";
@@ -13,7 +13,7 @@ const KEY_VALUE_DELIMITTER: char = ':';
 #[defmt_or_log::derive_format_or_debug]
 pub enum HttpParseError<SocketReadErrorT> {
     /// Error occurred while reading from the stream
-    ReadError(ReadError<SocketReadErrorT>),
+    ReadError(StreamReadError<SocketReadErrorT>),
     /// Malformed HTTP request
     MalformedRequest,
     /// HTTP method not recognized
@@ -29,15 +29,15 @@ pub enum HttpParseError<SocketReadErrorT> {
     NoContentLength,
 }
 
-impl<SocketReadErrorT> From<ReadError<SocketReadErrorT>> for HttpParseError<SocketReadErrorT> {
-    fn from(err: ReadError<SocketReadErrorT>) -> Self {
+impl<SocketReadErrorT> From<StreamReadError<SocketReadErrorT>> for HttpParseError<SocketReadErrorT> {
+    fn from(err: StreamReadError<SocketReadErrorT>) -> Self {
         HttpParseError::ReadError(err)
     }
 }
 
 impl<SocketReadErrorT> From<HttpParseError<SocketReadErrorT>> for Error
 where
-    Error: From<ReadError<SocketReadErrorT>>,
+    Error: From<StreamReadError<SocketReadErrorT>>,
 {
     fn from(err: HttpParseError<SocketReadErrorT>) -> Self {
         match err {
@@ -115,7 +115,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
         Reader: ReadWith,
         'buf: 'alloc,
     {
-        let line = self.reader.read_till_stop_sequence(LINE_DELIMITTER, allocator).await?;
+        let line = self.reader.read_until_sequence(LINE_DELIMITTER, allocator).await?;
         let line = line
             .strip_suffix(LINE_DELIMITTER)
             .ok_or(HttpParseError::MalformedRequest)?;
@@ -181,7 +181,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
             return Ok(None);
         }
 
-        let header = self.reader.read_till_stop_sequence(LINE_DELIMITTER, allocator).await?;
+        let header = self.reader.read_until_sequence(LINE_DELIMITTER, allocator).await?;
 
         if header.len() == LINE_DELIMITTER_SIZE {
             // Empty line indicates end of headers
@@ -262,14 +262,14 @@ mod tests {
             Error::HeaderError(_)
         ));
         assert!(matches!(
-            Error::from(HttpParseError::ReadError(ReadError::SocketReadError(
+            Error::from(HttpParseError::ReadError(StreamReadError::SocketReadError(
                 embassy_net::tcp::Error::ConnectionReset
             ))),
             Error::SocketError
         ));
         assert!(matches!(
             Error::from(HttpParseError::ReadError(
-                ReadError::<embassy_net::tcp::Error>::TargetBufferOverflow
+                StreamReadError::<embassy_net::tcp::Error>::ReadBufferOverflow
             )),
             Error::ReadBufferOverflow
         ));
@@ -318,7 +318,10 @@ mod tests {
             .map(|_| ())
             .expect_err("Expected failure due to insufficient buffer size");
 
-        assert!(matches!(e, HttpParseError::ReadError(ReadError::TargetBufferOverflow)));
+        assert!(matches!(
+            e,
+            HttpParseError::ReadError(StreamReadError::ReadBufferOverflow)
+        ));
 
         assert_eq!(buffer.len(), FIRST_LINE.len() - 1);
     }
