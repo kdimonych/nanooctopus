@@ -12,8 +12,6 @@ pub mod request;
 pub mod response_builder;
 /// HTTP server implementation.
 pub mod server;
-/// Slice view utilities for HTTP responses.
-pub mod slice_view;
 
 mod socket_pool;
 
