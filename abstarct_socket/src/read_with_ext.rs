@@ -1,7 +1,7 @@
-use crate::borrowed_buffer::BorrowedBuffer;
 use crate::find_sequence::FindSequence;
 use crate::head_arena::HeadArena;
 use crate::read_with::ReadWith;
+use crate::staging_buffer::StagingBuffer;
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -39,7 +39,7 @@ pub trait ReadStreamExt: ReadWith {
             let mut read_size = 0;
             let mut result = Ok(());
 
-            let mut buffer = BorrowedBuffer::new(allocator);
+            let mut buffer = StagingBuffer::new(allocator);
 
             loop {
                 let stop_triggered = self
@@ -51,7 +51,7 @@ pub trait ReadStreamExt: ReadWith {
                             stoped = true;
                         }
 
-                        let actually_appended = buffer.try_append_from_slice(&mut chank);
+                        let actually_appended = buffer.extend_from_slice_capped(&mut chank);
                         if actually_appended < chank.len() {
                             result = Err(ReadError::TargetBufferOverflow);
                             stoped = true;
@@ -64,7 +64,7 @@ pub trait ReadStreamExt: ReadWith {
                     .map_err(|e| ReadError::SocketReadError(e))?;
 
                 if stop_triggered {
-                    return result.map(|_| buffer.take_used());
+                    return result.map(|_| buffer.into_written_slice());
                 }
             }
         }

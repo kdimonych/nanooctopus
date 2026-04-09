@@ -15,8 +15,8 @@ pub mod find_sequence;
 /// Implementations for various socket types.
 pub mod embassy_impls;
 
-/// Buffer types for borrowed data.
-pub mod borrowed_buffer;
+/// Buffer types for staging written data in arena-backed storage.
+pub mod staging_buffer;
 
 /// A bump allocator based on the principle of play all-in, then gather the cream.
 pub mod head_arena;
