@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use abstarct_socket::head_arena::HeadArena;
+use abstarct_socket::head_arena::PrefixArena;
 use abstarct_socket::read_with::ReadWith;
 use abstarct_socket::read_with_ext::{ReadError, ReadStreamExt};
 
@@ -109,7 +109,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
     /// - Returns `HttpParseError::UnsupportedMethod` if the method is not recognized
     pub async fn parse_first_line<'alloc, 'buf>(
         self,
-        allocator: &'alloc mut HeadArena<'buf>,
+        allocator: &'alloc mut PrefixArena<'buf>,
     ) -> Result<(HttpFirstLine<'buf>, HttpHeaderParser<'reader, Reader, ReadHeaders>), HttpParseError<Reader::Error>>
     where
         Reader: ReadWith,
@@ -170,7 +170,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     /// - Returns `HttpParseError::UnsupportedMethod` if the method is not recognized
     pub async fn parse_next_header<'alloc, 'buf>(
         &mut self,
-        allocator: &'alloc mut HeadArena<'buf>,
+        allocator: &'alloc mut PrefixArena<'buf>,
     ) -> Result<Option<HttpHeader<'buf>>, HttpParseError<Reader::Error>>
     where
         Reader: ReadWith,
@@ -212,7 +212,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     ///   that the stream is in invalid state.
     ///   It is responsibility of the caller to close the stream in this case.
     ///
-    pub async fn finalize(mut self, allocator: &mut HeadArena<'_>) -> Result<(), HttpParseError<Reader::Error>>
+    pub async fn finalize(mut self, allocator: &mut PrefixArena<'_>) -> Result<(), HttpParseError<Reader::Error>>
     where
         Reader: ReadWith,
     {
@@ -285,7 +285,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()];
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -308,7 +308,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len() - 1]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -330,7 +330,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -351,7 +351,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -373,7 +373,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -395,7 +395,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = HttpHeaderParser::new(&mut stream);
 
@@ -412,7 +412,7 @@ mod tests {
 
     async fn get_header_parser<'reader, 'buf, Stream>(
         stream: &'reader mut Stream,
-        buffer: &mut HeadArena<'buf>,
+        buffer: &mut PrefixArena<'buf>,
     ) -> HttpHeaderParser<'reader, Stream, ReadHeaders>
     where
         Stream: ReadWith,
@@ -437,7 +437,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -465,7 +465,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -495,7 +495,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -522,7 +522,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let mut parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -547,7 +547,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
 
@@ -570,7 +570,7 @@ mod tests {
         let mut stream = make_multipart_stream(2, FIRST_LINE.as_bytes().to_vec());
 
         let mut raw_buffer = [0u8; FIRST_LINE.len()]; // Intentionally smaller buffer
-        let mut buffer = HeadArena::new(&mut raw_buffer);
+        let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
 

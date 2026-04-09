@@ -1,5 +1,5 @@
 use crate::request::HttpRequest;
-use abstarct_socket::head_arena::HeadArena;
+use abstarct_socket::head_arena::PrefixArena;
 
 use protocols::error::Error;
 
@@ -23,7 +23,7 @@ pub trait HttpHandler {
     /// Handle an incoming HTTP request and return a response
     async fn handle_request<HttpSocket: HttpWriteSocket>(
         &mut self,
-        allocator: &mut HeadArena<'_>,
+        allocator: &mut PrefixArena<'_>,
         request: &HttpRequest<'_>,
         http_socket: &mut HttpSocket,
     ) -> Result<(), Error>;

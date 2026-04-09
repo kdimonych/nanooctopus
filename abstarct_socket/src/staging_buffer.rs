@@ -1,12 +1,12 @@
-use crate::head_arena::{HeadArena, TempBuffer};
+use crate::arena::{ArenaView, PrefixArena};
 
-/// A staging buffer over the remaining bytes of a [`HeadArena`].
+/// A staging buffer over the remaining bytes of a [`PrefixArena`].
 ///
 /// `StagingBuffer` lets callers append bytes into temporary arena-backed
 /// storage, inspect the written prefix, and finally detach that written prefix
 /// from the underlying arena.
 pub struct StagingBuffer<'arena, 'b> {
-    inner: TempBuffer<'arena, 'b>,
+    inner: ArenaView<'arena, 'b>,
     used: usize,
 }
 
@@ -15,9 +15,9 @@ where
     'b: 'arena,
 {
     /// Creates a staging buffer over the remaining space of the given arena.
-    pub const fn new(allocator: &'arena mut HeadArena<'b>) -> Self {
+    pub const fn new(arena: &'arena mut PrefixArena<'b>) -> Self {
         Self {
-            inner: allocator.temporary(),
+            inner: arena.view(),
             used: 0,
         }
     }
@@ -88,51 +88,13 @@ where
 
     /// Detaches the written prefix from the underlying arena.
     pub fn into_written_slice(self) -> &'b mut [u8] {
-        unsafe { core::mem::transmute(self.inner.acquire_front_mut(self.used)) }
-    }
-
-    #[deprecated(note = "use push_byte")]
-    pub fn push(&mut self, byte: u8) -> Result<(), ()> {
-        self.push_byte(byte)
-    }
-
-    #[deprecated(note = "use extend_from_slice")]
-    pub fn append_from_slice(&mut self, slice: &[u8]) -> Result<(), ()> {
-        self.extend_from_slice(slice)
-    }
-
-    #[deprecated(note = "use extend_from_slice_capped")]
-    pub fn try_append_from_slice(&mut self, slice: &[u8]) -> usize {
-        self.extend_from_slice_capped(slice)
-    }
-
-    #[deprecated(note = "use written")]
-    pub fn as_slice(&self) -> &[u8] {
-        self.written()
-    }
-
-    #[deprecated(note = "use written_mut")]
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.written_mut()
-    }
-
-    #[deprecated(note = "use spare_capacity")]
-    pub const fn remaining_capacity(&self) -> usize {
-        self.spare_capacity()
-    }
-
-    #[deprecated(note = "use into_written_slice")]
-    pub fn take_used(self) -> &'b mut [u8] {
-        self.into_written_slice()
+        unsafe { core::mem::transmute(self.inner.take_prefix(self.used)) }
     }
 }
-
-#[deprecated(note = "use StagingBuffer")]
-pub type BorrowedBuffer<'arena, 'b> = StagingBuffer<'arena, 'b>;
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::arena::PrefixArena as HeadArena;
 
     #[test]
     fn test_basic_push() {

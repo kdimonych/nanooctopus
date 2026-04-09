@@ -8,7 +8,7 @@ use crate::{
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
 };
 
-use abstarct_socket::head_arena::HeadArena;
+use abstarct_socket::head_arena::PrefixArena;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, with_timeout};
@@ -120,7 +120,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
         loop {
             // Create arena allocator for this connection's request and response processing
-            let mut head_arena_alloc = HeadArena::from_uninitialized(worker_memory_buf);
+            let mut head_arena_alloc = PrefixArena::from_uninit(worker_memory_buf);
 
             let mut socket = self.socket_pool.acquire_next_request().await;
 
@@ -209,7 +209,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
     #[cfg(feature = "ws")]
     async fn web_socket_handshake<'a>(
-        allocator: &mut HeadArena<'_>,
+        allocator: &mut PrefixArena<'_>,
         web_socket_key: &'a str,
         tcp_socket: &mut TcpSocket<'_>,
     ) -> Result<(), ()> {
@@ -268,7 +268,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
     async fn handle_connection<H>(
         &self,
-        allocator: &mut HeadArena<'_>,
+        allocator: &mut PrefixArena<'_>,
         request: &HttpRequest<'_>,
         http_socket: &mut TcpSocket<'_>,
         handler: &mut H,
@@ -311,7 +311,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 /// Handles the WebSocket handshake process.
 #[cfg(feature = "ws")]
 async fn try_handle_websocket_handshake<'a>(
-    allocator: &mut HeadArena<'_>,
+    allocator: &mut PrefixArena<'_>,
     http_socket: &mut TcpSocket<'_>,
     web_socket_key: &'a str,
 ) -> Result<(), Error> {
@@ -322,7 +322,7 @@ async fn try_handle_websocket_handshake<'a>(
     hasher.update(WS_GUID);
     let hash = hasher.finalize();
 
-    let mut tmp_buf = allocator.temporary();
+    let mut tmp_buf = allocator.view();
     let buf = unsafe { tmp_buf.as_slice_mut_unchecked() };
     let encoded_hash =
         binascii::b64encode(&hash, buf).map_err(|_| Error::InvalidData("Failed to encode Sec-WebSocket-Accept"))?;

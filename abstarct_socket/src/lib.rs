@@ -15,11 +15,17 @@ pub mod find_sequence;
 /// Implementations for various socket types.
 pub mod embassy_impls;
 
+/// Prefix-detaching arena primitives.
+pub mod arena;
+
 /// Buffer types for staging written data in arena-backed storage.
 pub mod staging_buffer;
 
-/// A bump allocator based on the principle of play all-in, then gather the cream.
+/// Backward-compatible exports for the previous head_arena module path.
 pub mod head_arena;
+
+pub use arena::{ArenaView, PrefixArena};
+pub use staging_buffer::StagingBuffer;
 
 /// Test mocks for read/write streams and related utilities.
 #[cfg(any(test, feature = "mocks"))]

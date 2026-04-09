@@ -1,5 +1,5 @@
+use crate::arena::PrefixArena;
 use crate::find_sequence::FindSequence;
-use crate::head_arena::HeadArena;
 use crate::read_with::ReadWith;
 use crate::staging_buffer::StagingBuffer;
 
@@ -28,7 +28,7 @@ pub trait ReadStreamExt: ReadWith {
     ///
     fn read_untill<'alloc, 'buf, StopPredicate>(
         &mut self,
-        allocator: &'alloc mut HeadArena<'buf>,
+        allocator: &'alloc mut PrefixArena<'buf>,
         mut stop_predicate: StopPredicate,
     ) -> impl core::future::Future<Output = Result<&'buf mut [u8], ReadError<Self::Error>>>
     where
@@ -83,7 +83,7 @@ pub trait ReadStreamExt: ReadWith {
     fn read_till_stop_sequence<'alloc, 'buf>(
         &mut self,
         stop_sequence: &[u8],
-        allocator: &'alloc mut HeadArena<'buf>,
+        allocator: &'alloc mut PrefixArena<'buf>,
     ) -> impl core::future::Future<Output = Result<&'buf mut [u8], ReadError<Self::Error>>>
     where
         'buf: 'alloc,
@@ -108,7 +108,7 @@ pub trait ReadStreamExt: ReadWith {
     fn read_till_stop_byte<'buf, 'allocator>(
         &mut self,
         stop_byte: u8,
-        allocator: &'allocator mut HeadArena<'buf>,
+        allocator: &'allocator mut PrefixArena<'buf>,
     ) -> impl core::future::Future<Output = Result<&'buf mut [u8], ReadError<Self::Error>>>
     where
         'allocator: 'buf,
@@ -222,6 +222,7 @@ impl<T: ReadWith + ?Sized> ReadStreamExt for T {}
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::arena::PrefixArena as HeadArena;
     use crate::mocks::mock_read_stream::*;
     use embedded_io_async::Read;
 
