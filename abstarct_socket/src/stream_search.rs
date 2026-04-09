@@ -12,9 +12,12 @@ pub enum StreamReadError<SocketReadErrorT> {
     ReadBufferOverflow,
 }
 
-/// Extension methods for [`ReadWith`] that either collect bytes into an arena-backed
-/// buffer or consume bytes directly from the stream.
-pub trait ReadWithExt: ReadWith {
+/// Search and scan helpers for [`ReadWith`] streams.
+///
+/// The `read_*` methods collect matched data into an arena-backed buffer and return
+/// it to the caller. The `consume_*` methods advance the stream without storing the
+/// consumed bytes.
+pub trait StreamSearch: ReadWith {
     /// Reads chunks from the stream until `stop_condition` matches.
     ///
     /// Each chunk is passed to `stop_condition`. Returning `Some(len)` means that the
@@ -29,7 +32,7 @@ pub trait ReadWithExt: ReadWith {
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
     /// - Returns [`StreamReadError::ReadBufferOverflow`] if the allocator does not
     ///   have enough capacity for the collected bytes.
-    fn read_until<'alloc, 'buf, StopPredicate>(
+    fn read_until_condition<'alloc, 'buf, StopPredicate>(
         &mut self,
         allocator: &'alloc mut PrefixArena<'buf>,
         mut stop_condition: StopPredicate,
@@ -90,7 +93,8 @@ pub trait ReadWithExt: ReadWith {
     {
         async move {
             let mut finder = FindSequence::new(stop_sequence);
-            self.read_until(allocator, |chunk| finder.check_next_slice(chunk)).await
+            self.read_until_condition(allocator, |chunk| finder.check_next_slice(chunk))
+                .await
         }
     }
 
@@ -112,7 +116,7 @@ pub trait ReadWithExt: ReadWith {
         'allocator: 'buf,
     {
         async move {
-            self.read_until(allocator, |chunk| {
+            self.read_until_condition(allocator, |chunk| {
                 chunk.iter().position(|&b| b == stop_byte).map(|pos| pos + 1)
             })
             .await
@@ -146,20 +150,20 @@ pub trait ReadWithExt: ReadWith {
         }
     }
 
-    /// Consumes bytes from the stream until `stop` matches.
+    /// Consumes bytes from the stream until `stop_condition` matches.
     ///
-    /// `stop` receives each chunk and may return `Some(len)` to stop after consuming
-    /// the first `len` bytes of the current chunk. Returning `None` consumes the whole
-    /// chunk and continues reading.
+    /// `stop_condition` receives each chunk and may return `Some(len)` to stop after
+    /// consuming the first `len` bytes of the current chunk. Returning `None`
+    /// consumes the whole chunk and continues reading.
     ///
     /// The returned count includes the bytes consumed from the chunk that satisfied the
     /// stop condition.
     ///
     /// ## Errors
     /// - Returns [`StreamReadError::SocketReadError`] if reading from the stream fails.
-    fn consume_until<StopF>(
+    fn consume_until_condition<StopF>(
         &mut self,
-        mut stop: StopF,
+        mut stop_condition: StopF,
     ) -> impl core::future::Future<Output = Result<usize, StreamReadError<Self::Error>>>
     where
         StopF: FnMut(&[u8]) -> Option<usize>,
@@ -169,7 +173,7 @@ pub trait ReadWithExt: ReadWith {
 
             while self
                 .read_with(|data: &mut [u8]| {
-                    if let Some(pos) = stop(data) {
+                    if let Some(pos) = stop_condition(data) {
                         // The stop point has been found; stop reading further
                         total_consumed += pos;
                         return (pos, false);
@@ -196,7 +200,7 @@ pub trait ReadWithExt: ReadWith {
         stop_byte: u8,
     ) -> impl core::future::Future<Output = Result<usize, StreamReadError<Self::Error>>> {
         async move {
-            self.consume_until(|chunk| chunk.iter().position(|&b| b == stop_byte).map(|pos| pos + 1))
+            self.consume_until_condition(|chunk| chunk.iter().position(|&b| b == stop_byte).map(|pos| pos + 1))
                 .await
         }
     }
@@ -213,13 +217,13 @@ pub trait ReadWithExt: ReadWith {
     ) -> impl core::future::Future<Output = Result<usize, StreamReadError<Self::Error>>> {
         async move {
             let mut sequence_finder = FindSequence::new(stop_sequence);
-            self.consume_until(|chunk| sequence_finder.check_next_slice(chunk))
+            self.consume_until_condition(|chunk| sequence_finder.check_next_slice(chunk))
                 .await
         }
     }
 }
 
-impl<T: ReadWith + ?Sized> ReadWithExt for T {}
+impl<T: ReadWith + ?Sized> StreamSearch for T {}
 
 #[cfg(test)]
 pub mod tests {
@@ -312,7 +316,7 @@ pub mod tests {
         let mut buffer = [0u8; 64];
 
         let consumed = stream
-            .consume_until(|chunk| chunk.iter().position(|&b| b == STOP).map(|pos| pos + 1))
+            .consume_until_condition(|chunk| chunk.iter().position(|&b| b == STOP).map(|pos| pos + 1))
             .await
             .expect("Expect no error");
         assert_eq!(consumed, b"Hello,".len());

@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
 use abstarct_socket::read_with::ReadWith;
-use abstarct_socket::stream_search::{ReadWithExt, StreamReadError};
+use abstarct_socket::stream_search::{StreamReadError, StreamSearch};
 use prefix_arena::PrefixArena;
 
 const LINE_DELIMITTER: &[u8; 2] = b"\r\n";
