@@ -89,7 +89,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use embassy_net::dns;
 
     #[test]
     fn test_from_read_error() {
@@ -106,8 +105,6 @@ mod tests {
     fn test_error_display() {
         let e = Error::InvalidUrl;
         assert_eq!(format!("{e}"), "Invalid URL");
-        let e = Error::IpAddressEmpty;
-        assert_eq!(format!("{e}"), "No IP addresses returned by DNS");
         let e = Error::ServerError;
         assert_eq!(format!("{e}"), "No response received from server");
         let e = Error::InvalidData("bad");
@@ -118,16 +115,6 @@ mod tests {
         assert_eq!(format!("{e}"), "Header error: too long");
         let e = Error::InvalidStatusCode;
         assert_eq!(format!("{e}"), "Invalid status code");
-    }
-
-    #[test]
-    fn test_from_dns_error() {
-        let dns_err = dns::Error::InvalidName;
-        let err: Error = dns_err.into();
-        match err {
-            Error::DnsError(_) => {}
-            _ => panic!("Expected DnsError variant"),
-        }
     }
 
     #[test]

@@ -8,11 +8,11 @@ use crate::{
     socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
 };
 
-use abstarct_socket::head_arena::PrefixArena;
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, with_timeout};
 use embedded_io_async::Write as EmbeddedWrite;
+use prefix_arena::PrefixArena;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
 

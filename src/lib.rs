@@ -15,9 +15,6 @@ pub mod server;
 /// Slice view utilities for HTTP responses.
 pub mod slice_view;
 
-// #[cfg(feature = "ws")]
-// pub mod ws;
-
 mod socket_pool;
 
 pub use handler::{HttpHandler, HttpWriteSocket};
@@ -26,11 +23,6 @@ pub use protocols::error::Error;
 pub use protocols::header::{HttpHeader, headers, mime_types};
 pub use protocols::method::HttpMethod;
 pub use protocols::status_code::StatusCode;
-
-/// Re-export the HeadArena for users of the library who need to use it for request handling.
-pub mod memory {
-    pub use abstarct_socket::head_arena::*;
-}
 
 #[cfg(feature = "ws")]
 pub use handler::{

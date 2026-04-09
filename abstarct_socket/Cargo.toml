@@ -27,14 +27,16 @@ defmt = { version = "1.0.1", optional = true }
 ringbuf = { version = "0.4.8", optional = true }
 defmt-or-log = { version = "0.2.3", default-features = false }
 
+prefix-arena = "0.1"
+
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
 ringbuf = "0.4.8"
 
 [features]
-default = []
-std = ["embassy-net/std", "ringbuf/std"]
+default = ["std"]
+std = ["embassy-net/std", "ringbuf/std", "log"]
 defmt = ["dep:defmt", "defmt-or-log/defmt"]
 mocks = ["dep:ringbuf"]
 log = ["defmt-or-log/log"]

@@ -33,6 +33,7 @@ defmt-or-log = { version = "0.2.3", default-features = false }
 
 embedded-tls = { version = "0.18.0", default-features = false, optional = true }
 embedded-io-async = "0.6"
+prefix-arena = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -50,9 +51,10 @@ log = { version = "0.4.29" }
 env_logger = { version = "0.11" }
 defmt-or-log = { version = "0.2.3", features = ["log"] }
 
+
 [features]
-default = []
-std = ["embassy-net/std", "abstarct_socket/std"]
+default = ["std"]
+std = ["embassy-net/std", "abstarct_socket/std", "log"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
 defmt = [
     "dep:defmt",

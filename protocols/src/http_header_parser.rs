@@ -1,9 +1,9 @@
 use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use abstarct_socket::head_arena::PrefixArena;
 use abstarct_socket::read_with::ReadWith;
 use abstarct_socket::read_with_ext::{ReadError, ReadStreamExt};
+use prefix_arena::PrefixArena;
 
 const LINE_DELIMITTER: &[u8; 2] = b"\r\n";
 const LINE_DELIMITTER_SIZE: usize = LINE_DELIMITTER.len();
@@ -444,7 +444,6 @@ mod tests {
         let header = parser
             .parse_next_header(&mut buffer)
             .await
-            .expect("Expected header")
             .expect("Expected at least one header line");
 
         assert_eq!(header.name, EXPECTED_HEADER_NAME);

@@ -3,9 +3,9 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
-use abstarct_socket::head_arena::PrefixArena;
 use abstarct_socket::read_with::ReadWith;
 use embedded_io_async::Read;
+use prefix_arena::PrefixArena;
 use protocols::http_header_parser::HttpHeaderParser;
 
 /// Maximum number of headers allowed in a request

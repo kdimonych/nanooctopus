@@ -1,5 +1,5 @@
 use crate::request::HttpRequest;
-use abstarct_socket::head_arena::PrefixArena;
+use prefix_arena::PrefixArena;
 
 use protocols::error::Error;
 

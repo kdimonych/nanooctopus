@@ -1,7 +1,6 @@
-use crate::arena::PrefixArena;
 use crate::find_sequence::FindSequence;
 use crate::read_with::ReadWith;
-use crate::staging_buffer::StagingBuffer;
+use prefix_arena::{PrefixArena, StagingBuffer};
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -222,9 +221,9 @@ impl<T: ReadWith + ?Sized> ReadStreamExt for T {}
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::arena::PrefixArena as HeadArena;
     use crate::mocks::mock_read_stream::*;
     use embedded_io_async::Read;
+    use prefix_arena::PrefixArena;
 
     #[tokio::test]
     async fn test_read_till_stop_sequence() {
@@ -232,7 +231,7 @@ pub mod tests {
         let mut request_data = b"Hello, World!\r\nThis is a test.\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = PrefixArena::new(&mut buffer);
 
         let bytes_read = stream
             .read_till_stop_sequence(STOP, &mut allocator)
@@ -249,7 +248,7 @@ pub mod tests {
         let mut request_data = b"\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = PrefixArena::new(&mut buffer);
         let bytes_read = stream
             .read_till_stop_sequence(STOP, &mut allocator)
             .await
@@ -265,7 +264,7 @@ pub mod tests {
         let mut request_data = b"Hello, World!".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = PrefixArena::new(&mut buffer);
         let error = stream
             .read_till_stop_sequence(STOP, &mut allocator)
             .await
@@ -280,7 +279,7 @@ pub mod tests {
         let mut request_data = b"Hello, World!\r\n".to_vec();
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 4];
-        let mut allocator = HeadArena::new(&mut buffer);
+        let mut allocator = PrefixArena::new(&mut buffer);
 
         let error = stream
             .read_till_stop_sequence(STOP, &mut allocator)
