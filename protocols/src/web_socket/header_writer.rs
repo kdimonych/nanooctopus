@@ -82,7 +82,9 @@ mod tests {
         buf[..header_size].copy_from_slice(&header_buffer[..header_size]);
 
         buf[header_size..header_size + payload.len()].copy_from_slice(payload);
-        let encoded_payload_size = writer.encode_payload_in_place(&mut buf[header_size..]).unwrap();
+        let encoded_payload_size = writer
+            .encode_payload_in_place(&mut buf[header_size..header_size + payload.len()])
+            .unwrap();
         assert_eq!(encoded_payload_size, payload.len());
         assert_eq!(&buf[..header_size + encoded_payload_size], EXPECTED_WS_PACKET);
     }

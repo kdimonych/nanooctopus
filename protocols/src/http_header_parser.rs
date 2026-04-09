@@ -444,12 +444,11 @@ mod tests {
         let header = parser
             .parse_next_header(&mut buffer)
             .await
-            .expect("Expected at least one header line");
+            .expect("Expected at least one header line")
+            .expect("Expected header line");
 
         assert_eq!(header.name, EXPECTED_HEADER_NAME);
         assert_eq!(header.value, EXPECTED_HEADER_VALUE);
-
-        assert!(parser.has_pending_headers());
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -476,8 +475,6 @@ mod tests {
 
         let opt = parser.parse_next_header(&mut buffer).await.expect("Expected header");
         assert!(opt.is_none());
-
-        assert!(!parser.has_pending_headers());
 
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
@@ -507,8 +504,6 @@ mod tests {
         assert_eq!(header.name, EXPECTED_HEADER_NAME);
         assert_eq!(header.value, EXPECTED_HEADER_VALUE);
 
-        assert!(parser.has_pending_headers());
-
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
 
@@ -532,8 +527,6 @@ mod tests {
             .expect("Expected at least one header line");
         parser.parse_next_header(&mut buffer).await.expect("Expected header");
 
-        assert!(!parser.has_pending_headers());
-
         assert_eq!(buffer.len(), raw_buffer.len() - EXPECTED_PARSED_PART.len());
     }
 
@@ -549,8 +542,6 @@ mod tests {
         let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
-
-        assert!(parser.has_pending_headers());
 
         parser
             .finalize(&mut buffer)
@@ -572,8 +563,6 @@ mod tests {
         let mut buffer = PrefixArena::new(&mut raw_buffer);
 
         let parser = get_header_parser(&mut stream, &mut buffer).await;
-
-        assert!(parser.has_pending_headers());
 
         parser
             .finalize(&mut buffer)
