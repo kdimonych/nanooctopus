@@ -100,7 +100,7 @@ impl<'a> HttpRequest<'a> {
             return Err(Error::ReadBufferOverflow);
         }
 
-        let read_buffer = unsafe { allocator.take_front_mut_unchecked(body_size) };
+        let read_buffer = unsafe { allocator.acquire_front_mut_unchecked(body_size) };
         stream.read_exact(read_buffer).await?;
         request.body = read_buffer;
 

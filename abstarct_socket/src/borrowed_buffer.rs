@@ -9,7 +9,7 @@ impl<'arena, 'b> BorrowedBuffer<'arena, 'b>
 where
     'b: 'arena,
 {
-    /// Create a new BorrowedBuffer wrapping the given mutable slice.
+    /// Creates a buffer over the remaining space of the given arena.
     pub const fn new(allocator: &'arena mut HeadArena<'b>) -> Self {
         Self {
             inner: allocator.temporary(),
@@ -51,38 +51,39 @@ where
         return to_fill;
     }
 
-    /// Get the used portion as a slice
+    /// Returns the initialized, used prefix as an immutable slice.
     pub fn as_slice(&self) -> &[u8] {
         unsafe { core::mem::transmute(&self.inner.as_slice()[..self.used]) }
     }
 
-    /// Get the used portion as a mutable slice
+    /// Returns the initialized, used prefix as a mutable slice.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { core::mem::transmute(&mut self.inner.as_slice_mut()[..self.used]) }
     }
 
-    /// Get the length of the whole anderling buffer
+    /// Returns the number of bytes currently stored in the buffer.
     pub const fn len(&self) -> usize {
         self.used
     }
 
-    /// Get the total capacity of the buffer
+    /// Returns the total capacity of the buffer.
     pub const fn capacity(&self) -> usize {
         self.inner.len()
     }
 
+    /// Returns how many bytes can still be appended without overflowing.
     pub const fn remaining_capacity(&self) -> usize {
         self.inner.len() - self.used
     }
 
-    /// Clear the buffer
+    /// Marks the buffer as empty without modifying the underlying bytes.
     pub fn clear(&mut self) {
         self.used = 0;
     }
 
-    /// Take the used portion as a mutable slice, consuming self
+    /// Detaches the initialized, used prefix from the underlying arena.
     pub fn take_used(self) -> &'b mut [u8] {
-        unsafe { core::mem::transmute(self.inner.accuire_front_mut(self.used)) }
+        unsafe { core::mem::transmute(self.inner.acquire_front_mut(self.used)) }
     }
 }
 

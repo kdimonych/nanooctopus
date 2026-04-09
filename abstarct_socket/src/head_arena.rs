@@ -1,17 +1,13 @@
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 
-/// A simple bump allocator that allows detaching front portions of a buffer.
-/// This is useful for scenarios where data is read into a buffer
-/// and then parts of it need to be processed or handed off without copying.
-/// The remaining buffer can still be used for further allocations.
-/// Another words, take all leve what you need from the front, and the rest will be still available for future use.
+/// A bump-style arena over caller-provided byte storage.
 ///
-/// ### Note
-/// The `HeadArena` does not track initialization of data; it simply manages
-/// the buffer space.
+/// `HeadArena` hands out slices from the front of the remaining buffer and keeps
+/// the rest available for later use. It only manages buffer boundaries; it does
+/// not track which bytes are initialized.
 pub struct HeadArena<'buf> {
-    arena: UnsafeCell<&'buf mut [MaybeUninit<u8>]>,
+    remaining: UnsafeCell<&'buf mut [MaybeUninit<u8>]>,
 }
 
 impl<'buf> HeadArena<'buf> {
@@ -25,174 +21,224 @@ impl<'buf> HeadArena<'buf> {
     #[inline]
     pub const fn from_uninitialized(arena: &'buf mut [MaybeUninit<u8>]) -> Self {
         Self {
-            arena: UnsafeCell::new(arena),
+            remaining: UnsafeCell::new(arena),
         }
     }
 
-    /// Returns the length of free arena.
+    /// Returns the number of bytes still available in the arena.
     #[inline]
     pub const fn len(&self) -> usize {
-        let arena = unsafe { &*self.arena.get() };
-        arena.len()
+        let remaining = unsafe { &*self.remaining.get() };
+        remaining.len()
     }
 
-    /// Returns true if the arena is empty.
+    /// Returns `true` when no bytes remain available.
     #[inline(always)]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Creates a new `TempBuffer` that borrows the entire arena space.
+    /// Borrows the currently remaining arena space through a temporary view.
     pub const fn temporary<'arena>(&'arena mut self) -> TempBuffer<'arena, 'buf> {
-        TempBuffer::<'arena, 'buf>::new_uninitialized(&mut self.arena)
+        // SAFETY: `self.remaining` points at the remaining part of the arena for `'buf`.
+        TempBuffer::<'arena, 'buf>::new(self.remaining.get())
     }
 
-    /// Takes a front portion of the arena of size `used_size` and returns it as a mutable slice.
-    /// The remaining arena will be adjusted accordingly.
+    /// Removes the first `n` bytes from the remaining arena and returns them.
     ///
-    /// ### Note: The remaining arena will be treated as uninitialized even if there were some data.
-    /// This primitive doesn't keep track whether data were actually initialized or not within front n bytes.
-    /// ### Note: The returned slice should be considered as not initialized, even if the original buffer contained some data.
-    /// The caller is responsible for initializing it before use.
+    /// The returned slice is uninitialized storage. The caller must initialize
+    /// it before reading from it.
     ///
-    /// ### Panics
-    /// Panics if `n` is greater than the current buffer size.
-    ///
-    pub fn take_front_mut(&self, n: usize) -> &'buf mut [MaybeUninit<u8>] {
-        // SAFETY: self.arena is guaranteed to be Some
-        let buffer = unsafe { &mut *self.arena.get() };
-        let (used, remainig) = buffer.split_at_mut(n);
-        unsafe { *self.arena.get() = remainig };
+    /// # Panics
+    /// Panics if `n > self.len()`.
+    pub fn acquire_front_mut(&self, n: usize) -> &'buf mut [MaybeUninit<u8>] {
+        let buffer = unsafe { &mut *self.remaining.get() };
+        let (used, remaining) = buffer.split_at_mut(n);
+        unsafe { *self.remaining.get() = remaining };
         used
     }
 
-    /// Takes a front portion of the arena of size `used_size` and returns it as a mutable slice.
-    /// The remaining arena will be adjusted accordingly.
-    /// The caller is responsible for ensuring that the data in the returned slice is properly initialized before use.
+    /// Removes the first `n` bytes from the remaining arena and returns them as `u8`.
     ///
-    /// ### Note: The remaining arena will be treated as uninitialized even if there were some data.
-    /// This primitive doesn't keep track whether data were actually initialized or not within front n bytes.
-    /// ### Note: The returned slice should be considered as not initialized, even if the original buffer contained some data.
-    /// The caller is responsible for initializing it before use.
-    ///
-    /// ### Panics
-    /// Panics if `n` is greater than the current buffer size.
-    ///
+    /// # Safety
+    /// The caller must ensure both of the following:
+    /// - `n <= self.len()`.
+    /// - Every returned byte is initialized before it is read as `u8`.
     #[inline(always)]
-    pub unsafe fn take_front_mut_unchecked(&self, n: usize) -> &'buf mut [u8] {
-        unsafe { core::mem::transmute(self.take_front_mut(n)) }
+    pub unsafe fn acquire_front_mut_unchecked(&self, n: usize) -> &'buf mut [u8] {
+        let buffer = unsafe { &mut *self.remaining.get() };
+        let (used, remaining) = unsafe { buffer.split_at_mut_unchecked(n) };
+        unsafe { *self.remaining.get() = remaining };
+        unsafe { core::mem::transmute(used) }
     }
 
-    /// Takes the remaining arena space as a mutable slice. This consumes the HeadArena.
-    /// The caller is responsible for initializing the returned slice before use.
-    pub fn take_remaining_mut(self) -> &'buf mut [MaybeUninit<u8>] {
-        // SAFETY: self.arena is guaranteed to be Some
-        self.arena.into_inner()
+    /// Returns all bytes that still remain in the arena and consumes `self`.
+    ///
+    /// The returned slice is uninitialized storage. The caller must initialize
+    /// it before reading from it.
+    pub fn acquire_remaining_mut(self) -> &'buf mut [MaybeUninit<u8>] {
+        self.remaining.into_inner()
+    }
+
+    /// Exposes the remaining arena as `&mut [u8]`, lets `f` initialize a prefix,
+    /// and then detaches that initialized prefix from the arena.
+    ///
+    /// If `f` returns `Err`, the arena remains unchanged.
+    ///
+    /// # Safety
+    /// `f` must return the length of a prefix that it actually initialized.
+    ///
+    /// # Panics
+    /// Panics if `f` returns a length greater than the currently remaining size.
+    pub fn init_then_acquire_with<F, E>(self, f: F) -> Result<&'buf mut [u8], E>
+    where
+        F: FnOnce(&mut [u8]) -> Result<usize, E>,
+    {
+        let buffer: &mut [MaybeUninit<u8>] = unsafe { self.remaining.get().as_mut().unwrap_unchecked() };
+        let slice: &mut [u8] = unsafe { core::mem::transmute(buffer) };
+        let initialized_len = f(slice)?;
+        if initialized_len > slice.len() {
+            panic!("Initializer function returned a length greater than the current buffer size");
+        }
+
+        Ok(unsafe { self.acquire_front_mut_unchecked(initialized_len) })
     }
 }
 
-/// A temporary buffer that can be initialized and then used to acquire mutable slices from the front.
-/// This struct is designed to work with the `HeadArena` and provides a way to manage initialization state.
+/// A temporary view over the remaining bytes of a [`HeadArena`].
+///
+/// This is useful when code needs to fill an unknown-sized prefix of the
+/// remaining arena and then detach only the initialized portion.
 pub struct TempBuffer<'arena, 'buf>
 where
     'buf: 'arena,
 {
-    arena: &'arena mut UnsafeCell<&'buf mut [MaybeUninit<u8>]>,
+    remaining: *mut &'buf mut [MaybeUninit<u8>],
+    _marker: core::marker::PhantomData<&'arena ()>,
 }
 
 impl<'arena, 'buf> TempBuffer<'arena, 'buf> {
-    const fn new_uninitialized(arena: &'arena mut UnsafeCell<&'buf mut [MaybeUninit<u8>]>) -> Self {
-        Self { arena }
+    /// Creates a temporary view over the remaining arena bytes.
+    const fn new(remaining: *mut &'buf mut [MaybeUninit<u8>]) -> Self {
+        Self {
+            remaining,
+            _marker: core::marker::PhantomData,
+        }
     }
 
-    /// Returns the length of free arena.
+    /// Returns the number of bytes visible through this temporary view.
     #[inline]
     pub const fn len(&self) -> usize {
-        // SAFETY: self.arena is guaranteed to be Some
-        let arena = unsafe { &*self.arena.get() };
-        arena.len()
+        let remaining = unsafe { &*self.remaining.as_mut().unwrap_unchecked() };
+        remaining.len()
     }
 
-    /// Returns true if the arena is empty.
+    /// Returns `true` when no bytes are visible through this view.
     #[inline(always)]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Borrows the all available arenna space as an immutable slice.
+    /// Returns the remaining arena bytes as uninitialized storage.
     #[inline]
-    pub fn as_slice(&self) -> &[MaybeUninit<u8>] {
-        // SAFETY: self.arena is guaranteed to be Some
-        unsafe { &*self.arena.get() }
+    pub const fn as_slice(&self) -> &[MaybeUninit<u8>] {
+        unsafe { &*self.remaining.as_mut().unwrap_unchecked() }
     }
 
-    /// Borrows the all available arena space as a mutable slice.
-    /// The caller is responsible for ensuring that the data in the returned slice is properly initialized before use.
+    /// Returns the remaining arena bytes as `u8`.
+    ///
+    /// # Safety
+    /// Every returned byte must be initialized before it is read as `u8`.
     #[inline]
-    pub unsafe fn as_slice_unchecked(&self) -> &[u8] {
-        // SAFETY: The caller is responsible for ensuring that the data in the returned slice is properly initialized before use.
+    pub const unsafe fn as_slice_unchecked(&self) -> &[u8] {
         unsafe { core::mem::transmute(self.as_slice()) }
     }
 
+    /// Returns the remaining arena bytes as mutable uninitialized storage.
     #[inline]
-    pub fn as_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        // SAFETY: self.arena is guaranteed to be Some
-        unsafe { &mut *self.arena.get() }
+    pub const fn as_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        unsafe { &mut *self.remaining.as_mut().unwrap_unchecked() }
     }
 
+    /// Returns the remaining arena bytes as mutable `u8`.
+    ///
+    /// # Safety
+    /// Every returned byte must be initialized before it is read as `u8`.
     #[inline]
-    pub unsafe fn as_slice_mut_unchecked(&mut self) -> &mut [u8] {
-        // SAFETY: The caller is responsible for ensuring that the data in the returned slice is properly initialized before use.
+    pub const unsafe fn as_slice_mut_unchecked(&mut self) -> &mut [u8] {
         unsafe { core::mem::transmute(self.as_slice_mut()) }
     }
 
-    /// Initializes a portion of the arena temporary buffer using the provided function and returns it as a mutable slice.
-    pub fn init_slice_with<F, E>(&mut self, f: F) -> Result<&mut [u8], E>
+    /// Lets `f` initialize a prefix of the temporary view and returns that prefix.
+    ///
+    /// This method does not shrink the underlying arena.
+    ///
+    /// # Panics
+    /// Panics if `f` returns a length greater than `self.len()`.
+    pub fn as_mut_with_init<F, E>(&mut self, f: F) -> Result<&mut [u8], E>
     where
         F: FnOnce(&mut [u8]) -> Result<usize, E>,
     {
         let slice: &mut [u8] = unsafe { self.as_slice_mut_unchecked() };
         let initialized_len = f(slice)?;
+        if initialized_len > slice.len() {
+            panic!("Initializer function returned a length greater than the current buffer size");
+        }
         Ok(&mut slice[..initialized_len])
     }
 
-    /// Takes a front portion of the arena of size `used_size` and returns it as a mutable slice.
-    /// The remaining arena will be adjusted accordingly.
+    /// Lets `f` initialize a prefix of the temporary view and then detaches that
+    /// prefix from the underlying arena.
     ///
-    /// ### Note: The remaining arena will be treated as uninitialized even if there were some data.
-    /// This primitive doesn't keep track whether data were actually initialized or not within front n bytes.
-    /// ### Note: The returned slice should be considered as not initialized, even if the original buffer contained some data.
-    /// The caller is responsible for initializing it before use.
+    /// If `f` returns `Err`, the underlying arena remains unchanged.
     ///
-    /// ### Panics
-    /// Panics if `n` is greater than the current buffer size.
+    /// # Safety
+    /// `f` must return the length of a prefix that it actually initialized.
     ///
-    pub fn accuire_front_mut(self, n: usize) -> &'buf mut [MaybeUninit<u8>] {
-        // SAFETY: self.arena is guaranteed to be Some
-        let buffer = unsafe { &mut *self.arena.get() };
-        let (used, remainig) = buffer.split_at_mut(n);
-        unsafe { *self.arena.get() = remainig };
+    /// # Panics
+    /// Panics if `f` returns a length greater than `self.len()`.
+    pub fn init_then_acquire_with<F, E>(mut self, f: F) -> Result<&'buf mut [u8], E>
+    where
+        F: FnOnce(&mut [u8]) -> Result<usize, E>,
+    {
+        let slice: &mut [u8] = unsafe { self.as_slice_mut_unchecked() };
+        let initialized_len = f(slice)?;
+        if initialized_len > slice.len() {
+            panic!("Initializer function returned a length greater than the current buffer size");
+        }
+
+        Ok(unsafe { self.acquire_front_mut_unchecked(initialized_len) })
+    }
+
+    /// Removes the first `n` bytes from the underlying arena and returns them.
+    ///
+    /// The returned slice is uninitialized storage. The caller must initialize
+    /// it before reading from it.
+    ///
+    /// # Panics
+    /// Panics if `n > self.len()`.
+    pub fn acquire_front_mut(self, n: usize) -> &'buf mut [MaybeUninit<u8>] {
+        let buffer = unsafe { &mut *self.remaining.as_mut().unwrap_unchecked() };
+        let (used, remaining) = buffer.split_at_mut(n);
+        unsafe { *self.remaining.as_mut().unwrap_unchecked() = remaining };
         used
     }
 
-    /// Takes a front portion of the arena of size `used_size` and returns it as a mutable slice.
-    /// The remaining arena will be adjusted accordingly.
-    /// The caller is responsible for ensuring that the data in the returned slice is properly initialized before use.
+    /// Removes the first `n` bytes from the underlying arena and returns them as `u8`.
     ///
-    /// ### Note: The remaining arena will be treated as uninitialized even if there were some data.
-    /// This primitive doesn't keep track whether data were actually initialized or not within front n bytes.
-    /// ### Note: The returned slice should be considered as not initialized, even if the original buffer contained some data.
-    /// The caller is responsible for initializing it before use.
-    ///
-    /// ### Panics
-    /// Panics if `n` is greater than the current buffer size.
-    ///
+    /// # Safety
+    /// The caller must ensure both of the following:
+    /// - `n <= self.len()`.
+    /// - Every returned byte is initialized before it is read as `u8`.
     #[inline(always)]
-    pub unsafe fn accuire_front_mut_unchecked(self, n: usize) -> &'buf mut [u8]
+    pub unsafe fn acquire_front_mut_unchecked(self, n: usize) -> &'buf mut [u8]
     where
         'buf: 'arena,
     {
-        unsafe { core::mem::transmute(self.accuire_front_mut(n)) }
+        let buffer = unsafe { &mut *self.remaining.as_mut().unwrap_unchecked() };
+        let (used, remaining) = unsafe { buffer.split_at_mut_unchecked(n) };
+        unsafe { *self.remaining.as_mut().unwrap_unchecked() = remaining };
+        unsafe { core::mem::transmute(used) }
     }
 }
 
@@ -224,6 +270,11 @@ impl<'buf, const N: usize> From<&'buf mut [MaybeUninit<u8>; N]> for HeadArena<'b
 mod tests {
     use super::*;
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum TestError {
+        Expected,
+    }
+
     #[test]
     fn test_init_from_initialized() {
         let mut data = [1, 2, 3, 4, 5];
@@ -247,7 +298,7 @@ mod tests {
         let head_arena = HeadArena::new(&mut data[..]);
         assert_eq!(head_arena.len(), 5);
         assert_eq!(
-            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.take_remaining_mut()) },
+            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.acquire_remaining_mut()) },
             &[1, 2, 3, 4, 5]
         );
     }
@@ -335,15 +386,119 @@ mod tests {
     }
 
     #[test]
+    fn test_head_arena_init_then_acquire_with() {
+        let mut data = [0u8; 5];
+        let head_arena = HeadArena::new(&mut data);
+
+        let detached = head_arena
+            .init_then_acquire_with(|buffer| {
+                buffer[..3].copy_from_slice(&[7, 8, 9]);
+                Ok::<usize, TestError>(3)
+            })
+            .unwrap();
+
+        assert_eq!(detached, &[7, 8, 9]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Initializer function returned a length greater than the current buffer size")]
+    fn test_head_arena_init_then_acquire_with_panics_on_invalid_len() {
+        let mut data = [0u8; 3];
+        let head_arena = HeadArena::new(&mut data);
+
+        let _ = head_arena.init_then_acquire_with(|_| Ok::<usize, TestError>(4));
+    }
+
+    #[test]
+    fn test_temp_buffer_as_mut_with_init() {
+        let mut data = [0u8; 5];
+        let mut head_arena = HeadArena::new(&mut data);
+        let mut temp_buffer = head_arena.temporary();
+
+        let initialized = temp_buffer
+            .as_mut_with_init(|buffer| {
+                buffer[..2].copy_from_slice(&[11, 12]);
+                Ok::<usize, TestError>(2)
+            })
+            .unwrap();
+
+        assert_eq!(initialized, &[11, 12]);
+        assert_eq!(temp_buffer.len(), 5);
+        assert_eq!(head_arena.len(), 5);
+    }
+
+    #[test]
+    fn test_temp_buffer_init_then_acquire_with() {
+        let mut data = [0u8; 5];
+        let mut head_arena = HeadArena::new(&mut data);
+        let temp_buffer = head_arena.temporary();
+
+        let detached = temp_buffer
+            .init_then_acquire_with(|buffer| {
+                buffer[..2].copy_from_slice(&[21, 22]);
+                Ok::<usize, TestError>(2)
+            })
+            .unwrap();
+
+        assert_eq!(detached, &[21, 22]);
+        assert_eq!(head_arena.len(), 3);
+        assert_eq!(
+            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.acquire_remaining_mut()) },
+            &[0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn test_temp_buffer_init_then_acquire_with_error_preserves_arena() {
+        let mut data = [1u8, 2, 3, 4, 5];
+        let mut head_arena = HeadArena::new(&mut data);
+        let temp_buffer = head_arena.temporary();
+
+        let error = temp_buffer
+            .init_then_acquire_with(|buffer| {
+                buffer[0] = 99;
+                Err::<usize, TestError>(TestError::Expected)
+            })
+            .unwrap_err();
+
+        assert_eq!(error, TestError::Expected);
+        assert_eq!(head_arena.len(), 5);
+        assert_eq!(
+            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.acquire_remaining_mut()) },
+            &[99, 2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Initializer function returned a length greater than the current buffer size")]
+    fn test_temp_buffer_as_mut_with_init_panics_on_invalid_len() {
+        let mut data = [0u8; 3];
+        let mut head_arena = HeadArena::new(&mut data);
+        let mut temp_buffer = head_arena.temporary();
+
+        let _ = temp_buffer.as_mut_with_init(|_| Ok::<usize, TestError>(4));
+    }
+
+    #[test]
+    #[should_panic(expected = "Initializer function returned a length greater than the current buffer size")]
+    fn test_temp_buffer_init_then_acquire_with_panics_on_invalid_len() {
+        let mut data = [0u8; 3];
+        let mut head_arena = HeadArena::new(&mut data);
+        let temp_buffer = head_arena.temporary();
+
+        let _ = temp_buffer.init_then_acquire_with(|_| Ok::<usize, TestError>(4));
+    }
+
+    #[test]
     fn test_take_front_partial() {
         let mut data = [1, 2, 3, 4, 5];
         let head_arena = HeadArena::new(&mut data);
 
-        let detached = unsafe { head_arena.take_front_mut_unchecked(2) };
+        let detached = unsafe { head_arena.acquire_front_mut_unchecked(2) };
         assert_eq!(detached, &[1, 2]);
         assert_eq!(head_arena.len(), 3);
         assert_eq!(
-            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.take_remaining_mut()) },
+            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.acquire_remaining_mut()) },
             &[3, 4, 5]
         );
     }
@@ -353,7 +508,7 @@ mod tests {
         let mut data = [1, 2, 3];
         let head_arena = HeadArena::new(&mut data);
 
-        let detached = unsafe { head_arena.take_front_mut_unchecked(3) };
+        let detached = unsafe { head_arena.acquire_front_mut_unchecked(3) };
         assert_eq!(detached, &[1, 2, 3]);
         assert_eq!(head_arena.len(), 0);
         assert!(head_arena.is_empty());
@@ -363,15 +518,15 @@ mod tests {
     fn test_multiple_take_fronts() {
         let mut data = [1, 2, 3, 4, 5, 6];
         let head_arena = HeadArena::new(&mut data);
-        let first = unsafe { head_arena.take_front_mut_unchecked(2) };
+        let first = unsafe { head_arena.acquire_front_mut_unchecked(2) };
         assert_eq!(first, &[1, 2]);
         assert_eq!(head_arena.len(), 4);
 
-        let second = unsafe { head_arena.take_front_mut_unchecked(2) };
+        let second = unsafe { head_arena.acquire_front_mut_unchecked(2) };
         assert_eq!(second, &[3, 4]);
         assert_eq!(head_arena.len(), 2);
         assert_eq!(
-            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.take_remaining_mut()) },
+            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.acquire_remaining_mut()) },
             &[5, 6]
         );
     }
@@ -381,7 +536,7 @@ mod tests {
     fn test_take_front_too_large() {
         let mut data = [1, 2, 3];
         let head_arena = HeadArena::new(&mut data);
-        head_arena.take_front_mut(4);
+        head_arena.acquire_front_mut(4);
     }
 
     #[test]
@@ -389,11 +544,11 @@ mod tests {
         let mut data = [1, 2, 3];
         let head_arena = HeadArena::new(&mut data);
 
-        let detached = head_arena.take_front_mut(0);
+        let detached = head_arena.acquire_front_mut(0);
         assert_eq!(detached.len(), 0);
         assert_eq!(head_arena.len(), 3);
         assert_eq!(
-            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.take_remaining_mut()) },
+            unsafe { core::mem::transmute::<_, &[u8]>(head_arena.acquire_remaining_mut()) },
             &[1, 2, 3]
         );
     }
@@ -411,7 +566,7 @@ mod tests {
 
         while !head_arena.is_empty() {
             let to_detach = core::cmp::min(head_arena.len(), PART_SIZE);
-            let detached = unsafe { head_arena.take_front_mut_unchecked(to_detach) };
+            let detached = unsafe { head_arena.acquire_front_mut_unchecked(to_detach) };
             detached_parts.push(detached);
         }
 
@@ -436,7 +591,7 @@ mod tests {
 
         while !head_arena.is_empty() {
             let to_detach = core::cmp::min(head_arena.len(), PART_SIZE);
-            let detached = unsafe { head_arena.take_front_mut_unchecked(to_detach) };
+            let detached = unsafe { head_arena.acquire_front_mut_unchecked(to_detach) };
             detached_parts.push(detached);
         }
 
@@ -462,7 +617,7 @@ mod tests {
         while !head_arena.is_empty() {
             let temp_buffer = head_arena.temporary();
             let to_detach = core::cmp::min(temp_buffer.len(), PART_SIZE);
-            let detached = unsafe { temp_buffer.accuire_front_mut_unchecked(to_detach) };
+            let detached = unsafe { temp_buffer.acquire_front_mut_unchecked(to_detach) };
             detached_parts.push(detached);
         }
 
@@ -479,7 +634,7 @@ mod tests {
     fn test_take_remaining() {
         let mut data = [1, 2, 3, 4, 5];
         let head_arena = HeadArena::new(&mut data);
-        let remaining = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.take_remaining_mut()) };
+        let remaining = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.acquire_remaining_mut()) };
         assert_eq!(remaining, &[1, 2, 3, 4, 5]);
     }
 
@@ -487,8 +642,8 @@ mod tests {
     fn subsequent_take_remaining() {
         let mut data = [1, 2, 3, 4, 5];
         let head_arena = HeadArena::new(&mut data);
-        let _ = head_arena.take_front_mut(2); // Detach first 2 bytes
-        let remaining = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.take_remaining_mut()) };
+        let _ = head_arena.acquire_front_mut(2); // Detach first 2 bytes
+        let remaining = unsafe { core::mem::transmute::<_, &mut [u8]>(head_arena.acquire_remaining_mut()) };
         assert_eq!(remaining, &[3, 4, 5]);
     }
 }
