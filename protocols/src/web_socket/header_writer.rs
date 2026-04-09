@@ -3,7 +3,7 @@
 use crate::web_socket::header::*;
 
 pub struct WSEncodeWriter {
-    free_space: usize,
+    available_space: usize,
     idx: usize,
     masking_key: MaskKey,
 }
@@ -19,7 +19,7 @@ impl WSEncodeWriter {
         let header_size: usize = write_frame_header_with_mask_key(payload_len, out_buf, opcode, fin, masking_key);
 
         let result = Self {
-            free_space: payload_len,
+            available_space: payload_len,
             idx: 0,
             masking_key,
         };
@@ -27,14 +27,20 @@ impl WSEncodeWriter {
         (result, header_size)
     }
 
-    /// Writes payload to the provided buffer in place, applying masking if necessary.
-    /// This function assumes that the overall encoded_payload length does not exceed the allocated payload length in the header.
-    /// Returns the number of bytes written to the payload_dst.
+    /// Encodes payload in place within the buffer with provided masking key.
+    /// The payload data in the buffer will be modified by XORing it with the masking key.
+    /// This function expect overall sum of payload bytes across all calls to be less than
+    /// or equal to the payload length specified during header encoding.
+    ///
+    /// ## Returns
+    /// The number of bytes written to the payload_dst, or Err(()) if the payload_src length
+    /// is greater than the allocated payload length that left.
+    ///
     /// ## Errors
     /// Returns Err(()) if the payload_src length is greater than the allocated payload length that left.
     ///
     pub fn encode_payload_in_place(&mut self, payload_buf: &mut [u8]) -> Result<usize, ()> {
-        if payload_buf.len() > self.free_space {
+        if payload_buf.len() > self.available_space {
             return Err(());
         }
 
@@ -50,7 +56,7 @@ impl WSEncodeWriter {
             transferred += 1;
         }
 
-        self.free_space -= transferred;
+        self.available_space -= transferred;
         Ok(transferred)
     }
 }
