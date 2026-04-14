@@ -20,12 +20,34 @@ pub enum WebSocketState {
 }
 
 /// Errors that can occur during WebSocket operations
-#[derive(Debug)]
 pub enum WebSocketError<E> {
     InvalidHeader,
     BufferOverflow,
     Closed,
     SocketError(E),
+}
+
+#[cfg(feature = "defmt")]
+impl<E: Debug> defmt::Format for WebSocketError<E> {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        match self {
+            WebSocketError::InvalidHeader => defmt::write!(f, "Invalid WebSocket header"),
+            WebSocketError::BufferOverflow => defmt::write!(f, "WebSocket buffer overflow"),
+            WebSocketError::Closed => defmt::write!(f, "WebSocket closed"),
+            WebSocketError::SocketError(e) => defmt::write!(f, "WebSocket socket error: {:?}", defmt::Debug2Format(e)),
+        }
+    }
+}
+
+impl<E: Debug> Debug for WebSocketError<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            WebSocketError::InvalidHeader => write!(f, "Invalid WebSocket header"),
+            WebSocketError::BufferOverflow => write!(f, "WebSocket buffer overflow"),
+            WebSocketError::Closed => write!(f, "WebSocket closed"),
+            WebSocketError::SocketError(e) => write!(f, "WebSocket socket error: {:?}", e),
+        }
+    }
 }
 
 impl<E: Debug> core::fmt::Display for WebSocketError<E> {
@@ -83,6 +105,7 @@ pub struct WebSocket<'s, S> {
 impl<'s, S> WebSocket<'s, S>
 where
     S: ErrorType,
+    S::Error: log::FormatOrDebug,
 {
     pub const fn new(socket: &'s mut S) -> Self {
         Self {
@@ -105,14 +128,8 @@ where
         (self.socket, res)
     }
 
-    fn close_on_critical_error<E>(&mut self, e: E) -> E
-    where
-        E: Debug,
-    {
-        log::error!(
-            "WebSocket: Close due to unrecoverable error occurred: {:?}",
-            log::Debug2Format(&e)
-        );
+    fn close_on_critical_error<E: log::FormatOrDebug>(&mut self, e: E) -> E {
+        log::error!("WebSocket: Close due to unrecoverable error occurred: {:?}", &e);
         self.receiving_state = PipeState::Closed;
         self.sending_state = PipeState::Closed;
         e
@@ -121,6 +138,7 @@ where
     pub async fn close(&mut self) -> Result<(), WebSocketError<S::Error>>
     where
         S: Write + Read + ReadReady,
+        S::Error: log::FormatOrDebug,
         WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
     {
         if self.receiving_state == PipeState::Open && self.sending_state == PipeState::Open {
@@ -354,6 +372,7 @@ impl<'s, S> Read for WebSocket<'s, S>
 where
     S: Read + ErrorType,
     WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
+    S::Error: log::FormatOrDebug,
 {
     /// Reads data from the WebSocket stream to the provided buffer. Reading will stop when either the buffer is full
     /// or the current WebSocket frame is fully read.
@@ -385,6 +404,7 @@ where
 impl<'s, S> Write for WebSocket<'s, S>
 where
     S: Write + ErrorType,
+    S::Error: log::FormatOrDebug,
 {
     /// Writes data to the WebSocket stream.
     /// This method sends the data as a binary WebSocket frame.

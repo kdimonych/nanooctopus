@@ -1,14 +1,12 @@
 use embassy_net::{
     Stack,
-    tcp::{AcceptError, Error, State, TcpSocket},
+    tcp::{State, TcpSocket},
 };
 
 use core::future::Future;
-use core::future::poll_fn;
 use core::pin::pin;
-use core::task::Context;
-use core::task::Poll;
 use defmt_or_log as log;
+use embassy_futures::select::*;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::rwlock::{RwLock, RwLockWriteGuard};
 use heapless::spsc::Queue;
@@ -39,12 +37,6 @@ impl<const RX_SIZE: usize, const TX_SIZE: usize> Default for SocketBuffers<RX_SI
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[defmt_or_log::derive_format_or_debug]
-pub enum SocketPoolError {
-    AcceptError(AcceptError),
-    IOError(Error),
 }
 
 pub struct RoundRobinSocketPoolBuilder {
@@ -135,33 +127,36 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     ///
     pub async fn acquire_next_request<'buffer>(&self) -> SocketRef<'_, 'tcp_stack> {
         let sockets = &self.sockets;
-        let mut ready = self.ready.write().await;
-        let port = self.port;
 
-        poll_fn(|cx| -> Poll<SocketRef<'_, '_>> {
-            sockets.iter().enumerate().for_each(|(idx, s_lock)| {
-                if let Ok(mut socket) = s_lock.try_write() {
-                    if ready.iter().find(|n| **n == idx).is_some() {
-                        // This socket is already marked as ready, skip it
-                        return;
-                    }
-                    match socket.poll_wait_next_request_once(cx, port) {
-                        Poll::Ready(Ok(())) => {
-                            ready.enqueue(idx).ok();
-                        }
-                        Poll::Ready(Err(error)) => {
-                            log::error!("SocketPool: Error while polling socket: {:?}", error);
-                        }
-                        Poll::Pending => {}
-                    };
-                }
-            });
+        {
+            let port = self.port;
+            let pending_sockets = pin!(core::array::from_fn::<_, POOL_SIZE, _>(|idx| accept(
+                &sockets[idx],
+                port
+            )));
+            let (socket, ready_idx) = select_slice(pending_sockets).await;
 
-            ready
-                .dequeue()
-                .map_or(Poll::Pending, |idx| Poll::Ready(sockets[idx].try_write().unwrap())) // SAFETY: We have at most POOL_SIZE sockets and we only enqueue indices of ready sockets, so this is safe
-        })
-        .await
+            // Put the index of ready socket into the ready queue so that it can be picked up by the next acquire_next_request call if needed
+            self.ready.write().await.enqueue(ready_idx).unwrap();
+
+            // Note: this line is crutial. It keeps the socket locked until the socket is enqueued
+            // into the ready queue. This ensures that the socket is not released before it is marked
+            // as ready, which could lead to a race condition where the socket is released and acquired
+            // by another task before it is marked as ready, causing the first task to wait indefinitely
+            // for a socket that is already in use.
+            let end_point = socket.remote_endpoint();
+
+            log::info!(
+                "SocketPool: Socket[{:?}] {:?} is ready on port {}",
+                ready_idx,
+                end_point,
+                port
+            );
+        }
+
+        // Get the next ready socket index from the ready queue and return the socket reference
+        let idx = self.ready.write().await.dequeue().unwrap();
+        sockets[idx].write().await
     }
 
     /// Get the capacity of the socket pool
@@ -176,126 +171,65 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     }
 }
 
-trait PollSocket {
-    fn poll_accept_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_wait_read_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_wait_write_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_flush_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>>;
-    fn poll_wait_next_request_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>>;
+fn accept<'socket, 'stack>(
+    socket: &'socket GuardedSocket<'stack>,
+    port: u16,
+) -> impl Future<Output = SocketRef<'socket, 'stack>> {
+    async move {
+        let mut socket = socket.write().await;
+        log::debug!(
+            "SocketPool: Socket {:?} released. Current state: {:?}",
+            socket.remote_endpoint(),
+            socket.state()
+        );
+        while wait_for_socket_ready(&mut socket, port).await.is_err() {}
+
+        socket
+    }
 }
 
-impl PollSocket for TcpSocket<'_> {
-    fn poll_accept_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>> {
-        pin!(self.accept(port))
-            .as_mut()
-            .poll(cx)
-            .map(|res| res.map_err(|e| SocketPoolError::AcceptError(e)))
-    }
-
-    fn poll_wait_read_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>> {
-        pin!(self.wait_read_ready()).as_mut().poll(cx).map(|_| Ok(()))
-    }
-
-    fn poll_wait_write_ready_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>> {
-        pin!(self.wait_write_ready()).as_mut().poll(cx).map(|_| Ok(()))
-    }
-
-    fn poll_flush_once(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SocketPoolError>> {
-        pin!(self.flush())
-            .as_mut()
-            .poll(cx)
-            .map(|res| res.map_err(|e| SocketPoolError::IOError(e)))
-    }
-
-    fn poll_wait_next_request_once(&mut self, cx: &mut Context<'_>, port: u16) -> Poll<Result<(), SocketPoolError>> {
-        log::trace!(
-            "SocketPool: Socket {:?} in state {:?}",
-            self.remote_endpoint(),
-            self.state()
+async fn wait_for_socket_ready<'socket, 'stack>(socket: &mut SocketRef<'socket, 'stack>, port: u16) -> Result<(), ()> {
+    loop {
+        log::debug!(
+            "SocketPool: Waiting for socket {:?} to be ready. Current state: {:?}",
+            socket.remote_endpoint(),
+            socket.state()
         );
-        match self.state() {
+        match socket.state() {
             State::Established | State::SynSent | State::SynReceived => {
-                log::trace!(
-                    "SocketPool: Wait for request at socket {:?} in state {:?}",
-                    self.remote_endpoint(),
-                    self.state()
-                );
-                return self.poll_wait_read_ready_once(cx);
+                socket.flush().await.map_err(|e| {
+                    log::error!("SocketPool: Error while flushing socket: {:?}", e);
+                    ()
+                })?;
+                socket.wait_read_ready().await;
+                return Ok(());
             }
-
             State::Closed | State::Listen => {
-                // In this case we can safelly poll just accept
-                log::trace!(
-                    "SocketPool: Accept new connection at socket {:?} in state {:?}",
-                    self.remote_endpoint(),
-                    self.state()
-                );
-                match self.poll_accept_once(cx, port) {
-                    Poll::Ready(Ok(())) => {
-                        log::debug!("SocketPool: New connection {:?} at socket", self.remote_endpoint());
-                        self.poll_wait_read_ready_once(cx)
-                    } // We got a new connection, start waiting for data
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => Poll::Pending,
-                }
+                socket.accept(port).await.map_err(|e| {
+                    log::error!("SocketPool: Error while accepting connection: {:?}", e);
+                    ()
+                })?;
+                socket.wait_read_ready().await;
+                return Ok(());
             }
-
             State::TimeWait | State::FinWait1 | State::Closing | State::LastAck | State::CloseWait => {
-                // In this case we have to gracefully bring the socket down first.
-                log::trace!(
-                    "SocketPool: Close socket {:?} in state {:?}",
-                    self.remote_endpoint(),
-                    self.state()
-                );
-                // Close the socket and accept a new connection
-                self.close();
-                log::debug!(
-                    "SocketPool: Closed socket {:?} in state {:?}",
-                    self.remote_endpoint(),
-                    self.state()
-                );
-                // Wait for previous operations to flush
-                match self.poll_flush_once(cx) {
-                    Poll::Ready(Ok(())) => {}
-                    Poll::Ready(Err(e)) => {
-                        log::error!(
-                            "SocketPool: flush error for socket {:?} in state {:?}",
-                            self.remote_endpoint(),
-                            self.state()
-                        );
-                        return Poll::Ready(Err(e));
-                    }
-                    Poll::Pending => return Poll::Pending,
-                }
-                log::trace!(
-                    "SocketPool: Accept new connection at socket {:?} in state {:?}",
-                    self.remote_endpoint(),
-                    self.state()
-                );
-                // Previous operations succeeded, accept new connection on this socket
-                match self.poll_accept_once(cx, port) {
-                    Poll::Ready(Ok(())) => {
-                        log::debug!(
-                            "SocketPool: New connection at socket {:?} in state {:?}",
-                            self.remote_endpoint(),
-                            self.state()
-                        );
-                        self.poll_wait_read_ready_once(cx)
-                    } // We got a new connection, start waiting for data
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => Poll::Pending,
-                }
+                // The socket is in a state where it is either closing or waiting for the remote to close,
+                // we need to gracefully bring it down first before accepting a new connection on it.
+                socket.close();
+                socket.flush().await.map_err(|e| {
+                    log::error!("SocketPool: Error while flushing socket: {:?}", e);
+                    ()
+                })?;
+                socket.accept(port).await.map_err(|e| {
+                    log::error!("SocketPool: Error while accepting connection: {:?}", e);
+                    ()
+                })?;
+                socket.wait_read_ready().await;
+                return Ok(());
             }
-
-            // In the FinWait2 state this function will always return Pending, hence setting up a waker to be woken later if
-            // state changed (I hope so)
             State::FinWait2 => {
-                log::debug!(
-                    "SocketPool: Wait at socket {:?} in state {:?} to be closed by remote",
-                    self.remote_endpoint(),
-                    self.state()
-                );
-                self.poll_wait_write_ready_once(cx)
+                // The socket is waiting for the remote to close, we need to wait for it to be writable before accepting a new connection on it.
+                socket.wait_write_ready().await;
             }
         }
     }

@@ -26,6 +26,7 @@ pub trait HttpHandler {
         allocator: &mut PrefixArena<'_>,
         request: &HttpRequest<'_>,
         http_socket: &mut HttpSocket,
+        context_id: usize,
     ) -> Result<(), Error>;
 
     #[cfg(feature = "ws")]
@@ -39,6 +40,7 @@ pub trait HttpHandler {
         &mut self,
         request: &HttpRequest<'_>,
         web_socket: &mut WebSocket<'_, '_>,
+        context_id: usize,
     ) -> Result<(), ()>;
 }
 

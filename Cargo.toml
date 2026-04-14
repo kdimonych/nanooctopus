@@ -70,6 +70,9 @@ abstarct_socket = { path = "./abstarct_socket", default-features = false }
 #Bump allocator
 prefix-arena = "0.1"
 
+# Futures and async utilities
+embassy-futures = "0.1"
+
 [dev-dependencies]
 futures-lite = "2.0"
 abstarct_socket = { path = "./abstarct_socket", features = [

@@ -61,6 +61,7 @@ defmt = [
     "abstarct_socket/defmt",
     "embassy-net/defmt",
     "defmt-or-log/defmt",
+    "embedded-io-async/defmt-03",
 ]
 tls = ["dep:embedded-tls"]
 mocks = ["abstarct_socket/mocks"]
