@@ -139,7 +139,7 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
             // Put the index of ready socket into the ready queue so that it can be picked up by the next acquire_next_request call if needed
             self.ready.write().await.enqueue(ready_idx).unwrap();
 
-            // Note: this line is crutial. It keeps the socket locked until the socket is enqueued
+            // Note: this line is crucial. It keeps the socket locked until the socket is enqueued
             // into the ready queue. This ensures that the socket is not released before it is marked
             // as ready, which could lead to a race condition where the socket is released and acquired
             // by another task before it is marked as ready, causing the first task to wait indefinitely

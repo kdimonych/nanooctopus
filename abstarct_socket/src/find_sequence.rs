@@ -39,7 +39,7 @@ impl<'a, Item> FindSequence<'a, Item> {
         return false;
     }
 
-    /// Treates each next subsequence as a subslice of a single contigious sequence. Checks bytes one by one on the
+    /// Treats each next subsequence as a subslice of a single contiguous sequence. Checks bytes one by one on the
     /// the whole sequence and returns Some(index of the subsequence element beyond the last byte of the needle
     /// sequence) if found contiguous subsequence called needle or None otherwise.
     #[must_use]

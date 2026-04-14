@@ -47,7 +47,7 @@ impl<'a> HttpRequest<'a> {
     /// ## Errors
     /// Returns an error if:
     /// - Reading from the stream fails
-    /// - The request is malformed  
+    /// - The request is malformed
     ///
     pub async fn try_parse_from_stream<'alloc, 'buf, Reader>(
         stream: &'_ mut Reader,

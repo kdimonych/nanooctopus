@@ -29,7 +29,7 @@ const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 pub struct ServerTimeouts {
     /// Socket accept timeout in seconds
     pub accept_timeout: u64,
-    /// Socket read timeout in seconds  
+    /// Socket read timeout in seconds
     pub read_timeout: u64,
     /// Keep-alive timeout in seconds (currently not used, placeholder for future functionality)
     pub keep_alive_timeout: u64,

@@ -28,18 +28,21 @@ Nanofish is designed for embedded systems with limited memory. It provides a sim
 ## Installation & Feature Flags
 
 ### Basic HTTP Support (Default)
+
 ```toml
 [dependencies]
 nanofish = "0.9.1"
 ```
 
 ### With TLS/HTTPS Support
+
 ```toml
 [dependencies]
 nanofish = { version = "0.9.1", features = ["tls"] }
 ```
 
 ### Available Features
+
 - **`tls`** - Enables HTTPS/TLS support via `embedded-tls`
   - When disabled (default): Only HTTP requests are supported
   - When enabled: Full HTTPS support with TLS 1.2/1.3
@@ -49,22 +52,25 @@ nanofish = { version = "0.9.1", features = ["tls"] }
 Unlike traditional HTTP clients that copy response data multiple times, Nanofish uses a zero-copy approach:
 
 **Traditional HTTP Clients:**
+
 ```shell
 Network → Internal Buffer (copy #1) → Response Struct (copy #2) → User Code (copy #3)
 ```
 
 **Nanofish Zero-Copy:**
+
 ```shell
 Network → YOUR Buffer (direct) → Zero-Copy References → User Code (no copies!)
 ```
 
 ### Benefits:
+
 - **Better Performance** - No memory copying overhead
 - **Memory Efficient** - Uses only the memory you provide
 - **Predictable** - No hidden allocations
 - **Embedded-Friendly** - Works well in resource-limited environments
 
----
+______________________________________________________________________
 
 # HTTP Client
 
@@ -93,7 +99,7 @@ let custom_headers = [
     HttpHeader::new(headers::ACCEPT, mime_types::JSON),
 ];
 let (response, bytes_read) = client.get(
-    "http://example.com/api/status", 
+    "http://example.com/api/status",
     &headers,
     &mut response_buffer
 ).await?;
@@ -105,7 +111,7 @@ println!("Read {} bytes into buffer", bytes_read);
 ```rust,ignore
 // Traditional approach (copies data):
 // 1. Read from network → internal buffer (copy #1)
-// 2. Parse response → response struct (copy #2) 
+// 2. Parse response → response struct (copy #2)
 // 3. User gets → copied data (copy #3)
 
 // Nanofish zero-copy approach:
@@ -211,8 +217,8 @@ let mut buffer = [0u8; 4096];
 
 // GET request
 let (response, bytes_read) = client.get(
-    "http://api.example.com/users", 
-    &headers, 
+    "http://api.example.com/users",
+    &headers,
     &mut buffer
 ).await?;
 
@@ -223,23 +229,23 @@ let post_headers = [
     HttpHeader::authorization("Bearer token123"),
 ];
 let (response, bytes_read) = client.post(
-    "http://api.example.com/users", 
-    &post_headers, 
+    "http://api.example.com/users",
+    &post_headers,
     json_body,
     &mut buffer
 ).await?;
 
 // PUT request
 let (response, bytes_read) = client.put(
-    "http://api.example.com/users/123", 
-    &headers, 
+    "http://api.example.com/users/123",
+    &headers,
     update_data,
     &mut buffer
 ).await?;
 
 // DELETE request
 let (response, bytes_read) = client.delete(
-    "http://api.example.com/users/123", 
+    "http://api.example.com/users/123",
     &headers,
     &mut buffer
 ).await?;
@@ -253,6 +259,7 @@ let (response, _) = client.connect("http://proxy.example.com", &headers, &mut bu
 ```
 
 All methods return a `Result<(HttpResponse, usize), Error>` where:
+
 - `HttpResponse` contains zero-copy references to data in your buffer
 - `usize` is the number of bytes read into your buffer
 
@@ -277,8 +284,9 @@ let client = CustomClient::new(stack);
 ```
 
 ### Buffer Size Parameters
+
 - **`TCP_RX`**: TCP receive buffer size (default: 4096 bytes)
-- **`TCP_TX`**: TCP transmit buffer size (default: 4096 bytes)  
+- **`TCP_TX`**: TCP transmit buffer size (default: 4096 bytes)
 - **`TLS_READ`**: TLS read record buffer size (default: 4096 bytes)
 - **`TLS_WRITE`**: TLS write record buffer size (default: 4096 bytes)
 - **`RQ`**: HTTP request buffer size for building requests (default: 1024 bytes)
@@ -309,7 +317,7 @@ for url in urls {
 }
 ```
 
----
+______________________________________________________________________
 
 # HTTP Server
 
@@ -351,7 +359,7 @@ impl HttpHandler for MyHandler {
 async fn run_server(stack: Stack<'_>) -> Result<(), nanofish::Error> {
     let mut server = DefaultHttpServer::new(80);  // Listen on port 80
     let handler = MyHandler;
-    
+
     // This runs forever, handling requests
     server.serve(stack, handler).await;
 }
@@ -407,20 +415,20 @@ impl HttpHandler for MyHandler {
             HttpMethod::POST => { /* handle POST */ }
             _ => { /* handle other methods */ }
         }
-        
+
         // Look at the request path
         println!("Path: {}", request.path);
-        
+
         // Check headers
         for header in &request.headers {
             println!("Header: {}: {}", header.name, header.value);
         }
-        
+
         // Access request body (for POST, PUT, etc.)
         if !request.body.is_empty() {
             println!("Body: {} bytes", request.body.len());
         }
-        
+
         // Return your response...
         Ok(HttpResponse { /* ... */ })
     }
@@ -437,14 +445,15 @@ use nanofish::{DefaultHttpServer, SimpleHandler};
 async fn run_test_server(stack: Stack<'_>) {
     let mut server = DefaultHttpServer::new(8080);
     let handler = SimpleHandler;  // Serves "/" and "/health" endpoints
-    
+
     server.serve(stack, handler).await;
 }
 ```
 
 The `SimpleHandler` provides:
+
 - `GET /` → HTML welcome page
-- `GET /health` → JSON status response  
+- `GET /health` → JSON status response
 - Everything else → 404 Not Found
 
 ## License
