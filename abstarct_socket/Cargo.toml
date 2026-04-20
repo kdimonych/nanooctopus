@@ -17,29 +17,37 @@ path = "src/lib.rs"
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
-embassy-net = { version = "0.7.1", features = [
+embassy-net = { version = "0.7.1", optional = true, features = [
     "tcp",
     "proto-ipv6",
+    "proto-ipv4",
     "medium-ethernet",
 ] }
 embedded-io-async = "0.6"
+embassy-time = { version = "0.5.1", optional = true, default-features = false }
 defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4", optional = true }
 ringbuf = { version = "0.4.8", optional = true }
 defmt-or-log = { version = "0.2.3", default-features = false }
+
+tokio = { version = "1.52", optional = true, features = ["io-util", "net"] }
 
 prefix-arena = "0.1"
 
 [dev-dependencies]
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.52", features = ["full"] }
 tokio-test = "0.4"
 ringbuf = "0.4.8"
 
 [features]
-default = ["std"]
-std = ["embassy-net/std", "ringbuf/std", "log"]
-defmt = ["dep:defmt", "defmt-or-log/defmt"]
+default = ["std", "mocks", "embassy_impl", "tokio_impl"]
+std = ["embassy-net?/std", "ringbuf/std", "log"]
+defmt = ["dep:defmt", "defmt-or-log/defmt", "embassy-net?/defmt"]
 mocks = ["dep:ringbuf"]
-log = ["defmt-or-log/log"]
+log = ["dep:log", "defmt-or-log/log"]
+embassy_impl = ["dep:embassy-net", "dep:embassy-time"]
+tokio_impl = ["dep:tokio"]
+tokio_tcp = ["tokio_impl"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]

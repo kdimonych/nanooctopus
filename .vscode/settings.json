@@ -1,0 +1,9 @@
+{
+    "rust-analyzer.cargo.autoreload": true,
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.cargo.allTargets": false,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true
+    }
+}

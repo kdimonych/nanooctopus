@@ -1,5 +1,5 @@
 pub use crate::mocks::error::MockReadError;
-pub use crate::read_with::ReadWith;
+pub use crate::socket::ReadWith;
 
 /// A dummy read stream for testing purposes
 pub struct MockReadStream<'a> {
@@ -8,6 +8,7 @@ pub struct MockReadStream<'a> {
 }
 
 impl<'a> MockReadStream<'a> {
+    /// Create a new `MockReadStream` with the given buffer. The stream will read from the buffer starting at position 0.
     pub fn new(buffer: &'a mut [u8]) -> Self {
         Self { buffer, position: 0 }
     }
@@ -23,10 +24,10 @@ impl<'a> ReadWith for MockReadStream<'a> {
         }
 
         let data = &mut self.buffer[self.position..];
-        let (read_bytes, res) = f(data);
+        let (read_bytes, result) = f(data);
         assert!(read_bytes <= data.len(), "Read more bytes than available in buffer");
         self.position += read_bytes;
-        Ok(res)
+        Ok(result)
     }
 }
 

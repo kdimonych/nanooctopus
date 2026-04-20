@@ -1,5 +1,5 @@
 pub use crate::mocks::error::MockReadError;
-pub use crate::read_with::ReadWith;
+pub use crate::socket::ReadWith;
 
 extern crate std;
 
@@ -14,9 +14,9 @@ pub struct MockMultipartReadStream {
 
 impl MockMultipartReadStream {
     /// Create a new DummyMultipartReadStream with the given multipart buffer
-    pub fn new(multipart_buffer: &std::vec::Vec<std::vec::Vec<u8>>) -> Self {
+    pub fn new(multipart_buffer: &[std::vec::Vec<u8>]) -> Self {
         Self {
-            multipart_buffer: multipart_buffer.clone(),
+            multipart_buffer: multipart_buffer.to_vec(),
             part: 0,
             position: 0,
         }
@@ -41,9 +41,9 @@ impl ReadWith for MockMultipartReadStream {
         }
 
         let data = &mut self.multipart_buffer[self.part][self.position..];
-        let (read_bytes, res) = f(data);
+        let (read_bytes, result) = f(data);
         self.position += read_bytes;
-        Ok(res)
+        Ok(result)
     }
 }
 

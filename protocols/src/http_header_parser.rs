@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use abstarct_socket::read_with::ReadWith;
+use abstarct_socket::socket::ReadWith;
 use abstarct_socket::stream_search::{StreamReadError, StreamSearch};
 use prefix_arena::PrefixArena;
 
@@ -66,10 +66,20 @@ impl ReadHeaders {
     }
 }
 
+impl Default for ReadHeaders {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Struct representing the first line of an HTTP request, which includes the method, path, and version.
 #[derive(Debug)]
 pub struct HttpFirstLine<'buf> {
+    /// The HTTP method of the request, represented as an enum.
     pub method: HttpMethod,
+    /// The path of the HTTP request, represented as a string slice.
     pub path: &'buf str,
+    /// The HTTP version of the request, represented as a string slice.
     pub version: &'buf str,
 }
 
@@ -124,7 +134,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
             .map_err(|_| HttpParseError::MalformedRequest)?;
 
         //let mut parts = line_str.split_ascii_whitespace();
-        let mut parts = line_str.split(|c: char| c == ' ');
+        let mut parts = line_str.split(' ');
 
         let method_str = parts.next().ok_or(HttpParseError::NoMethod)?.trim();
         if method_str.is_empty() {
@@ -230,7 +240,7 @@ mod tests {
     use abstarct_socket::mocks::mock_multipart_read_stream::*;
 
     fn make_multipart_stream(chunk_size: usize, request: Vec<u8>) -> MockMultipartReadStream {
-        let parts_vec = request.chunks(chunk_size).map(|p| p.to_vec()).collect();
+        let parts_vec = request.chunks(chunk_size).map(|p| p.to_vec()).collect::<Vec<_>>();
         MockMultipartReadStream::new(&parts_vec)
     }
 

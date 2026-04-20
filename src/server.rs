@@ -1,13 +1,13 @@
 use core::mem::MaybeUninit;
 
-#[cfg(feature = "ws")]
 use crate::{
     HttpResponseBuilder,
     handler::HttpHandler,
     request::HttpRequest,
-    socket_pool::{RoundRobinSocketPoolBuilder, SocketBuffers, SocketPool},
+    socket_pool::{SocketBuffers, SocketPool, SocketPoolBuilder},
 };
 
+use abstarct_socket::socket::{SocketClose, SocketInfo, SocketWrite};
 use defmt_or_log as log;
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, with_timeout};
@@ -20,7 +20,6 @@ use protocols::status_code::StatusCode;
 use protocols::web_socket::WebSocket;
 #[cfg(feature = "ws")]
 use sha1::{Digest, Sha1};
-
 #[cfg(feature = "ws")]
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -85,7 +84,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         'buffer: 'stack,
     {
         //The tcp socket life cycle
-        let socket_pool = RoundRobinSocketPoolBuilder::new(port)
+        let socket_pool = SocketPoolBuilder::new(port)
             .with_socket_io_timeout(Duration::from_secs(timeouts.accept_timeout))
             .with_keep_alive_timeout(Duration::from_secs(timeouts.keep_alive_timeout))
             .build(socket_buffers, stack);
@@ -141,7 +140,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
             let request = match with_timeout(
                 Duration::from_secs(self.timeouts.read_timeout),
-                HttpRequest::try_parse_from_stream(&mut socket.split().0, &mut head_arena_alloc),
+                HttpRequest::try_parse_from_stream(&mut (*socket), &mut head_arena_alloc),
             )
             .await
             {
@@ -153,7 +152,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                         e,
                         socket.remote_endpoint()
                     );
-                    self.close_connection(&mut socket, context_id).await;
+                    self.close_connection(&mut *socket, context_id).await;
                     continue;
                 }
                 Err(_) => {
@@ -162,12 +161,13 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                         context_id,
                         socket.remote_endpoint()
                     );
-                    self.close_connection(&mut socket, context_id).await;
+                    self.close_connection(&mut *socket, context_id).await;
                     continue;
                 }
             };
 
             #[cfg(feature = "ws")]
+            // Check if the request is a WebSocket upgrade request
             if let Some(web_socket_key) = request.web_socket_key {
                 log::info!(
                     "WebServer[{}]: Process the websocket connection from, {:?}",
@@ -180,7 +180,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                     .is_err()
                 {
                     // Handshake failed, close the connection
-                    self.close_connection(&mut socket, context_id).await;
+                    self.close_connection(&mut *socket, context_id).await;
                     continue;
                 }
 
@@ -203,9 +203,11 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                     log::error!("WebServer[{}]: Error closing WebSocket connection: {}", context_id, e);
                 }
                 // After handling the WebSocket connection, we will close the TCP connection and wait for a new one
-                self.close_connection(&mut socket, context_id).await;
+                self.close_connection(&mut *socket, context_id).await;
                 continue;
-            } else {
+            }
+            // For regular HTTP requests, we will process them as usual
+            {
                 log::info!(
                     "WebServer[{}]: Process the request of, {:?}",
                     context_id,
@@ -233,7 +235,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                                 context_id
                             );
                         }
-                        self.close_connection(&mut socket, context_id).await;
+                        self.close_connection(&mut *socket, context_id).await;
                         continue;
                     }
                 }
@@ -248,10 +250,10 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     }
 
     #[cfg(feature = "ws")]
-    async fn web_socket_handshake<'a>(
+    async fn web_socket_handshake(
         &self,
         allocator: &mut PrefixArena<'_>,
-        web_socket_key: &'a str,
+        web_socket_key: &str,
         tcp_socket: &mut TcpSocket<'_>,
         context_id: usize,
     ) -> Result<(), ()> {
@@ -297,23 +299,22 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         })
     }
 
-    async fn send_server_internal_error<'a>(&self, socket: &mut TcpSocket<'a>, context_id: usize) -> Result<(), ()> {
+    async fn send_server_internal_error(&self, socket: &mut TcpSocket<'_>, context_id: usize) -> Result<(), ()> {
         let error_response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nInternal Server Error";
         self.send_response(socket, error_response, context_id).await
     }
 
     /// Close the connection gracefully
-    async fn close_connection<'a>(&self, socket: &mut TcpSocket<'a>, context_id: usize) {
+    async fn close_connection<Socket: SocketClose + SocketWrite + SocketInfo>(
+        &self,
+        socket: &mut Socket,
+        context_id: usize,
+    ) {
         let remote_endpoint = socket.remote_endpoint();
 
-        // Close the write side of the connection
-        socket.close();
-        // Ensure all pending data is sent
-        socket.flush().await.ok();
-        // Close the socket
-        socket.abort();
-        // Ensure the RST is sent
-        socket.flush().await.ok();
+        socket.close().await.unwrap_or_else(|e| {
+            log::error!("WebServer[{}]: Error while closing connection: {:?}", context_id, e);
+        });
 
         log::info!("WebServer[{}]: Connection closed {:?}", context_id, remote_endpoint);
     }
@@ -332,11 +333,11 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         // Handle the request
         match with_timeout(
             Duration::from_secs(self.timeouts.handler_timeout),
-            handler.handle_request(allocator, &request, http_socket, context_id),
+            handler.handle_request(allocator, request, http_socket, context_id),
         )
         .await
         {
-            Ok(Ok(response)) => return Ok(response),
+            Ok(Ok(response)) => Ok(response),
             Ok(Err(e)) => {
                 log::warn!("WebServer[{}]: Handler error: {:?}", context_id, e);
 
@@ -363,10 +364,10 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
 /// Handles the WebSocket handshake process.
 #[cfg(feature = "ws")]
-async fn try_handle_websocket_handshake<'a>(
+async fn try_handle_websocket_handshake(
     allocator: &mut PrefixArena<'_>,
     http_socket: &mut TcpSocket<'_>,
-    web_socket_key: &'a str,
+    web_socket_key: &str,
 ) -> Result<(), Error> {
     // Compute the Sec-WebSocket-Accept value
     let key_bytes = web_socket_key.as_bytes();

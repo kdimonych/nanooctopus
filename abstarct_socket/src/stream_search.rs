@@ -1,5 +1,5 @@
 use crate::find_sequence::FindSequence;
-use crate::read_with::ReadWith;
+use crate::socket::ReadWith;
 use prefix_arena::{PrefixArena, StagingBuffer};
 
 /// Error returned by the stream-reading helper methods in this module.
@@ -56,7 +56,7 @@ pub trait StreamSearch: ReadWith {
                             stopped = true;
                         }
 
-                        let appended_len = buffer.extend_from_slice_capped(&mut chunk);
+                        let appended_len = buffer.extend_from_slice_capped(chunk);
                         if appended_len < chunk.len() {
                             result = Err(StreamReadError::ReadBufferOverflow);
                             stopped = true;
@@ -220,6 +220,7 @@ pub trait StreamSearch: ReadWith {
 
 impl<T: ReadWith + ?Sized> StreamSearch for T {}
 
+/// Re-export the mock stream for testing purposes.
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -339,14 +340,14 @@ pub mod tests {
         let mut stream = MockReadStream::new(&mut request_data);
         let mut buffer = [0u8; 64];
 
-        let e = stream
+        let error = stream
             .skip_until_sequence(b"There is no such sequence")
             .await
             .expect_err("Expect error");
 
-        assert!(matches!(e, StreamReadError::SocketReadError(_)));
+        assert!(matches!(error, StreamReadError::SocketReadError(_)));
 
-        let res = stream.read(&mut buffer).await.expect("Expect Ok(0) due to EOF");
-        assert_eq!(res, 0);
+        let bytes_read = stream.read(&mut buffer).await.expect("Expect Ok(0) due to EOF");
+        assert_eq!(bytes_read, 0);
     }
 }

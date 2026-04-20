@@ -8,6 +8,7 @@ mod header_reader;
 mod header_writer;
 
 /// Websocket implementation.
+#[allow(clippy::module_inception)]
 mod web_socket;
 
 /// Test utilities for WebSocket.

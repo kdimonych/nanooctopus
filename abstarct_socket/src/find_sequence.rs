@@ -1,3 +1,4 @@
+/// Utility to find value sequences in a stream.
 pub struct FindSequence<'a, Item> {
     needle: &'a [Item],
     position: usize,
@@ -35,8 +36,8 @@ impl<'a, Item> FindSequence<'a, Item> {
             self.position = 0;
             return true;
         }
-        // Not whole needle is checked yet. Continue checking the next byte
-        return false;
+
+        false
     }
 
     /// Treats each next subsequence as a subslice of a single contiguous sequence. Checks bytes one by one on the
@@ -56,6 +57,7 @@ impl<'a, Item> FindSequence<'a, Item> {
     }
 }
 
+/// Tests for FindSequence
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -86,10 +88,10 @@ pub mod tests {
         ];
         let mut found_positions = Vec::new();
         for slice in &data_slices {
-            let mut s = *slice;
-            while let Some(matched_bytes) = finder.check_next_slice(s) {
+            let mut remaining_slice = *slice;
+            while let Some(matched_bytes) = finder.check_next_slice(remaining_slice) {
                 found_positions.push(matched_bytes);
-                s = &s[matched_bytes..];
+                remaining_slice = &remaining_slice[matched_bytes..];
             }
         }
         assert_eq!(found_positions, vec![1, 1]);
@@ -106,7 +108,7 @@ pub mod tests {
     fn test_check_next_slice_with_empty_slice_must_return_none() {
         let sequence = b"\r\n";
         let mut finder = FindSequence::new(sequence);
-        let res = finder.check_next_slice(b"");
-        assert_eq!(res, None);
+        let result = finder.check_next_slice(b"");
+        assert_eq!(result, None);
     }
 }

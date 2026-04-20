@@ -1,19 +1,26 @@
 pub use crate::mocks::error::MockStreamError;
-use crate::read_with::ReadWith;
-use crate::write_with::WriteWith;
+use crate::socket::{ReadWith, WriteWith};
 use embedded_io_async::{ErrorType, Read, Write};
-extern crate std;
 use ringbuf::{StaticRb, traits::*};
+extern crate std;
 
+/// Mock loopback socket for testing purposes.
 pub struct MockLoopbackSocket<const BUFFER_SIZE: usize> {
     rb: StaticRb<u8, BUFFER_SIZE>,
 }
 
 impl<const BUFFER_SIZE: usize> MockLoopbackSocket<BUFFER_SIZE> {
+    /// Creates a new `MockLoopbackSocket` with an empty buffer.
     pub fn new() -> Self {
         Self {
             rb: StaticRb::default(),
         }
+    }
+}
+
+impl<const BUFFER_SIZE: usize> Default for MockLoopbackSocket<BUFFER_SIZE> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -54,9 +61,9 @@ impl<const BUFFER_SIZE: usize> ReadWith for MockLoopbackSocket<BUFFER_SIZE> {
         // Fill a temporary buffer from the ring buffer, call the provided closure,
         // and then skip the read bytes from the ring buffer.
         let mut temp_buf = [0u8; BUFFER_SIZE];
-        let read_size = self.rb.peek_slice(&mut temp_buf);
-        let (read_size, result) = f(&mut temp_buf[..read_size]);
-        assert!(read_size <= read_size, "Read more bytes than available in buffer");
+        let available_bytes = self.rb.peek_slice(&mut temp_buf);
+        let (read_size, result) = f(&mut temp_buf[..available_bytes]);
+        assert!(read_size <= available_bytes, "Read more bytes than available in buffer");
         let skipped = self.rb.skip(read_size);
         assert!(skipped == read_size, "Read more bytes than available in buffer");
 

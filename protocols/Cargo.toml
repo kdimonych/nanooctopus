@@ -54,7 +54,12 @@ defmt-or-log = { version = "0.2.3", features = ["log"] }
 
 [features]
 default = ["std"]
-std = ["embassy-net/std", "abstarct_socket/std", "log"]
+std = [
+    "embassy-net/std",
+    "abstarct_socket/std",
+    "abstarct_socket/embassy_impl",
+    "log",
+]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
 defmt = [
     "dep:defmt",

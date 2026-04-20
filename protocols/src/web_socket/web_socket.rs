@@ -13,17 +13,38 @@ enum PipeState {
 /// Errors that can occur during WebSocket protocol parsing
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum WebSocketState {
+    /// The WebSocket connection is open and both sending and receiving pipes are operational.
     Open,
+    /// The WebSocket connection is in the process of closing, where the local side has initiated
+    /// the close handshake but is still waiting for the remote side to acknowledge it.
     Closing,
+    /// The WebSocket connection has been closed by the remote side, where the local side has
+    /// received a close frame from the remote side but has not yet sent its own close frame in
+    /// response.
     ClosedByRemoteSide,
+    /// The WebSocket connection is fully closed, where both sending and receiving pipes are closed,
+    /// either due to a successful close handshake or due to an unrecoverable error that caused
+    /// both sides to close the connection.
     Closed,
 }
 
 /// Errors that can occur during WebSocket operations
 pub enum WebSocketError<E> {
+    /// The WebSocket frame header is invalid, which can occur if the header does not conform to the
+    /// WebSocket protocol specifications, such as having an invalid opcode, incorrect payload length
+    /// encoding, or missing required fields.
     InvalidHeader,
+    /// The WebSocket buffer overflowed, which can occur if the payload length of a WebSocket frame
+    /// exceeds the maximum allowed size or if there is an attempt to read more data than the buffer
+    /// can hold.
     BufferOverflow,
+    /// The WebSocket connection has been closed, which can occur if the close handshake has been
+    /// completed or if an unrecoverable error has occurred that caused the connection to be
+    /// closed.
     Closed,
+    /// An error occurred while performing socket operations, such as reading from or writing to
+    /// the underlying socket. The specific error is encapsulated in the `E` type, which can
+    /// represent various socket
     SocketError(E),
 }
 
@@ -93,6 +114,9 @@ impl<E: embedded_io_async::Error> From<ReadExactError<E>> for WebSocketError<E> 
     }
 }
 
+/// A struct representing a WebSocket connection, which wraps an underlying socket and manages
+/// the WebSocket protocol state, including frame parsing, payload reading, and close handshake
+/// handling.
 pub struct WebSocket<'s, S> {
     socket: &'s mut S,
     receiving_state: PipeState,
@@ -107,6 +131,18 @@ where
     S: ErrorType,
     S::Error: log::FormatOrDebug,
 {
+    /// Creates a new WebSocket instance wrapping the provided socket. The WebSocket is initialized
+    /// with both sending and receiving pipes in the open state, and with empty header buffers and
+    /// no active payload reader.
+    /// ## Parameters
+    /// - `socket`: A mutable reference to the underlying socket that the WebSocket will wrap and manage.
+    /// ## Returns
+    /// - A new instance of `WebSocket` that is ready to perform WebSocket communication using the provided socket.
+    /// ## Notes
+    /// - The provided socket must implement the necessary traits for reading and writing data, as
+    ///   well as error handling, for the WebSocket to function correctly. The WebSocket will manage the
+    ///   protocol state and handle WebSocket-specific operations, while delegating the actual data transmission
+    ///   to the underlying socket.
     pub const fn new(socket: &'s mut S) -> Self {
         Self {
             socket,
@@ -135,6 +171,24 @@ where
         e
     }
 
+    /// Closes the WebSocket connection gracefully by performing the close handshake process. This involves
+    /// sending a close frame to the remote side, flushing any remaining data in the read stream, and waiting
+    /// for a close frame from the remote side if necessary. The method ensures that all pending data is sent
+    /// and acknowledged before closing the connection, and it handles various states of the WebSocket
+    /// connection to ensure a proper close handshake is performed.
+    /// ## Returns
+    /// - `Ok(())` if the WebSocket connection was closed successfully.
+    /// - `WebSocketError::Closed` if the WebSocket connection is already closed.
+    /// - `WebSocketError::InvalidHeader` if an invalid WebSocket frame header is encountered during
+    ///   the close handshake process.
+    /// - `WebSocketError::SocketError` if an error occurs while performing socket operations during
+    ///   the close handshake process.
+    /// ## Notes
+    /// - The close handshake process involves multiple steps, including sending a close frame, flushing
+    ///   the read stream, and waiting for a close frame from the remote side. The method handles different
+    ///   states of the WebSocket connection to ensure that the close handshake is performed correctly, and
+    ///   it uses the underlying socket for data transmission while managing the WebSocket protocol state
+    ///   internally.
     pub async fn close(&mut self) -> Result<(), WebSocketError<S::Error>>
     where
         S: Write + Read + ReadReady,
@@ -142,7 +196,8 @@ where
         WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
     {
         if self.receiving_state == PipeState::Open && self.sending_state == PipeState::Open {
-            // Flush any remaining data in the read stream. This allow to make sure we read any pending close frame.
+            // Flush any remaining data in the read stream. This allow to make sure we read any pending
+            //close frame.
             self.flush_read_stream().await?;
 
             // We are the first to initiate close
@@ -166,6 +221,8 @@ where
         Ok(())
     }
 
+    /// Retrieves the current state of the WebSocket connection based on the states of the sending and
+    /// receiving pipes.
     pub fn state(&self) -> WebSocketState {
         match (self.sending_state, self.receiving_state) {
             (PipeState::Open, PipeState::Open) => WebSocketState::Open,

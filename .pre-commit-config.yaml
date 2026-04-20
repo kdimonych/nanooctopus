@@ -9,11 +9,11 @@ repos:
         entry: bash -c 'cargo fmt -- --config edition=2024'
         language: system
         types: [rust]
-      # - id: cargo-clippy
-      #   name: cargo clippy
-      #   entry: bash -c 'cd firmware && cargo clippy -- -D warnings
-      #   language: system
-      #   types: [rust]
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: bash -c 'cargo clippy -- -D warnings'
+        language: system
+        types: [rust]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1

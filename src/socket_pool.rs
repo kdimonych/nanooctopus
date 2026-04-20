@@ -3,7 +3,6 @@ use embassy_net::{
     tcp::{State, TcpSocket},
 };
 
-use core::future::Future;
 use core::pin::pin;
 use defmt_or_log as log;
 use embassy_futures::select::*;
@@ -39,13 +38,13 @@ impl<const RX_SIZE: usize, const TX_SIZE: usize> Default for SocketBuffers<RX_SI
     }
 }
 
-pub struct RoundRobinSocketPoolBuilder {
+pub struct SocketPoolBuilder {
     port: u16,
     keep_alive_timeout: embassy_time::Duration,
     socket_io_timeout: embassy_time::Duration,
 }
 
-impl RoundRobinSocketPoolBuilder {
+impl SocketPoolBuilder {
     pub const fn new(port: u16) -> Self {
         Self {
             port,
@@ -125,7 +124,7 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     /// (ready means has established stated and data is available for reading).
     /// All ready sockets are enqueued into the provided `ready` queue.
     ///
-    pub async fn acquire_next_request<'buffer>(&self) -> SocketRef<'_, 'tcp_stack> {
+    pub async fn acquire_next_request(&self) -> SocketRef<'_, 'tcp_stack> {
         let sockets = &self.sockets;
 
         {
@@ -171,21 +170,16 @@ impl<'tcp_stack, const POOL_SIZE: usize> SocketPool<'tcp_stack, POOL_SIZE> {
     }
 }
 
-fn accept<'socket, 'stack>(
-    socket: &'socket GuardedSocket<'stack>,
-    port: u16,
-) -> impl Future<Output = SocketRef<'socket, 'stack>> {
-    async move {
-        let mut socket = socket.write().await;
-        log::debug!(
-            "SocketPool: Socket {:?} released. Current state: {:?}",
-            socket.remote_endpoint(),
-            socket.state()
-        );
-        while wait_for_socket_ready(&mut socket, port).await.is_err() {}
+async fn accept<'socket, 'stack>(socket: &'socket GuardedSocket<'stack>, port: u16) -> SocketRef<'socket, 'stack> {
+    let mut socket = socket.write().await;
+    log::debug!(
+        "SocketPool: Socket {:?} released. Current state: {:?}",
+        socket.remote_endpoint(),
+        socket.state()
+    );
+    while wait_for_socket_ready(&mut socket, port).await.is_err() {}
 
-        socket
-    }
+    socket
 }
 
 async fn wait_for_socket_ready<'socket, 'stack>(socket: &mut SocketRef<'socket, 'stack>, port: u16) -> Result<(), ()> {
@@ -199,7 +193,6 @@ async fn wait_for_socket_ready<'socket, 'stack>(socket: &mut SocketRef<'socket, 
             State::Established | State::SynSent | State::SynReceived => {
                 socket.flush().await.map_err(|e| {
                     log::error!("SocketPool: Error while flushing socket: {:?}", e);
-                    ()
                 })?;
                 socket.wait_read_ready().await;
                 return Ok(());
@@ -207,7 +200,6 @@ async fn wait_for_socket_ready<'socket, 'stack>(socket: &mut SocketRef<'socket, 
             State::Closed | State::Listen => {
                 socket.accept(port).await.map_err(|e| {
                     log::error!("SocketPool: Error while accepting connection: {:?}", e);
-                    ()
                 })?;
                 socket.wait_read_ready().await;
                 return Ok(());
@@ -218,11 +210,9 @@ async fn wait_for_socket_ready<'socket, 'stack>(socket: &mut SocketRef<'socket, 
                 socket.close();
                 socket.flush().await.map_err(|e| {
                     log::error!("SocketPool: Error while flushing socket: {:?}", e);
-                    ()
                 })?;
                 socket.accept(port).await.map_err(|e| {
                     log::error!("SocketPool: Error while accepting connection: {:?}", e);
-                    ()
                 })?;
                 socket.wait_read_ready().await;
                 return Ok(());

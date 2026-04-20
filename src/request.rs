@@ -3,7 +3,7 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
-use abstarct_socket::read_with::ReadWith;
+use abstarct_socket::socket::ReadWith;
 use embedded_io_async::Read;
 use prefix_arena::PrefixArena;
 use protocols::http_header_parser::HttpHeaderParser;
@@ -126,7 +126,7 @@ impl ContentLengthSearch {
     ///
     /// ## Errors
     /// - Returns `Error::InvalidData` if multiple Content-Length headers are found or if
-    /// the value is invalid.
+    ///   the value is invalid.
     pub fn process(&mut self, header: &HttpHeader<'_>) -> Result<bool, Error> {
         let mut res: bool = false;
 
@@ -409,7 +409,7 @@ mod tests {
         let mut search = WebSocketKeySearch::new();
 
         // Test with no relevant headers
-        let header1 = HttpHeader::new("Host", "example.com");
+        let header1: HttpHeader<'_> = HttpHeader::new("Host", "example.com");
         assert_eq!(search.process(&header1), false);
         assert_eq!(search.web_socket_key(), None);
 
@@ -426,7 +426,7 @@ mod tests {
         // Test with Sec-WebSocket-Key header only
         let header4 = HttpHeader::new("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==");
         assert_eq!(search.process(&header4), true);
-        assert_eq!(search.web_socket_key(), None);
+        assert_eq!(search.web_socket_key(), Some("dGhlIHNhbXBsZSBub25jZQ=="));
 
         // Test with all headers present
         let mut search2 = WebSocketKeySearch::new();

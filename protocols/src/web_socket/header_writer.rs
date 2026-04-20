@@ -44,14 +44,14 @@ impl WSEncodeWriter {
             return Err(());
         }
 
-        let mut buf = payload_buf.iter_mut();
+        let buf = payload_buf.iter_mut();
         let masking_key = self.masking_key;
         let mut transferred: usize = 0;
 
-        while let Some(buf_byte) = buf.next() {
+        for buf_byte in buf {
             let j = self.idx % masking_key.len();
             let key_byte = masking_key[j];
-            *buf_byte = *buf_byte ^ key_byte;
+            *buf_byte ^= key_byte;
             self.idx += 1;
             transferred += 1;
         }

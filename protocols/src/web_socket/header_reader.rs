@@ -72,9 +72,9 @@ impl WSHeaderReader {
     /// Returns the state of the read operation.
     /// ## Returns
     /// - `WSHeaderReadState::Ready(WebSocketFrameHeader, usize)`: Successfully read the header.
-    /// Contains the header and number of bytes read during the last call.
+    ///   Contains the header and number of bytes read during the last call.
     /// - `WSHeaderReadState::PendingData(usize)`: Not enough data to read the complete header.
-    /// Contains the number of bytes read during the last call.
+    ///   Contains the number of bytes read during the last call.
     /// - `WSHeaderReadState::Error(WebSocketProtoError)`: Invalid header or other error.
     /// ## Errors
     /// Returns `WSHeaderReadState::Error(WebSocketProtoError)` if an error occurs while reading the header.
@@ -202,10 +202,10 @@ impl WSPayloadReader {
         let size = min(payload_src.len(), payload_rest);
 
         if let Some(masking_key_bytes) = self.masking_key {
-            for i in 0..size {
+            for (i, payload_byte) in payload_src.iter_mut().enumerate().take(size) {
                 let j = (self.read_idx + i) % masking_key_bytes.len();
                 let key_byte = masking_key_bytes[j];
-                payload_src[i] ^= key_byte;
+                *payload_byte ^= key_byte;
             }
         }
 
