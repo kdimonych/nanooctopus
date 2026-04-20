@@ -24,7 +24,7 @@ embassy-net = { version = "0.7.1", optional = true, features = [
     "medium-ethernet",
 ] }
 embedded-io-async = "0.6"
-embassy-time = { version = "0.5.1", optional = true, default-features = false }
+embassy-time = { version = "0.5.0", optional = true, default-features = false }
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", optional = true }
 ringbuf = { version = "0.4.8", optional = true }
@@ -48,6 +48,8 @@ log = ["dep:log", "defmt-or-log/log"]
 embassy_impl = ["dep:embassy-net", "dep:embassy-time"]
 tokio_impl = ["dep:tokio"]
 tokio_tcp = ["tokio_impl"]
+proto-ipv4 = ["embassy_impl", "embassy-net/proto-ipv4"]
+proto-ipv6 = ["embassy_impl", "embassy-net/proto-ipv6"]
 
 # Specifies that this is a no_std library by default
 [package.metadata.docs.rs]

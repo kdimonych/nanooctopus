@@ -312,9 +312,9 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     ) {
         let remote_endpoint = socket.remote_endpoint();
 
-        socket.close().await.unwrap_or_else(|e| {
-            log::error!("WebServer[{}]: Error while closing connection: {:?}", context_id, e);
-        });
+        if socket.close().await.is_err() {
+            log::error!("WebServer[{}]: Error while closing connection", context_id);
+        }
 
         log::info!("WebServer[{}]: Connection closed {:?}", context_id, remote_endpoint);
     }

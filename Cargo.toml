@@ -28,6 +28,8 @@ std = [
     "embedded-io-async/std",
     "log",
 ]
+proto-ipv4 = ["abstarct_socket/proto-ipv4", "embassy-net/proto-ipv4"]
+proto-ipv6 = ["abstarct_socket/proto-ipv6", "embassy-net/proto-ipv6"]
 tls = ["dep:embedded-tls", "dep:rand_core", "dep:rand_chacha", "protocols/tls"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
 defmt = [
