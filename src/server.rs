@@ -1,17 +1,12 @@
 use core::mem::MaybeUninit;
 
-use crate::{
-    HttpResponseBuilder,
-    handler::HttpHandler,
-    request::HttpRequest,
-    socket_pool::{SocketBuffers, SocketPool, SocketPoolBuilder},
-};
+use crate::{HttpResponseBuilder, handler::HttpHandler, request::HttpRequest, socket_pool::SocketPool};
 
-use abstarct_socket::socket::{SocketClose, SocketInfo, SocketWrite};
+use abstarct_socket::socket::{
+    AbstractSocket, AbstractSocketBuilder, SocketAccept, SocketEndpoint, SocketReadWith, SocketWrite,
+};
+use core::time::Duration;
 use defmt_or_log as log;
-use embassy_net::{Stack, tcp::TcpSocket};
-use embassy_time::{Duration, with_timeout};
-use embedded_io_async::Write as EmbeddedWrite;
 use prefix_arena::PrefixArena;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
@@ -22,6 +17,11 @@ use protocols::web_socket::WebSocket;
 use sha1::{Digest, Sha1};
 #[cfg(feature = "ws")]
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+#[cfg(feature = "embassy_impl")]
+use embassy_time::with_timeout;
+#[cfg(feature = "tokio_impl")]
+use tokio::time::timeout as with_timeout;
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -65,29 +65,28 @@ impl ServerTimeouts {
 /// **Note**: This server only supports HTTP connections, not HTTPS/TLS.
 /// For secure connections, consider using a reverse proxy or load balancer
 /// that handles TLS termination.
-pub struct HttpServer<'stack, const SOCKETS: usize> {
-    socket_pool: SocketPool<'stack, SOCKETS>,
+pub struct HttpServer<Socket, const SOCKETS: usize>
+where
+    Socket: AbstractSocket + SocketAccept + SocketReadWith,
+{
+    socket_pool: SocketPool<SOCKETS, Socket>,
     timeouts: ServerTimeouts,
     auto_close_connection: bool,
 }
 
-impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
+impl<Socket, const SOCKETS: usize> HttpServer<Socket, SOCKETS>
+where
+    Socket: AbstractSocket + SocketAccept + SocketReadWith,
+{
     /// Create a new HTTP server with default timeouts
     #[must_use]
-    pub fn new<'buffer, const SOCKET_RX_SIZE: usize, const SOCKET_TX_SIZE: usize>(
-        socket_buffers: &'buffer mut [SocketBuffers<SOCKET_RX_SIZE, SOCKET_TX_SIZE>; SOCKETS],
-        stack: Stack<'stack>,
-        port: u16,
+    pub fn new(
+        socket_builder: &mut impl AbstractSocketBuilder<Socket = Socket>,
+        endpoint: SocketEndpoint,
         timeouts: ServerTimeouts,
-    ) -> Self
-    where
-        'buffer: 'stack,
-    {
+    ) -> Self {
         //The tcp socket life cycle
-        let socket_pool = SocketPoolBuilder::new(port)
-            .with_socket_io_timeout(Duration::from_secs(timeouts.accept_timeout))
-            .with_keep_alive_timeout(Duration::from_secs(timeouts.keep_alive_timeout))
-            .build(socket_buffers, stack);
+        let socket_pool = SocketPool::new(socket_builder, endpoint);
 
         Self {
             socket_pool,
@@ -113,9 +112,9 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         H: HttpHandler,
     {
         log::info!(
-            "WebServer[{}]: HTTP server started on port {}",
+            "WebServer[{}]: HTTP server started on endpoint {:?}",
             context_id,
-            self.socket_pool.port()
+            self.socket_pool.endpoint()
         );
 
         log::debug!("WebServer[{}]: HTTP server started listening", context_id);
@@ -139,7 +138,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
             );
 
             let request = match with_timeout(
-                Duration::from_secs(self.timeouts.read_timeout),
+                Duration::from_secs(self.timeouts.read_timeout).try_into().unwrap(),
                 HttpRequest::try_parse_from_stream(&mut (*socket), &mut head_arena_alloc),
             )
             .await
@@ -184,7 +183,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
                     continue;
                 }
 
-                let socket_ref: &mut TcpSocket<'_> = &mut socket;
+                let socket_ref: &mut Socket = &mut socket;
                 let mut web_socket = WebSocket::new(socket_ref);
                 if let Err(e) = handler
                     .handle_websocket_connection(&request, &mut web_socket, context_id)
@@ -254,7 +253,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         &self,
         allocator: &mut PrefixArena<'_>,
         web_socket_key: &str,
-        tcp_socket: &mut TcpSocket<'_>,
+        tcp_socket: &mut Socket,
         context_id: usize,
     ) -> Result<(), ()> {
         log::info!("WebServer[{}]: WebSocket upgrade request detected", context_id);
@@ -273,12 +272,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         }
     }
 
-    async fn send_response<'socket>(
-        &self,
-        socket: &mut TcpSocket<'socket>,
-        response_bytes: &[u8],
-        context_id: usize,
-    ) -> Result<(), ()> {
+    async fn send_response(&self, socket: &mut Socket, response_bytes: &[u8], context_id: usize) -> Result<(), ()> {
         #[cfg(any(feature = "defmt", feature = "log"))]
         if response_bytes.len() < 256 {
             log::trace!(
@@ -295,21 +289,21 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         }
 
         socket.write_all(response_bytes).await.map_err(|e| {
-            log::warn!("WebServer[{}]: Failed to write response: {:?}", context_id, e);
+            log::warn!(
+                "WebServer[{}]: Failed to write response: {:?}",
+                context_id,
+                log::Debug2Format(&e)
+            );
         })
     }
 
-    async fn send_server_internal_error(&self, socket: &mut TcpSocket<'_>, context_id: usize) -> Result<(), ()> {
+    async fn send_server_internal_error(&self, socket: &mut Socket, context_id: usize) -> Result<(), ()> {
         let error_response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nInternal Server Error";
         self.send_response(socket, error_response, context_id).await
     }
 
     /// Close the connection gracefully
-    async fn close_connection<Socket: SocketClose + SocketWrite + SocketInfo>(
-        &self,
-        socket: &mut Socket,
-        context_id: usize,
-    ) {
+    async fn close_connection(&self, socket: &mut Socket, context_id: usize) {
         let remote_endpoint = socket.remote_endpoint();
 
         if socket.close().await.is_err() {
@@ -323,7 +317,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
         &self,
         allocator: &mut PrefixArena<'_>,
         request: &HttpRequest<'_>,
-        http_socket: &mut TcpSocket<'_>,
+        http_socket: &mut Socket,
         handler: &mut H,
         context_id: usize,
     ) -> Result<(), Error>
@@ -332,7 +326,7 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
     {
         // Handle the request
         match with_timeout(
-            Duration::from_secs(self.timeouts.handler_timeout),
+            Duration::from_secs(self.timeouts.handler_timeout).try_into().unwrap(),
             handler.handle_request(allocator, request, http_socket, context_id),
         )
         .await
@@ -364,11 +358,14 @@ impl<'stack, const SOCKETS: usize> HttpServer<'stack, SOCKETS> {
 
 /// Handles the WebSocket handshake process.
 #[cfg(feature = "ws")]
-async fn try_handle_websocket_handshake(
+async fn try_handle_websocket_handshake<Socket>(
     allocator: &mut PrefixArena<'_>,
-    http_socket: &mut TcpSocket<'_>,
+    http_socket: &mut Socket,
     web_socket_key: &str,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    Socket: SocketWrite,
+{
     // Compute the Sec-WebSocket-Accept value
     let key_bytes = web_socket_key.as_bytes();
     let mut hasher = Sha1::new();
@@ -394,9 +391,6 @@ async fn try_handle_websocket_handshake(
         .with_no_body()
         .await
 }
-
-/// Type alias for `HttpServer` with default buffer sizes (4KB each)
-pub type DefaultHttpServer<'a> = HttpServer<'a, 1>;
 
 #[cfg(test)]
 mod tests {

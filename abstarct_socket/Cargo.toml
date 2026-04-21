@@ -19,9 +19,8 @@ path = "src/lib.rs"
 heapless = { version = "0.8", features = ["serde"] }
 embassy-net = { version = "0.7.1", optional = true, features = [
     "tcp",
-    "proto-ipv6",
-    "proto-ipv4",
     "medium-ethernet",
+    "proto-ipv4",
 ] }
 embedded-io-async = "0.6"
 embassy-time = { version = "0.5.0", optional = true, default-features = false }
@@ -29,7 +28,6 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", optional = true }
 ringbuf = { version = "0.4.8", optional = true }
 defmt-or-log = { version = "0.2.3", default-features = false }
-
 tokio = { version = "1.52", optional = true, features = ["io-util", "net"] }
 
 prefix-arena = "0.1"
@@ -39,16 +37,20 @@ tokio = { version = "1.52", features = ["full"] }
 tokio-test = "0.4"
 ringbuf = "0.4.8"
 
+
 [features]
-default = ["std", "mocks", "embassy_impl", "tokio_impl"]
-std = ["embassy-net?/std", "ringbuf/std", "log"]
-defmt = ["dep:defmt", "defmt-or-log/defmt", "embassy-net?/defmt"]
+default = ["mocks", "tokio_impl", "log"]
+std = ["embassy-net?/std", "ringbuf?/std", "embassy-time?/std"]
+defmt = [
+    "dep:defmt",
+    "defmt-or-log/defmt",
+    "embassy-net?/defmt",
+    "embedded-io-async/defmt-03",
+]
 mocks = ["dep:ringbuf"]
 log = ["dep:log", "defmt-or-log/log"]
 embassy_impl = ["dep:embassy-net", "dep:embassy-time"]
-tokio_impl = ["dep:tokio"]
-tokio_tcp = ["tokio_impl"]
-proto-ipv4 = ["embassy_impl", "embassy-net/proto-ipv4"]
+tokio_impl = ["dep:tokio", "std"]
 proto-ipv6 = ["embassy_impl", "embassy-net/proto-ipv6"]
 
 # Specifies that this is a no_std library by default

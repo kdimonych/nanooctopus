@@ -8,7 +8,8 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 use crate::socket::{
-    ReadWith, SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo, WriteWith,
+    SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo, SocketReadWith,
+    SocketWaitReadReady, SocketWaitWriteReady, SocketWriteWith,
 };
 
 /// Error type used by the Tokio adapters in this crate.
@@ -18,7 +19,7 @@ pub struct TokioSocketError(pub embedded_io_async::ErrorKind);
 const READ_BUFFER_SIZE: usize = 1024;
 const WRITE_BUFFER_SIZE: usize = 1024;
 
-impl ReadWith for TokioSocketWrapper {
+impl SocketReadWith for TokioSocketWrapper {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -45,7 +46,7 @@ impl ReadWith for TokioSocketWrapper {
     }
 }
 
-impl<'socket> ReadWith for TokioSocketReadHalfWrapper<'socket> {
+impl<'socket> SocketReadWith for TokioSocketReadHalfWrapper<'socket> {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -60,7 +61,7 @@ impl<'socket> ReadWith for TokioSocketReadHalfWrapper<'socket> {
     }
 }
 
-impl ReadWith for TokioSocketOwnedReadHalfWrapper {
+impl SocketReadWith for TokioSocketOwnedReadHalfWrapper {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -75,7 +76,7 @@ impl ReadWith for TokioSocketOwnedReadHalfWrapper {
     }
 }
 
-impl WriteWith for TokioSocketWrapper {
+impl SocketWriteWith for TokioSocketWrapper {
     async fn write_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -99,7 +100,7 @@ impl WriteWith for TokioSocketWrapper {
     }
 }
 
-impl<'socket> WriteWith for TokioSocketWriteHalfWrapper<'socket> {
+impl<'socket> SocketWriteWith for TokioSocketWriteHalfWrapper<'socket> {
     async fn write_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -112,7 +113,7 @@ impl<'socket> WriteWith for TokioSocketWriteHalfWrapper<'socket> {
     }
 }
 
-impl WriteWith for TokioSocketOwnedWriteHalfWrapper {
+impl SocketWriteWith for TokioSocketOwnedWriteHalfWrapper {
     async fn write_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -521,5 +522,51 @@ impl Write for TokioSocketOwnedWriteHalfWrapper {
 impl WriteReady for TokioSocketOwnedWriteHalfWrapper {
     fn write_ready(&mut self) -> Result<bool, Self::Error> {
         Ok(true)
+    }
+}
+
+// TODO: Implement tests for this trait implementation.
+impl SocketWaitReadReady for TokioSocketWrapper {
+    async fn wait_read_ready(&self) -> () {
+        match self {
+            Self::Stream(stream) => {
+                let _ = stream.readable().await;
+            }
+            Self::Socket(_) | Self::Listener(_) => {
+                panic!(
+                    "Tokio sockets and listeners are never ready for reading, so wait_read_ready should not be called on them"
+                );
+            }
+        }
+    }
+}
+
+// TODO: Implement tests for this trait implementation.
+impl SocketWaitReadReady for TokioSocketReadHalfWrapper<'_> {
+    async fn wait_read_ready(&self) -> () {
+        let _ = self.inner.readable().await;
+    }
+}
+
+// TODO: Implement tests for this trait implementation.
+impl SocketWaitWriteReady for TokioSocketWrapper {
+    async fn wait_write_ready(&self) -> () {
+        match self {
+            Self::Stream(stream) => {
+                let _ = stream.writable().await;
+            }
+            Self::Socket(_) | Self::Listener(_) => {
+                panic!(
+                    "Tokio sockets and listeners are never ready for writing, so wait_write_ready should not be called on them"
+                );
+            }
+        }
+    }
+}
+
+// TODO: Implement tests for this trait implementation.
+impl SocketWaitWriteReady for TokioSocketWriteHalfWrapper<'_> {
+    async fn wait_write_ready(&self) -> () {
+        let _ = self.0.writable().await;
     }
 }

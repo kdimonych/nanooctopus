@@ -1,4 +1,4 @@
-use crate::handler::HttpWriteSocket;
+use abstarct_socket::socket::SocketWrite;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
 
@@ -21,16 +21,16 @@ pub struct BuildChankedBodyWithTrailer;
 pub struct Trailer;
 
 /// HTTP Response Builder for constructing HTTP responses in a staged manner.
-pub struct HttpResponseBuilder<'a, WriteSocket: HttpWriteSocket, Stage = NotCreated> {
+pub struct HttpResponseBuilder<'a, WriteSocket: SocketWrite, Stage = NotCreated> {
     base: BuilderBase<'a, WriteSocket>,
     _phantom: core::marker::PhantomData<Stage>,
 }
 
-struct BuilderBase<'a, WriteSocket: HttpWriteSocket> {
+struct BuilderBase<'a, WriteSocket: SocketWrite> {
     write_socket: &'a mut WriteSocket,
 }
 
-impl<'a, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'a, WriteSocket, NotCreated> {
+impl<'a, WriteSocket: SocketWrite> HttpResponseBuilder<'a, WriteSocket, NotCreated> {
     /// Creates a new HttpResponseBuilder with the provided buffer.
     pub fn new(http_socket: &'a mut WriteSocket) -> HttpResponseBuilder<'a, WriteSocket, BuildStatus> {
         HttpResponseBuilder {
@@ -42,7 +42,7 @@ impl<'a, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'a, WriteSocket, NotC
     }
 }
 
-impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSocket, BuildStatus> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildStatus> {
     /// Adds a header to the HTTP response.
     pub async fn with_status(
         mut self,
@@ -74,7 +74,7 @@ impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSo
     }
 }
 
-impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSocket, BuildHeader> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildHeader> {
     /// Adds a header to the HTTP response.
     #[inline(always)]
     pub async fn add_header(&mut self, name: &str, value: &str) -> Result<(), Error> {
@@ -234,7 +234,7 @@ impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSo
     }
 }
 
-impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBody> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBody> {
     /// Adds a chunk to the chunked body.
     pub async fn with_chunk(mut self, chunk: &[u8]) -> Result<Self, Error> {
         // Write chunk size in hexadecimal
@@ -259,7 +259,7 @@ impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSo
     }
 }
 
-impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBodyWithTrailer> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBodyWithTrailer> {
     /// Adds a chunk to the chunked body.
     pub async fn with_chunk(mut self, chunk: &[u8]) -> Result<Self, Error> {
         // Write chunk size in hexadecimal
@@ -287,7 +287,7 @@ impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSo
     }
 }
 
-impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSocket, Trailer> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, Trailer> {
     /// Adds a trailer header to the HTTP response.
     pub async fn with_trailer_header(mut self, header: &str, value: &str) -> Result<Self, Error> {
         self.base.extend_from_str(header).await?;
@@ -305,7 +305,7 @@ impl<'buffer, WriteSocket: HttpWriteSocket> HttpResponseBuilder<'buffer, WriteSo
     }
 }
 
-impl<'buffer, WriteSocket: HttpWriteSocket> BuilderBase<'buffer, WriteSocket> {
+impl<'buffer, WriteSocket: SocketWrite> BuilderBase<'buffer, WriteSocket> {
     #[inline]
     pub async fn new_line(&mut self) -> Result<(), Error> {
         self.write_socket
@@ -330,7 +330,7 @@ impl<'buffer, WriteSocket: HttpWriteSocket> BuilderBase<'buffer, WriteSocket> {
 }
 
 /// Write a decimal number to the buffer
-async fn extend_from_decimal<W: HttpWriteSocket>(out_stream: &mut W, mut num: usize) -> Result<(), Error> {
+async fn extend_from_decimal<W: SocketWrite>(out_stream: &mut W, mut num: usize) -> Result<(), Error> {
     if num == 0 {
         out_stream.write_all(b"0").await.map_err(|_| Error::InvalidStatusCode)?;
         return Ok(());

@@ -1,7 +1,7 @@
 use embedded_io_async::{Read, ReadReady, Write, WriteReady};
 
 /// Trait representing a read stream interface
-pub trait ReadWith: embedded_io_async::ErrorType {
+pub trait SocketReadWith: embedded_io_async::ErrorType {
     /// Read from the stream using the provided function
     ///
     /// The function `f` is called with a slice of available data from the stream.
@@ -19,7 +19,7 @@ pub trait ReadWith: embedded_io_async::ErrorType {
 }
 
 /// Implement ReadWith for mutable references to types that implement ReadWith
-impl<T: ?Sized + ReadWith> ReadWith for &mut T {
+impl<T: ?Sized + SocketReadWith> SocketReadWith for &mut T {
     #[inline]
     fn read_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
@@ -30,7 +30,7 @@ impl<T: ?Sized + ReadWith> ReadWith for &mut T {
 }
 
 /// Trait representing a write stream interface
-pub trait WriteWith: embedded_io_async::ErrorType {
+pub trait SocketWriteWith: embedded_io_async::ErrorType {
     /// Write to the stream using the provided function
     ///
     /// The function `f` is called with a slice of available data from the stream.
@@ -48,7 +48,7 @@ pub trait WriteWith: embedded_io_async::ErrorType {
 }
 
 /// Implement WriteWith for mutable references to types that implement WriteWith
-impl<T: ?Sized + WriteWith> WriteWith for &mut T {
+impl<T: ?Sized + SocketWriteWith> SocketWriteWith for &mut T {
     #[inline]
     fn write_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
     where
@@ -95,7 +95,8 @@ pub type SocketEndpoint = ::core::net::SocketAddr;
 /// `SocketRead`, `SocketReadReady`, `SocketWrite`, and `SocketWriteReady` traits, while
 /// implementers of the `SocketExtended` trait must also implement the `SocketReadWith` and
 /// `SocketWriteWith` traits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[defmt_or_log::derive_format_or_debug]
 pub enum State {
     /// The socket is closed and not connected to any remote endpoint.
     Closed,
@@ -216,12 +217,43 @@ pub trait SocketConfig {
     fn set_timeout(&mut self, duration: Option<core::time::Duration>);
 }
 
+/// A trait that provides a method for waiting until a socket is ready for reading.
+pub trait SocketWaitReadReady {
+    /// Wait until the socket is ready for reading, which means that there is data available to read
+    /// from the socket.
+    fn wait_read_ready(&self) -> impl core::future::Future<Output = ()>;
+}
+
+/// Implement SocketWaitReadReady for immutable references to types that implement SocketWaitReadReady
+impl<T: ?Sized + SocketWaitReadReady> SocketWaitReadReady for &T {
+    #[inline]
+    fn wait_read_ready(&self) -> impl core::future::Future<Output = ()> {
+        T::wait_read_ready(self)
+    }
+}
+
+/// A trait that provides a method for waiting until a socket is ready for writing.
+pub trait SocketWaitWriteReady {
+    /// Wait until the socket is ready for writing, which means that the socket can accept data to be written
+    /// without blocking.
+    fn wait_write_ready(&self) -> impl core::future::Future<Output = ()>;
+}
+
+/// Implement SocketWaitWriteReady for immutable references to types that implement SocketWaitWriteReady
+impl<T: ?Sized + SocketWaitWriteReady> SocketWaitWriteReady for &T {
+    #[inline]
+    fn wait_write_ready(&self) -> impl core::future::Future<Output = ()> {
+        T::wait_write_ready(self)
+    }
+}
+
 /// Async read from sockets.
 pub trait SocketRead: Read {}
 impl<T: ?Sized + Read> SocketRead for T {}
 
 /// Async read readiness for sockets.
 pub trait SocketReadReady: ReadReady {}
+
 impl<T: ?Sized + ReadReady> SocketReadReady for T {}
 
 /// Async write to sockets.
@@ -232,42 +264,60 @@ impl<T: ?Sized + Write> SocketWrite for T {}
 pub trait SocketWriteReady: WriteReady {}
 impl<T: ?Sized + WriteReady> SocketWriteReady for T {}
 
-/// Async read with custom buffer management for sockets.
-pub trait SocketReadWith: ReadWith {}
-impl<T: ?Sized + ReadWith> SocketReadWith for T {}
-
-/// Async write with custom buffer management for sockets.
-pub trait SocketWriteWith: WriteWith {}
-impl<T: ?Sized + WriteWith> SocketWriteWith for T {}
-
-/// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown, and asynchronous read/write operations.
-pub trait Socket: SocketInfo + SocketClose + SocketRead + SocketReadReady + SocketWrite + SocketWriteReady {}
-impl<T: ?Sized + SocketInfo + SocketClose + SocketRead + SocketReadReady + SocketWrite + SocketWriteReady> Socket
-    for T
+/// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown,
+/// and asynchronous read/write operations with custom buffer management.
+pub trait SocketStream:
+    SocketRead + SocketReadReady + SocketWrite + SocketWriteReady + SocketWaitReadReady + SocketWaitWriteReady
+{
+}
+impl<
+    T: ?Sized + SocketRead + SocketReadReady + SocketWrite + SocketWriteReady + SocketWaitReadReady + SocketWaitWriteReady,
+> SocketStream for T
 {
 }
 
-/// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown, and asynchronous read/write operations with custom buffer management.
-pub trait SocketExtended: Socket + SocketReadWith + SocketWriteWith {}
-impl<T: ?Sized + Socket + SocketReadWith + SocketWriteWith> SocketExtended for T {}
+/// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown,
+/// and asynchronous read/write operations with custom buffer management.
+/// This trait is designed to be implemented by various socket types, allowing for a consistent interface for TCP
+/// socket operations across different platforms and implementations. Implementers of the `Socket` trait must also
+/// implement the `SocketInfo`, `SocketClose`, `SocketRead`, `SocketReadReady`, `SocketWrite`, `SocketWriteReady`,
+/// `SocketReadWith`, and `SocketWriteWith` traits.
+pub trait AbstractSocket: SocketStream + SocketInfo + SocketClose + SocketConfig {}
+impl<T: ?Sized + SocketStream + SocketInfo + SocketClose + SocketConfig> AbstractSocket for T {}
+
+/// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown,
+/// and asynchronous read/write operations with custom buffer management.
+/// This trait is designed to be implemented by various socket types, allowing for a consistent interface for TCP
+/// socket operations across different platforms and implementations. Implementers of the `Socket` trait must also
+/// implement the `SocketInfo`, `SocketClose`, `SocketRead`, `SocketReadReady`, `SocketWrite`, `SocketWriteReady`,
+/// `SocketReadWith`, and `SocketWriteWith` traits.
+pub trait ExtendedSoxet: AbstractSocket + SocketReadWith + SocketWriteWith {}
+impl<T: ?Sized + AbstractSocket + SocketReadWith + SocketWriteWith> ExtendedSoxet for T {}
 
 /// A builder trait for constructing socket objects in a no_std-compatible way.
 ///
 /// The builder takes ownership of all objects required to build the socket.
 /// The build() method consumes the builder and returns the constructed socket object, which may be an implementation-specific type.
 ///
-/// # Type Parameters
+/// ### Type Parameters
 /// - `'a`: Lifetime for borrowed dependencies
 /// - `Sock`: The socket type produced by the builder
 ///
-/// # Example
+/// ### Example
 /// ```ignore
 /// struct MySocketBuilder<'a> { /* ... */ }
 /// impl<'a> AbstractSocketBuilder<'a, MySocket<'a>> for MySocketBuilder<'a> {
-///     fn build(&'a self) -> MySocket<'a> { /* ... */ }
+///     fn build(&'a mut self) -> Option<MySocket<'a>> { /* ... */ }
 /// }
 /// ```
-pub trait AbstractSocketBuilder<Sock> {
+pub trait AbstractSocketBuilder {
+    /// The type of socket produced by the builder. This may be an implementation-specific type that implements the `AbstractSocket` trait.
+    type Socket;
     /// Build the socket, consuming the builder and all dependencies.
-    fn build(self) -> Sock;
+    /// The returned socket may be an implementation-specific type that implements the `AbstractSocket` trait.
+    ///
+    /// ### Returns
+    /// - `Some(Self::Socket)` if the socket was successfully built.
+    /// - `None` if the socket could not be built due to missing dependencies or other issues.
+    fn build(&mut self) -> Option<Self::Socket>;
 }

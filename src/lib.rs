@@ -15,7 +15,7 @@ pub mod server;
 
 mod socket_pool;
 
-pub use handler::{HttpHandler, HttpWriteSocket};
+pub use handler::HttpHandler;
 pub use options::HttpClientOptions;
 pub use protocols::error::Error;
 pub use protocols::header::{HttpHeader, headers, mime_types};
@@ -28,7 +28,7 @@ pub use handler::{
     WebSocketWriteReady,
 };
 
+pub use abstarct_socket::socket::AbstractSocketBuilder;
 pub use request::HttpRequest;
 pub use response_builder::HttpResponseBuilder;
-pub use server::{DefaultHttpServer, HttpServer, ServerTimeouts};
-pub use socket_pool::SocketBuffers;
+pub use server::{HttpServer, ServerTimeouts};

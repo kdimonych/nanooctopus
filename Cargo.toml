@@ -18,19 +18,8 @@ authors = ["rttf <contact@rttf.dev>"]
 
 
 [features]
-default = ["std", "ws"]
-std = [
-    "embassy-net/std",
-    "protocols/std",
-    "abstarct_socket/std",
-    "abstarct_socket/embassy_impl",
-    "embassy-time/std",
-    "embedded-io-async/std",
-    "log",
-]
-proto-ipv4 = ["abstarct_socket/proto-ipv4", "embassy-net/proto-ipv4"]
-proto-ipv6 = ["abstarct_socket/proto-ipv6", "embassy-net/proto-ipv6"]
-tls = ["dep:embedded-tls", "dep:rand_core", "dep:rand_chacha", "protocols/tls"]
+default = ["ws", "embassy_impl"]
+std = ["protocols/std", "abstarct_socket/std", "embedded-io-async/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
 defmt = [
     "dep:defmt",
@@ -38,8 +27,21 @@ defmt = [
     "protocols/defmt",
     "abstarct_socket/defmt",
     "defmt-or-log/defmt",
+    "embedded-io-async/defmt-03",
 ]
 log = ["dep:log", "defmt-or-log/log", "abstarct_socket/log", "protocols/log"]
+
+embassy_impl = [
+    "dep:embassy-net",
+    "dep:embassy-time",
+    "dep:embassy-sync",
+    "embassy-net/dns",
+    "embassy-net/medium-ethernet",
+    "embassy-net/tcp",
+    "abstarct_socket/embassy_impl",
+]
+proto-ipv6 = ["abstarct_socket/proto-ipv6", "embassy-net?/proto-ipv6"]
+tokio_impl = ["dep:tokio", "abstarct_socket/tokio_impl", "std"]
 
 
 [dependencies]
@@ -51,16 +53,13 @@ defmt-or-log = { version = "0.2.3", default-features = false }
 embassy-net = { version = "0.7.1", features = [
     "dns",
     "medium-ethernet",
-    "proto-ipv6",
+    "proto-ipv4",
     "tcp",
-] }
-embassy-time = "0.5.0"
-embassy-sync = "0.7"
-heapless = "0.8"
+], optional = true }
+embassy-time = { version = "0.5.0", default-features = false, optional = true }
+embassy-sync = { version = "0.7", default-features = false, optional = true }
+heapless = "0.7.11"
 embedded-io-async = "0.6"
-embedded-tls = { version = "0.18.0", default-features = false, optional = true }
-rand_chacha = { version = "0.10.0", default-features = false, optional = true }
-rand_core = { version = "0.10.0", optional = true }
 # SHA-1 for no_std environments - try sha1 crate instead
 sha1 = { version = "0.10", default-features = false, optional = true }
 binascii = { version = "0.1.4", default-features = false, features = [
@@ -69,6 +68,7 @@ binascii = { version = "0.1.4", default-features = false, features = [
 modular-bitfield = { version = "0.13.0", optional = true }
 protocols = { path = "./protocols", default-features = false }
 abstarct_socket = { path = "./abstarct_socket", default-features = false }
+tokio = { version = "1.0", features = ["full"], optional = true }
 
 #Bump allocator
 prefix-arena = "0.1"

@@ -1,13 +1,12 @@
 use crate::request::HttpRequest;
+use abstarct_socket::socket::{SocketStream, SocketWrite};
 use prefix_arena::PrefixArena;
 
 use protocols::error::Error;
 
-pub use embedded_io_async::Write as HttpWriteSocket;
-
 /// The WebSOcket implementation
 #[cfg(feature = "ws")]
-pub type WebSocket<'a, 's> = protocols::web_socket::WebSocket<'a, embassy_net::tcp::TcpSocket<'s>>;
+pub type WebSocket<'a, Socket> = protocols::web_socket::WebSocket<'a, Socket>;
 
 #[cfg(feature = "ws")]
 pub use protocols::web_socket::{WebSocketError, WebSocketState};
@@ -21,7 +20,7 @@ pub use protocols::web_socket::{
 #[allow(async_fn_in_trait)]
 pub trait HttpHandler {
     /// Handle an incoming HTTP request and return a response
-    async fn handle_request<HttpSocket: HttpWriteSocket>(
+    async fn handle_request<HttpSocket: SocketWrite>(
         &mut self,
         allocator: &mut PrefixArena<'_>,
         request: &HttpRequest<'_>,
@@ -39,7 +38,7 @@ pub trait HttpHandler {
     async fn handle_websocket_connection(
         &mut self,
         request: &HttpRequest<'_>,
-        web_socket: &mut WebSocket<'_, '_>,
+        web_socket: &mut impl SocketStream,
         context_id: usize,
     ) -> Result<(), ()>;
 }

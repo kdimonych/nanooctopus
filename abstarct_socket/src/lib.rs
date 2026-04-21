@@ -11,6 +11,7 @@ pub mod find_sequence;
 /// Socket pool implementation for managing multiple socket connections.
 pub mod socket;
 
+/// Socket builder trait and related utilities for constructing socket instances.
 pub use socket::AbstractSocketBuilder;
 
 /// Implementations for various socket types.

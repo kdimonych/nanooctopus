@@ -1,23 +1,35 @@
 use crate::find_sequence::FindSequence;
-use crate::socket::ReadWith;
+use crate::socket::SocketReadWith;
 use prefix_arena::{PrefixArena, StagingBuffer};
 
 /// Error returned by the stream-reading helper methods in this module.
-#[derive(PartialEq, Eq, Clone, Copy)]
-#[defmt_or_log::derive_format_or_debug]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum StreamReadError<SocketReadErrorT> {
     /// The underlying stream read failed.
     SocketReadError(SocketReadErrorT),
     /// The allocator-backed output buffer was too small to hold the collected bytes.
     ReadBufferOverflow,
 }
+#[cfg(feature = "defmt")]
+impl<SocketReadErrorT: core::fmt::Debug> defmt::Format for StreamReadError<SocketReadErrorT> {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            StreamReadError::SocketReadError(e) => {
+                defmt::write!(fmt, "Socket read error: {:?}", defmt::Debug2Format(e))
+            }
+            StreamReadError::ReadBufferOverflow => defmt::write!(fmt, "Read buffer overflow"),
+        }
+    }
+}
 
+#[cfg(not(any(feature = "defmt", feature = "log")))]
+impl<SocketReadErrorT> defmt_or_log::FormatOrDebug for StreamReadError<SocketReadErrorT> {}
 /// Search and scan helpers for [`ReadWith`] streams.
 ///
 /// The `seek_*` methods collect bytes into an arena-backed buffer and return the data
 /// read up to the matched boundary. The `skip_*` methods advance the stream without
 /// storing the skipped bytes.
-pub trait StreamSearch: ReadWith {
+pub trait StreamSearch: SocketReadWith {
     /// Seeks through the stream until `stop_condition` matches.
     ///
     /// Each chunk is passed to `stop_condition`. Returning `Some(len)` means that the
@@ -218,7 +230,7 @@ pub trait StreamSearch: ReadWith {
     }
 }
 
-impl<T: ReadWith + ?Sized> StreamSearch for T {}
+impl<T: SocketReadWith + ?Sized> StreamSearch for T {}
 
 /// Re-export the mock stream for testing purposes.
 #[cfg(test)]

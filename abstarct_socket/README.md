@@ -20,8 +20,10 @@ The main target is parity between Embassy TCP sockets and the web server impleme
 
 ## Main pieces
 
-- `Socket`: the common TCP contract used by the server.
-- `SocketExtended`: `Socket` plus `read_with` and `write_with` for custom buffer handling.
+- `Socket`: the common TCP contract used by the client/server.
+- `SocketStream`: the socket read/write related functionality.
+- `SocketAccept`: the connection accept functionality.
+- `SocketConnect`: the external connection functionality.
 - `AbstractSocketBuilder`: a tiny builder trait used to construct implementation-specific sockets.
 - `StreamSearch`: helpers for reading until a byte or sequence without duplicating parsing logic in the server.
 

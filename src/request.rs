@@ -3,8 +3,8 @@ use protocols::error::Error;
 use protocols::header::HttpHeader;
 use protocols::method::HttpMethod;
 
-use abstarct_socket::socket::ReadWith;
-use embedded_io_async::Read;
+use abstarct_socket::socket::{SocketRead, SocketReadWith};
+use defmt_or_log as log;
 use prefix_arena::PrefixArena;
 use protocols::http_header_parser::HttpHeaderParser;
 
@@ -54,13 +54,15 @@ impl<'a> HttpRequest<'a> {
         allocator: &'alloc mut PrefixArena<'buf>,
     ) -> Result<HttpRequest<'buf>, Error>
     where
-        Reader: ReadWith + Read,
-        Error: From<Reader::Error>,
+        Reader: SocketReadWith + SocketRead,
         'buf: 'alloc,
     {
         let parser = HttpHeaderParser::new(stream);
 
-        let (first_line, mut parser) = parser.parse_first_line(allocator).await?;
+        let (first_line, mut parser) = parser.parse_first_line(allocator).await.map_err(|e| {
+            log::error!("Failed to parse HTTP request first line: {:?}", e);
+            Error::HeaderError("Failed to parse HTTP request first line")
+        })?;
         let mut request = HttpRequest::new(first_line.method, first_line.path, first_line.version);
 
         #[cfg(feature = "ws")]
@@ -68,7 +70,10 @@ impl<'a> HttpRequest<'a> {
         let mut content_length_search = ContentLengthSearch::new();
 
         {
-            while let Some(header) = parser.parse_next_header(allocator).await? {
+            while let Some(header) = parser.parse_next_header(allocator).await.map_err(|e| {
+                log::error!("Failed to parse HTTP header: {:?}", e);
+                Error::HeaderError("Failed to parse HTTP header")
+            })? {
                 #[cfg(feature = "ws")]
                 let is_filtered_out = { content_length_search.process(&header)? || web_socket_search.process(&header) };
                 #[cfg(not(feature = "ws"))]
@@ -91,7 +96,10 @@ impl<'a> HttpRequest<'a> {
         }
 
         // Finalize the parser (e.g., read body if needed)
-        parser.finalize(allocator).await?;
+        parser.finalize(allocator).await.map_err(|e| {
+            log::error!("Failed to finalize HTTP parser: {:?}", e);
+            Error::HeaderError("Failed to finalize HTTP parser")
+        })?;
 
         let body_size = content_length_search.content_length().unwrap_or(0);
 
@@ -101,7 +109,10 @@ impl<'a> HttpRequest<'a> {
         }
 
         let read_buffer = unsafe { allocator.take_prefix_unchecked(body_size) };
-        stream.read_exact(read_buffer).await?;
+        stream.read_exact(read_buffer).await.map_err(|e| {
+            log::error!("Failed to read HTTP request body: {:?}", log::Debug2Format(&e));
+            Error::InvalidStatusCode
+        })?;
         request.body = read_buffer;
 
         Ok(request)

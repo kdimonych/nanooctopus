@@ -1,4 +1,4 @@
-use embassy_time::Duration;
+use core::time::Duration;
 
 /// Options for configuring the HTTP client
 pub struct HttpClientOptions {

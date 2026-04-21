@@ -1,7 +1,10 @@
+#[cfg(feature = "defmt")]
+use core::fmt::Debug;
+
 use crate::error::Error;
 use crate::header::HttpHeader;
 use crate::method::HttpMethod;
-use abstarct_socket::socket::ReadWith;
+use abstarct_socket::socket::SocketReadWith;
 use abstarct_socket::stream_search::{StreamReadError, StreamSearch};
 use prefix_arena::PrefixArena;
 
@@ -122,7 +125,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadFirstLine> {
         allocator: &'alloc mut PrefixArena<'buf>,
     ) -> Result<(HttpFirstLine<'buf>, HttpHeaderParser<'reader, Reader, ReadHeaders>), HttpParseError<Reader::Error>>
     where
-        Reader: ReadWith,
+        Reader: SocketReadWith,
         'buf: 'alloc,
     {
         let line = self.reader.seek_until_sequence(LINE_DELIMITTER, allocator).await?;
@@ -183,7 +186,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
         allocator: &'alloc mut PrefixArena<'buf>,
     ) -> Result<Option<HttpHeader<'buf>>, HttpParseError<Reader::Error>>
     where
-        Reader: ReadWith,
+        Reader: SocketReadWith,
         'buf: 'alloc,
     {
         if self.state.all_parsed {
@@ -224,7 +227,7 @@ impl<'reader, Reader: ?Sized> HttpHeaderParser<'reader, Reader, ReadHeaders> {
     ///
     pub async fn finalize(mut self, allocator: &mut PrefixArena<'_>) -> Result<(), HttpParseError<Reader::Error>>
     where
-        Reader: ReadWith,
+        Reader: SocketReadWith,
     {
         // Read out all remaining headers
         while self.parse_next_header(allocator).await?.is_some() {}
@@ -428,7 +431,7 @@ mod tests {
         buffer: &mut PrefixArena<'buf>,
     ) -> HttpHeaderParser<'reader, Stream, ReadHeaders>
     where
-        Stream: ReadWith,
+        Stream: SocketReadWith,
         Stream::Error: core::fmt::Debug,
     {
         let parser = HttpHeaderParser::new(stream);

@@ -1,5 +1,5 @@
 pub use crate::mocks::error::MockReadError;
-pub use crate::socket::ReadWith;
+pub use crate::socket::SocketReadWith;
 
 /// A dummy read stream for testing purposes
 pub struct MockReadStream<'a> {
@@ -14,7 +14,7 @@ impl<'a> MockReadStream<'a> {
     }
 }
 
-impl<'a> ReadWith for MockReadStream<'a> {
+impl<'a> SocketReadWith for MockReadStream<'a> {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),

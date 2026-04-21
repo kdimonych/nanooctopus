@@ -1,5 +1,5 @@
 pub use crate::mocks::error::MockReadError;
-pub use crate::socket::ReadWith;
+pub use crate::socket::SocketReadWith;
 
 extern crate std;
 
@@ -23,7 +23,7 @@ impl MockMultipartReadStream {
     }
 }
 
-impl ReadWith for MockMultipartReadStream {
+impl SocketReadWith for MockMultipartReadStream {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),

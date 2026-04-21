@@ -1,6 +1,7 @@
 pub use crate::mocks::error::MockStreamError;
 use crate::socket::{
-    ReadWith, SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo, State, WriteWith,
+    SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo, SocketReadWith,
+    SocketWriteWith, State,
 };
 use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 extern crate alloc;
@@ -283,7 +284,7 @@ impl ReadReady for MockSocket {
     }
 }
 
-impl ReadWith for MockSocket {
+impl SocketReadWith for MockSocket {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -300,7 +301,7 @@ impl ReadWith for MockSocket {
     }
 }
 
-impl WriteWith for MockSocket {
+impl SocketWriteWith for MockSocket {
     #[inline]
     async fn write_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where

@@ -23,7 +23,8 @@ binascii = { version = "0.1.4", default-features = false, features = [
     "encode",
 ], optional = true }
 modular-bitfield = { version = "0.13.0", optional = true }
-embassy-net = { version = "0.7.1", features = ["tcp", "dns"] }
+
+embedded-io-async = "0.6"
 abstarct_socket = { path = "../abstarct_socket", default-features = false }
 
 defmt = { version = "1.0.1", optional = true }
@@ -31,8 +32,6 @@ log = { version = "0.4.29", optional = true }
 env_logger = { version = "0.11", optional = true }
 defmt-or-log = { version = "0.2.3", default-features = false }
 
-embedded-tls = { version = "0.18.0", default-features = false, optional = true }
-embedded-io-async = "0.6"
 prefix-arena = "0.1"
 
 [dev-dependencies]
@@ -41,6 +40,7 @@ tokio-test = "0.4"
 abstarct_socket = { path = "../abstarct_socket", default-features = false, features = [
     "mocks",
     "log",
+    "tokio_impl",
 ] }
 sha1 = { version = "0.10", default-features = false }
 binascii = { version = "0.1.4", default-features = false, features = [
@@ -51,24 +51,16 @@ log = { version = "0.4.29" }
 env_logger = { version = "0.11" }
 defmt-or-log = { version = "0.2.3", features = ["log"] }
 
-
 [features]
-default = ["std"]
-std = [
-    "embassy-net/std",
-    "abstarct_socket/std",
-    "abstarct_socket/embassy_impl",
-    "log",
-]
+default = ["std", "log"]
+std = ["abstarct_socket/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
 defmt = [
     "dep:defmt",
     "abstarct_socket/defmt",
-    "embassy-net/defmt",
     "defmt-or-log/defmt",
     "embedded-io-async/defmt-03",
 ]
-tls = ["dep:embedded-tls"]
 mocks = ["abstarct_socket/mocks"]
 log = ["dep:env_logger", "dep:log", "defmt-or-log/log", "abstarct_socket/log"]
 

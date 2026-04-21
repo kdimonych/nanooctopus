@@ -40,13 +40,15 @@ impl TokioTcpSocketBuilder {
     }
 }
 
-impl AbstractSocketBuilder<crate::tokio_impl::tokio_socket_wrapper::TokioSocketWrapper> for TokioTcpSocketBuilder {
-    fn build(self) -> crate::tokio_impl::tokio_socket_wrapper::TokioSocketWrapper {
+impl AbstractSocketBuilder for TokioTcpSocketBuilder {
+    type Socket = TokioSocketWrapper;
+
+    fn build(&mut self) -> Option<Self::Socket> {
         let socket = match self.ip_version {
             IpVersion::V4 => TcpSocket::new_v4().unwrap(),
             IpVersion::V6 => TcpSocket::new_v6().unwrap(),
         };
-        crate::tokio_impl::tokio_socket_wrapper::TokioSocketWrapper::Socket(socket)
+        Some(TokioSocketWrapper::Socket(socket))
     }
 }
 
@@ -62,7 +64,7 @@ mod tests {
     use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
     use super::{TokioSocketReadHalfWrapper, TokioSocketWrapper};
-    use crate::socket::{ReadWith, SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketInfo, State};
+    use crate::socket::{SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketInfo, SocketReadWith, State};
 
     #[tokio::test]
     async fn test_stream_read_with_preserves_unconsumed_bytes() {
@@ -223,7 +225,7 @@ mod tests {
 
         #[test]
         fn builder_creates_socket() {
-            let builder = TokioTcpSocketBuilder::new(IpVersion::V4);
+            let mut builder = TokioTcpSocketBuilder::new(IpVersion::V4);
             let _wrapper = builder.build();
         }
     }

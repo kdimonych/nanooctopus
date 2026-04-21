@@ -1,5 +1,5 @@
 pub use crate::mocks::error::MockStreamError;
-use crate::socket::{ReadWith, WriteWith};
+use crate::socket::{SocketReadWith, SocketWriteWith};
 use embedded_io_async::{ErrorType, Read, Write};
 use ringbuf::{StaticRb, traits::*};
 extern crate std;
@@ -40,7 +40,7 @@ impl<const BUFFER_SIZE: usize> Write for MockLoopbackSocket<BUFFER_SIZE> {
     }
 }
 
-impl<const BUFFER_SIZE: usize> WriteWith for MockLoopbackSocket<BUFFER_SIZE> {
+impl<const BUFFER_SIZE: usize> SocketWriteWith for MockLoopbackSocket<BUFFER_SIZE> {
     async fn write_with<F, R>(&mut self, f: F) -> Result<R, MockStreamError>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -53,7 +53,7 @@ impl<const BUFFER_SIZE: usize> WriteWith for MockLoopbackSocket<BUFFER_SIZE> {
     }
 }
 
-impl<const BUFFER_SIZE: usize> ReadWith for MockLoopbackSocket<BUFFER_SIZE> {
+impl<const BUFFER_SIZE: usize> SocketReadWith for MockLoopbackSocket<BUFFER_SIZE> {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, MockStreamError>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),

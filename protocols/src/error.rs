@@ -34,12 +34,6 @@ impl defmt::Format for Error {
     }
 }
 
-impl From<embassy_net::tcp::Error> for Error {
-    fn from(_: embassy_net::tcp::Error) -> Self {
-        Error::SocketError
-    }
-}
-
 impl<SocketReadErrorT> From<StreamReadError<SocketReadErrorT>> for Error
 where
     Error: From<SocketReadErrorT>,
@@ -60,8 +54,6 @@ impl core::fmt::Display for Error {
             Error::ReadBufferOverflow => write!(f, "Read buffer overflowed"),
             Error::ServerError => write!(f, "No response received from server"),
             Error::InvalidData(msg) => write!(f, "Invalid response: {msg}"),
-            #[cfg(feature = "tls")]
-            Error::TlsError(_) => write!(f, "TLS error occurred"),
             Error::UnsupportedScheme(scheme) => write!(f, "Unsupported scheme: {scheme}"),
             Error::HeaderError(msg) => write!(f, "Header error: {msg}"),
             Error::InvalidStatusCode => write!(f, "Invalid status code"),
@@ -81,10 +73,6 @@ where
         }
     }
 }
-
-// mod embedded_io_impls {
-//     use super::*;
-// }
 
 #[cfg(test)]
 mod tests {

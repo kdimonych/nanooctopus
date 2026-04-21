@@ -1,8 +1,9 @@
 use crate::web_socket::header::*;
 use crate::web_socket::header_reader::*;
+use abstarct_socket::socket::{SocketWaitReadReady, SocketWaitWriteReady};
 use core::fmt::Debug;
 use defmt_or_log as log;
-use embedded_io_async::{ErrorType, Read, ReadExactError, ReadReady, Write};
+use embedded_io_async::{ErrorType, Read, ReadExactError, ReadReady, Write, WriteReady};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum PipeState {
@@ -129,7 +130,6 @@ pub struct WebSocket<'s, S> {
 impl<'s, S> WebSocket<'s, S>
 where
     S: ErrorType,
-    S::Error: log::FormatOrDebug,
 {
     /// Creates a new WebSocket instance wrapping the provided socket. The WebSocket is initialized
     /// with both sending and receiving pipes in the open state, and with empty header buffers and
@@ -164,8 +164,14 @@ where
         (self.socket, res)
     }
 
-    fn close_on_critical_error<E: log::FormatOrDebug>(&mut self, e: E) -> E {
-        log::error!("WebSocket: Close due to unrecoverable error occurred: {:?}", &e);
+    fn close_on_critical_error<E: Debug>(&mut self, e: E) -> E
+    where
+        S::Error: Debug,
+    {
+        log::error!(
+            "WebSocket: Close due to unrecoverable error occurred: {:?}",
+            log::Debug2Format(&e)
+        );
         self.receiving_state = PipeState::Closed;
         self.sending_state = PipeState::Closed;
         e
@@ -192,7 +198,7 @@ where
     pub async fn close(&mut self) -> Result<(), WebSocketError<S::Error>>
     where
         S: Write + Read + ReadReady,
-        S::Error: log::FormatOrDebug,
+        S::Error: Debug,
         WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
     {
         if self.receiving_state == PipeState::Open && self.sending_state == PipeState::Open {
@@ -429,7 +435,7 @@ impl<'s, S> Read for WebSocket<'s, S>
 where
     S: Read + ErrorType,
     WebSocketError<S::Error>: From<ReadExactError<S::Error>>,
-    S::Error: log::FormatOrDebug,
+    S::Error: Debug,
 {
     /// Reads data from the WebSocket stream to the provided buffer. Reading will stop when either the buffer is full
     /// or the current WebSocket frame is fully read.
@@ -461,7 +467,7 @@ where
 impl<'s, S> Write for WebSocket<'s, S>
 where
     S: Write + ErrorType,
-    S::Error: log::FormatOrDebug,
+    S::Error: Debug,
 {
     /// Writes data to the WebSocket stream.
     /// This method sends the data as a binary WebSocket frame.
@@ -501,5 +507,70 @@ where
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
         self.write(buf).await.map_err(|e| self.close_on_critical_error(e))?;
         Ok(())
+    }
+}
+
+impl<S> WriteReady for WebSocket<'_, S>
+where
+    S: WriteReady,
+    S::Error: Debug,
+{
+    fn write_ready(&mut self) -> Result<bool, WebSocketError<S::Error>> {
+        if self.sending_state == PipeState::Closed {
+            return Err(WebSocketError::Closed);
+        }
+        self.socket
+            .write_ready()
+            .map_err(|e| WebSocketError::SocketError(self.close_on_critical_error(e)))
+    }
+}
+
+impl<S> ReadReady for WebSocket<'_, S>
+where
+    S: ReadReady,
+    S::Error: Debug,
+{
+    fn read_ready(&mut self) -> Result<bool, WebSocketError<S::Error>> {
+        if self.active_payload_reader.is_some() {
+            // There is an active payload reader, so there still is pending data to read even if socket is closed.
+            return Ok(true);
+        }
+
+        if self.receiving_state == PipeState::Closed {
+            return Err(WebSocketError::Closed);
+        }
+        // We are ready to read if there is an active payload reader or the underlying socket is ready to read
+        self.socket
+            .read_ready()
+            .map_err(|e| WebSocketError::SocketError(self.close_on_critical_error(e)))
+    }
+}
+
+impl<S> SocketWaitReadReady for WebSocket<'_, S>
+where
+    S: SocketWaitReadReady,
+{
+    async fn wait_read_ready(&self) -> () {
+        if self.active_payload_reader.is_some() {
+            // There is an active payload reader, so there still is pending data to read even if socket is closed.
+            // Return immediately without waiting for the socket to be ready.
+            return;
+        }
+        if self.receiving_state == PipeState::Closed {
+            log::panic!("WebSocket: Attempt to wait for read ready on closed receiving pipe");
+        }
+        self.socket.wait_read_ready().await;
+    }
+}
+
+impl<S> SocketWaitWriteReady for WebSocket<'_, S>
+where
+    S: SocketWaitWriteReady,
+{
+    async fn wait_write_ready(&self) -> () {
+        if self.sending_state == PipeState::Closed {
+            log::panic!("WebSocket: Attempt to wait for write ready on closed sending pipe");
+        }
+        self.socket.wait_write_ready().await;
     }
 }
