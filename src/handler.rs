@@ -48,6 +48,5 @@ pub trait HttpHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     //TODO: add tests for HttpHandler implementations
 }

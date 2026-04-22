@@ -417,7 +417,6 @@ fn write_hexadecimal_to_buffer(bytes: &mut [u8], mut num: usize) -> Result<(), E
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     // TODO: Add more tests for headers and body building
 }

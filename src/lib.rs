@@ -64,6 +64,12 @@ pub use handler::{
 };
 
 pub use abstarct_socket::socket::AbstractSocketBuilder;
+
+#[cfg(feature = "embassy_impl")]
+pub use abstarct_socket::embassy_impl::socket::{EmbassyTcpSocketBuilder, SocketBuffers};
+#[cfg(feature = "tokio_impl")]
+pub use abstarct_socket::tokio_impl::socket::{IpVersion, TokioTcpSocketBuilder};
+
 pub use request::HttpRequest;
 pub use response_builder::HttpResponseBuilder;
 pub use server::{HttpServer, ServerTimeouts};
