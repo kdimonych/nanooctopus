@@ -1,14 +1,14 @@
-[<img alt="github" src="https://img.shields.io/badge/github-rttfd/nanofish-37a8e0?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/rttfd/nanofish)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/nanofish.svg?style=for-the-badge&color=ff8b94&logo=rust" height="20">](https://crates.io/crates/nanofish)
-[<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-nanofish-bedc9c?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/nanofish)
+[<img alt="github" src="https://img.shields.io/badge/github-rttfd/nanooctopus-37a8e0?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/rttfd/nanooctopus)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/nanooctopus.svg?style=for-the-badge&color=ff8b94&logo=rust" height="20">](https://crates.io/crates/nanooctopus)
+[<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-nanooctopus-bedc9c?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/nanooctopus)
 
-![Dall-E generated nanofish image](https://raw.githubusercontent.com/rttfd/static/refs/heads/main/nanofish/nanofish.png)
+![Dall-E generated nanooctopus image](https://raw.githubusercontent.com/rttfd/static/refs/heads/main/nanooctopus/nanooctopus.png)
 
-# Nanofish
+# Nanooctopus
 
 A lightweight, `no_std` HTTP client and server for embedded systems built on Embassy networking with zero-copy response handling.
 
-Nanofish is designed for embedded systems with limited memory. It provides a simple HTTP client and server that works without heap allocation, making it suitable for microcontrollers and `IoT` devices. The library uses zero-copy response handling where response data is borrowed directly from user-provided buffers, keeping memory usage predictable and efficient.
+Nanooctopus is designed for embedded systems with limited memory. It provides a simple HTTP client and server that works without heap allocation, making it suitable for microcontrollers and `IoT` devices. The library uses zero-copy response handling where response data is borrowed directly from user-provided buffers, keeping memory usage predictable and efficient.
 
 ## Key Features
 
@@ -31,14 +31,14 @@ Nanofish is designed for embedded systems with limited memory. It provides a sim
 
 ```toml
 [dependencies]
-nanofish = "0.9.1"
+nanooctopus = "0.9.1"
 ```
 
 ### With TLS/HTTPS Support
 
 ```toml
 [dependencies]
-nanofish = { version = "0.9.1", features = ["tls"] }
+nanooctopus = { version = "0.9.1", features = ["tls"] }
 ```
 
 ### Available Features
@@ -49,7 +49,7 @@ nanofish = { version = "0.9.1", features = ["tls"] }
 
 ## Zero-Copy Architecture
 
-Unlike traditional HTTP clients that copy response data multiple times, Nanofish uses a zero-copy approach:
+Unlike traditional HTTP clients that copy response data multiple times, Nanooctopus uses a zero-copy approach:
 
 **Traditional HTTP Clients:**
 
@@ -57,7 +57,7 @@ Unlike traditional HTTP clients that copy response data multiple times, Nanofish
 Network → Internal Buffer (copy #1) → Response Struct (copy #2) → User Code (copy #3)
 ```
 
-**Nanofish Zero-Copy:**
+**Nanooctopus Zero-Copy:**
 
 ```shell
 Network → YOUR Buffer (direct) → Zero-Copy References → User Code (no copies!)
@@ -76,13 +76,13 @@ ______________________________________________________________________
 
 ## Quick Start
 
-Here's a simple example showing how to use Nanofish:
+Here's a simple example showing how to use Nanooctopus:
 
 ```rust,ignore
-use nanofish::{DefaultHttpClient, HttpHeader, ResponseBody, headers, mime_types};
+use Nanooctopus::{DefaultHttpClient, HttpHeader, ResponseBody, headers, mime_types};
 use embassy_net::Stack;
 
-async fn example(stack: &Stack<'_>) -> Result<(), nanofish::Error> {
+async fn example(stack: &Stack<'_>) -> Result<(), Nanooctopus::Error> {
     ...
     // See crate docs for full async usage example
 }
@@ -90,7 +90,7 @@ async fn example(stack: &Stack<'_>) -> Result<(), nanofish::Error> {
 let client = DefaultHttpClient::new(unsafe { core::ptr::NonNull::dangling().as_ref() });
 let mut response_buffer = [0u8; 8192];
 let headers = [
-    HttpHeader::user_agent("Nanofish/0.9.1"),
+    HttpHeader::user_agent("Nanooctopus/0.9.1"),
     HttpHeader::content_type(mime_types::JSON),
     HttpHeader::authorization("Bearer token123"),
 ];
@@ -114,7 +114,7 @@ println!("Read {} bytes into buffer", bytes_read);
 // 2. Parse response → response struct (copy #2)
 // 3. User gets → copied data (copy #3)
 
-// Nanofish zero-copy approach:
+// Nanooctopus zero-copy approach:
 // 1. Read from network → YOUR buffer (direct)
 // 2. Parse response → references to YOUR buffer (zero-copy)
 // 3. User gets → direct references to YOUR buffer (zero-copy)
@@ -129,12 +129,12 @@ let (large_response, _) = client.get(url, &headers, &mut large_buffer).await?;
 
 ## Header Convenience Features
 
-Nanofish provides helpful APIs for working with HTTP headers:
+Nanooctopus provides helpful APIs for working with HTTP headers:
 
 ### Pre-defined Header Constants
 
 ```rust
-use nanofish::headers;
+use nanooctopus::headers;
 
 // Common header names
 let content_type = headers::CONTENT_TYPE;     // "Content-Type"
@@ -146,7 +146,7 @@ let accept = headers::ACCEPT;                 // "Accept"
 ### Pre-defined MIME Types
 
 ```rust
-use nanofish::mime_types;
+use nanooctopus::mime_types;
 
 // Common MIME types
 let json = mime_types::JSON;    // "application/json"
@@ -158,7 +158,7 @@ let html = mime_types::HTML;    // "text/html"
 ### Convenience Methods
 
 ```rust
-use nanofish::{HttpHeader, mime_types};
+use nanooctopus::{HttpHeader, mime_types};
 // Easy creation of common headers
 let headers = [
     HttpHeader::content_type(mime_types::JSON),
@@ -171,10 +171,10 @@ let headers = [
 
 ## Response Handling
 
-Nanofish automatically determines the appropriate response body type based on the Content-Type header:
+nanooctopus automatically determines the appropriate response body type based on the Content-Type header:
 
 ```rust,ignore
-use nanofish::ResponseBody;
+use nanooctopus::ResponseBody;
 // The response body is automatically parsed based on content type
 match &response.body {
     ResponseBody::Text(text) => {
@@ -209,7 +209,7 @@ if let Some(content_length) = response.content_length() {
 
 ## HTTP Methods Support
 
-Nanofish provides convenience methods for all standard HTTP verbs:
+nanooctopus provides convenience methods for all standard HTTP verbs:
 
 ```rust,ignore
 // All methods require a buffer and return (HttpResponse, bytes_read)
@@ -268,7 +268,7 @@ All methods return a `Result<(HttpResponse, usize), Error>` where:
 Just like the server, you can choose different client sizes:
 
 ```rust,ignore
-use nanofish::{DefaultHttpClient, SmallHttpClient, HttpClient};
+use nanooctopus::{DefaultHttpClient, SmallHttpClient, HttpClient};
 
 // Default client (4KB buffers) - good for most use cases
 let client = DefaultHttpClient::new(stack);
@@ -321,21 +321,21 @@ ______________________________________________________________________
 
 # HTTP Server
 
-Nanofish includes a built-in HTTP server perfect for embedded systems and `IoT` devices. The server is async, lightweight, and has customizable timeouts.
+Nanooctopus includes a built-in HTTP server perfect for embedded systems and `IoT` devices. The server is async, lightweight, and has customizable timeouts.
 
-> **Important Note**: The server only supports plain HTTP connections, not HTTPS/TLS. While the Nanofish client supports both HTTP and HTTPS, the server implementation is HTTP-only. For secure connections in production, use a reverse proxy (like nginx) or load balancer that handles TLS termination.
+> **Important Note**: The server only supports plain HTTP connections, not HTTPS/TLS. While the nanooctopus client supports both HTTP and HTTPS, the server implementation is HTTP-only. For secure connections in production, use a reverse proxy (like nginx) or load balancer that handles TLS termination.
 
 ### Basic Server Usage
 
 ```rust,ignore
-use nanofish::{DefaultHttpServer, HttpHandler, HttpRequest, HttpResponse, ResponseBody, StatusCode};
+use nanooctopus::{DefaultHttpServer, HttpHandler, HttpRequest, HttpResponse, ResponseBody, StatusCode};
 use embassy_net::Stack;
 
 // Create a simple request handler
 struct MyHandler;
 
 impl HttpHandler for MyHandler {
-    async fn handle_request(&mut self, request: &HttpRequest<'_>) -> Result<HttpResponse<'_>, nanofish::Error> {
+    async fn handle_request(&mut self, request: &HttpRequest<'_>) -> Result<HttpResponse<'_>, nanooctopus::Error> {
         match request.path {
             "/" => Ok(HttpResponse {
                 status_code: StatusCode::Ok,
@@ -356,7 +356,7 @@ impl HttpHandler for MyHandler {
     }
 }
 
-async fn run_server(stack: Stack<'_>) -> Result<(), nanofish::Error> {
+async fn run_server(stack: Stack<'_>) -> Result<(), nanooctopus::Error> {
     let mut server = DefaultHttpServer::new(80);  // Listen on port 80
     let handler = MyHandler;
 
@@ -370,7 +370,7 @@ async fn run_server(stack: Stack<'_>) -> Result<(), nanofish::Error> {
 Just like the client, you can choose different server sizes:
 
 ```rust,ignore
-use nanofish::{DefaultHttpServer, SmallHttpServer, HttpServer};
+use nanooctopus::{DefaultHttpServer, SmallHttpServer, HttpServer};
 
 // Default server (4KB buffers) - good for most use cases
 let server = DefaultHttpServer::new(80);
@@ -388,7 +388,7 @@ let server = MyServer::new(80);
 You can customize how long the server waits for different operations:
 
 ```rust,ignore
-use nanofish::{DefaultHttpServer, ServerTimeouts};
+use nanooctopus::{DefaultHttpServer, ServerTimeouts};
 
 // Default timeouts: 10s accept, 30s read, 60s handler
 let server = DefaultHttpServer::new(80);
@@ -408,7 +408,7 @@ Your handler receives detailed information about each request:
 
 ```rust,ignore
 impl HttpHandler for MyHandler {
-    async fn handle_request(&mut self, request: &HttpRequest<'_>) -> Result<HttpResponse<'_>, nanofish::Error> {
+    async fn handle_request(&mut self, request: &HttpRequest<'_>) -> Result<HttpResponse<'_>, nanooctopus::Error> {
         // Check the HTTP method
         match request.method {
             HttpMethod::GET => { /* handle GET */ }
@@ -440,7 +440,7 @@ impl HttpHandler for MyHandler {
 For quick testing, you can use the built-in `SimpleHandler`:
 
 ```rust,ignore
-use nanofish::{DefaultHttpServer, SimpleHandler};
+use nanooctopus::{DefaultHttpServer, SimpleHandler};
 
 async fn run_test_server(stack: Stack<'_>) {
     let mut server = DefaultHttpServer::new(8080);

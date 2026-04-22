@@ -276,7 +276,7 @@ impl TryFrom<&str> for StatusCode {
     /// # Examples
     ///
     /// ```
-    /// use nanofish::StatusCode;
+    /// use nanooctopus::StatusCode;
     ///
     /// let code: StatusCode = "200".try_into().unwrap();
     /// assert_eq!(code, StatusCode::Ok);

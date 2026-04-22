@@ -1,6 +1,6 @@
 # abstarct_socket
 
-`abstarct_socket` is a thin TCP socket abstraction layer for `nanofish`.
+`abstarct_socket` is a thin TCP socket abstraction layer for `nanooctopus`.
 
 The crate exists to let the web server work against one socket-oriented contract while keeping the underlying transport as transparent as possible. The abstraction is intentionally small:
 

@@ -1,1 +1,1 @@
-Protocol helpers for nanofish, including HTTP header parsing and optional WebSocket support.
+Protocol helpers for nanooctopus, including HTTP header parsing and optional WebSocket support.

@@ -1,10 +1,10 @@
 [package]
-name = "nanofish"
+name = "nanooctopus"
 version = "0.9.1"
 edition = "2024"
 description = "🐟 A lightweight, `no_std` HTTP client and server for embedded systems built on top of Embassy networking."
-documentation = "https://docs.rs/nanofish"
-repository = "https://github.com/rttfd/nanofish"
+documentation = "https://docs.rs/nanooctopus"
+repository = "https://github.com/kdimonych/nanooctopus"
 license = "MIT"
 keywords = [
     "no_std",
