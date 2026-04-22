@@ -1,9 +1,10 @@
+---
 name: 🚀 Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -79,12 +80,12 @@ jobs:
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           CRATE_NAME="${{ steps.get-crate-name.outputs.crate-name }}"
-          
+
           echo "🔍 Checking if $CRATE_NAME@$VERSION is already published on crates.io..."
-          
+
           # Check if version exists on crates.io
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION")
-          
+
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "⚠️ Version $VERSION is already published on crates.io"
             echo "already-published=true" >> $GITHUB_OUTPUT
@@ -93,11 +94,10 @@ jobs:
             echo "already-published=false" >> $GITHUB_OUTPUT
           fi
 
-
   publish:
     name: 📦 Publish to crates.io
     runs-on: ubuntu-latest
-    needs: [ check-version, test, check-crates-published ]
+    needs: [check-version, test, check-crates-published]
     if: needs.check-crates-published.outputs.already-published == 'false'
     steps:
       - name: 📥 Checkout code
@@ -122,7 +122,7 @@ jobs:
   skip-publish:
     name: ⏭️ Skip Publishing (Already Published)
     runs-on: ubuntu-latest
-    needs: [ check-version, check-crates-published ]
+    needs: [check-version, check-crates-published]
     if: needs.check-crates-published.outputs.already-published == 'true'
     steps:
       - name: ⏭️ Skip publishing
@@ -147,12 +147,12 @@ jobs:
         run: |
           TAG_NAME="v${{ needs.check-version.outputs.version }}"
           echo "🔍 Checking if GitHub release for tag $TAG_NAME exists..."
-          
+
           # Check if release exists
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG_NAME")
-          
+
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "⚠️ GitHub release for $TAG_NAME already exists"
             echo "release-exists=true" >> $GITHUB_OUTPUT
@@ -166,7 +166,7 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-latest
-    needs: [ check-version, check-release, publish, skip-publish ]
+    needs: [check-version, check-release, publish, skip-publish]
     if: always() && needs.check-release.outputs.release-exists == 'false' && (needs.publish.result == 'success' || needs.skip-publish.result == 'success')
     steps:
       - uses: actions/checkout@v4
@@ -177,7 +177,7 @@ jobs:
         run: |
           # Get the previous tag
           PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -1)
-          
+
           if [ -z "$PREV_TAG" ]; then
             echo "No previous tag found, using initial commit"
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${{ github.ref_name }})
@@ -185,7 +185,7 @@ jobs:
             echo "Previous tag: $PREV_TAG"
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREV_TAG..${{ github.ref_name }})
           fi
-          
+
           # Save changelog to file
           echo "$CHANGELOG" > changelog.txt
           echo "Generated changelog with $(echo "$CHANGELOG" | wc -l) entries"

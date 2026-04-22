@@ -269,7 +269,7 @@ impl From<u16> for StatusCode {
 }
 
 impl TryFrom<&str> for StatusCode {
-    type Error = crate::Error;
+    type Error = crate::error::Error;
 
     /// Parse a status code from a string slice.
     ///
@@ -288,7 +288,7 @@ impl TryFrom<&str> for StatusCode {
         if let Ok(code) = value.parse::<u16>() {
             Ok(StatusCode::from(code))
         } else {
-            Err(crate::Error::InvalidStatusCode)
+            Err(crate::error::Error::InvalidStatusCode)
         }
     }
 }
@@ -329,10 +329,7 @@ mod tests {
     fn test_text() {
         assert_eq!(StatusCode::Ok.text(), "OK");
         assert_eq!(StatusCode::NotFound.text(), "Not Found");
-        assert_eq!(
-            StatusCode::InternalServerError.text(),
-            "Internal Server Error"
-        );
+        assert_eq!(StatusCode::InternalServerError.text(), "Internal Server Error");
         assert_eq!(StatusCode::BadRequest.text(), "Bad Request");
         assert_eq!(StatusCode::TemporaryRedirect.text(), "Temporary Redirect");
     }

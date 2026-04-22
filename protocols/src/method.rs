@@ -135,50 +135,20 @@ mod tests {
     fn test_try_from_bytes() {
         // Test valid HTTP methods
         assert_eq!(HttpMethod::try_from(b"GET".as_slice()), Ok(HttpMethod::GET));
-        assert_eq!(
-            HttpMethod::try_from(b"POST".as_slice()),
-            Ok(HttpMethod::POST)
-        );
+        assert_eq!(HttpMethod::try_from(b"POST".as_slice()), Ok(HttpMethod::POST));
         assert_eq!(HttpMethod::try_from(b"PUT".as_slice()), Ok(HttpMethod::PUT));
-        assert_eq!(
-            HttpMethod::try_from(b"DELETE".as_slice()),
-            Ok(HttpMethod::DELETE)
-        );
-        assert_eq!(
-            HttpMethod::try_from(b"PATCH".as_slice()),
-            Ok(HttpMethod::PATCH)
-        );
-        assert_eq!(
-            HttpMethod::try_from(b"HEAD".as_slice()),
-            Ok(HttpMethod::HEAD)
-        );
-        assert_eq!(
-            HttpMethod::try_from(b"OPTIONS".as_slice()),
-            Ok(HttpMethod::OPTIONS)
-        );
-        assert_eq!(
-            HttpMethod::try_from(b"TRACE".as_slice()),
-            Ok(HttpMethod::TRACE)
-        );
-        assert_eq!(
-            HttpMethod::try_from(b"CONNECT".as_slice()),
-            Ok(HttpMethod::CONNECT)
-        );
+        assert_eq!(HttpMethod::try_from(b"DELETE".as_slice()), Ok(HttpMethod::DELETE));
+        assert_eq!(HttpMethod::try_from(b"PATCH".as_slice()), Ok(HttpMethod::PATCH));
+        assert_eq!(HttpMethod::try_from(b"HEAD".as_slice()), Ok(HttpMethod::HEAD));
+        assert_eq!(HttpMethod::try_from(b"OPTIONS".as_slice()), Ok(HttpMethod::OPTIONS));
+        assert_eq!(HttpMethod::try_from(b"TRACE".as_slice()), Ok(HttpMethod::TRACE));
+        assert_eq!(HttpMethod::try_from(b"CONNECT".as_slice()), Ok(HttpMethod::CONNECT));
 
         // Test invalid HTTP methods
-        assert_eq!(
-            HttpMethod::try_from(b"get".as_slice()),
-            Err(InvalidHttpMethod)
-        );
-        assert_eq!(
-            HttpMethod::try_from(b"INVALID".as_slice()),
-            Err(InvalidHttpMethod)
-        );
+        assert_eq!(HttpMethod::try_from(b"get".as_slice()), Err(InvalidHttpMethod));
+        assert_eq!(HttpMethod::try_from(b"INVALID".as_slice()), Err(InvalidHttpMethod));
         assert_eq!(HttpMethod::try_from(b"".as_slice()), Err(InvalidHttpMethod));
-        assert_eq!(
-            HttpMethod::try_from(b"123".as_slice()),
-            Err(InvalidHttpMethod)
-        );
+        assert_eq!(HttpMethod::try_from(b"123".as_slice()), Err(InvalidHttpMethod));
     }
 
     #[test]

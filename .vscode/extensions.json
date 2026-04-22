@@ -1,0 +1,40 @@
+{
+  "recommendations": [
+    // ========================================================================
+    // RUST DEVELOPMENT - Essential for Rust programming
+    // ========================================================================
+    "rust-lang.rust-analyzer", // Rust language server
+    "tamasfe.even-better-toml", // Enhanced TOML support for Cargo.toml
+    // ========================================================================
+    // EMBEDDED DEVELOPMENT - For embedded/hardware programming
+    // ========================================================================
+    "probe-rs.probe-rs-debugger", // probe-rs debugger integration
+    "vadimcn.vscode-lldb", // LLDB debugger for native code
+    "marus25.cortex-debug", // ARM Cortex-M GDB debugger
+    "mcu-debug.memory-view", // Memory view for embedded debugging
+    "mcu-debug.rtos-views", // RTOS debugging views
+    "ms-vscode.vscode-serial-monitor", // Serial port communication
+    // ========================================================================
+    // VERSION CONTROL & PROJECT MANAGEMENT
+    // ========================================================================
+    "eamodio.gitlens", // Enhanced Git capabilities
+    "github.vscode-pull-request-github", // GitHub integration
+    // ========================================================================
+    // DOCUMENTATION & MARKDOWN
+    // ========================================================================
+    "yzhang.markdown-all-in-one", // Comprehensive Markdown support
+    "davidanson.vscode-markdownlint", // Markdown linting and style checking
+    "bierner.markdown-mermaid", // Mermaid diagram support in Markdown
+    // ========================================================================
+    // CONFIGURATION FILES & DATA FORMATS
+    // ========================================================================
+    "redhat.vscode-yaml", // YAML language support
+    // ========================================================================
+    // CODE QUALITY & PRODUCTIVITY
+    // ========================================================================
+    "gruntfuggly.todo-tree", // TODO/FIXME comment management
+    "aaron-bond.better-comments", // Enhanced code commenting
+    "wayou.vscode-todo-highlight", // Highlight TODO/FIXME comments
+    "usernamehw.errorlens" // Highlight errors and warnings inline
+  ]
+}
