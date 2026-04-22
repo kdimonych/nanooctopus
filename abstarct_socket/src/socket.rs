@@ -1,7 +1,10 @@
-use embedded_io_async::{Read, ReadReady, Write, WriteReady};
+pub use embedded_io_async::{
+    Error as SocketError, ErrorKind as SocketErrorKind, ErrorType as SocketErrorType, Read as SocketRead,
+    ReadReady as SocketReadReady, Write as SocketWrite, WriteReady as SocketWriteReady,
+};
 
 /// Trait representing a read stream interface
-pub trait SocketReadWith: embedded_io_async::ErrorType {
+pub trait SocketReadWith: SocketErrorType {
     /// Read from the stream using the provided function
     ///
     /// The function `f` is called with a slice of available data from the stream.
@@ -30,7 +33,7 @@ impl<T: ?Sized + SocketReadWith> SocketReadWith for &mut T {
 }
 
 /// Trait representing a write stream interface
-pub trait SocketWriteWith: embedded_io_async::ErrorType {
+pub trait SocketWriteWith: SocketErrorType {
     /// Write to the stream using the provided function
     ///
     /// The function `f` is called with a slice of available data from the stream.
@@ -246,24 +249,6 @@ impl<T: ?Sized + SocketWaitWriteReady> SocketWaitWriteReady for &T {
         T::wait_write_ready(self)
     }
 }
-
-/// Async read from sockets.
-pub trait SocketRead: Read {}
-impl<T: ?Sized + Read> SocketRead for T {}
-
-/// Async read readiness for sockets.
-pub trait SocketReadReady: ReadReady {}
-
-impl<T: ?Sized + ReadReady> SocketReadReady for T {}
-
-/// Async write to sockets.
-pub trait SocketWrite: Write {}
-impl<T: ?Sized + Write> SocketWrite for T {}
-
-/// Async write readiness for sockets.
-pub trait SocketWriteReady: WriteReady {}
-impl<T: ?Sized + WriteReady> SocketWriteReady for T {}
-
 /// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown,
 /// and asynchronous read/write operations with custom buffer management.
 pub trait SocketStream:

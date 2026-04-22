@@ -16,20 +16,33 @@ name = "abstarct_socket"
 path = "src/lib.rs"
 
 [dependencies]
-heapless = { version = "0.8", features = ["serde"] }
-embassy-net = { version = "0.7.1", optional = true, features = [
+# Optional dependencies for different implementations and features
+# The `tokio` dependency is used for the Tokio-based implementation of the socket traits.
+tokio = { version = "1.52", features = ["io-util", "net"], optional = true }
+
+# The `embassy-net` and `embassy-time` dependencies are used for the Embassy-based implementation
+# of the socket traits.
+embassy-net = { version = "0.7.1", features = [
     "tcp",
     "medium-ethernet",
     "proto-ipv4",
-] }
-embedded-io-async = "0.6"
-embassy-time = { version = "0.5.0", optional = true, default-features = false }
+], optional = true }
+# The `embassy-time` dependency is used for time-related functionality in the Embassy-based implementation.
+embassy-time = { version = "0.5.0", default-features = false, optional = true }
+
+# The `ringbuf` dependency is used for the mock implementations of the socket traits, providing a simple
+# ring buffer for testing purposes.
+ringbuf = { version = "0.4.8", optional = true }
+
+# The `defmt` and `log` dependencies are used for logging and debugging, allowing the library to support both
+# defmt and log-based logging depending on the user's preference.
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", optional = true }
-ringbuf = { version = "0.4.8", optional = true }
-defmt-or-log = { version = "0.2.3", default-features = false }
-tokio = { version = "1.52", optional = true, features = ["io-util", "net"] }
 
+
+embedded-io-async = "0.6"
+heapless = { version = "0.8", features = ["serde"] }
+defmt-or-log = { version = "0.2.3", default-features = false }
 prefix-arena = "0.1"
 
 [dev-dependencies]

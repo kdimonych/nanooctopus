@@ -358,26 +358,25 @@ mod tests {
             .await
             .expect_err("Expected error due to invalid method");
 
-        assert!(matches!(e, Error::SocketError));
+        assert!(matches!(e, Error::HeaderError(_)));
     }
 
     #[tokio::test]
     async fn test_parse_request_all_http_methods() {
         let methods = [
-            ("GET", HttpMethod::GET),
-            ("POST", HttpMethod::POST),
-            ("PUT", HttpMethod::PUT),
-            ("DELETE", HttpMethod::DELETE),
-            ("PATCH", HttpMethod::PATCH),
-            ("HEAD", HttpMethod::HEAD),
-            ("OPTIONS", HttpMethod::OPTIONS),
-            ("TRACE", HttpMethod::TRACE),
-            ("CONNECT", HttpMethod::CONNECT),
+            (b"GET /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::GET),
+            (b"POST /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::POST),
+            (b"PUT /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::PUT),
+            (b"DELETE /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::DELETE),
+            (b"PATCH /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::PATCH),
+            (b"HEAD /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::HEAD),
+            (b"OPTIONS /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::OPTIONS),
+            (b"TRACE /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::TRACE),
+            (b"CONNECT /path HTTP/1.1\r\n\r\n".as_slice(), HttpMethod::CONNECT),
         ];
 
-        for (method_str, expected_method) in &methods {
-            let request_str = format!("{method_str} /path HTTP/1.1\r\n\r\n");
-            let mut request_bytes = std::vec::Vec::from(request_str.as_bytes());
+        for (request_bytes, expected_method) in &methods {
+            let mut request_bytes = request_bytes.to_vec();
 
             let mut stream = create_mock_stream(request_bytes.as_mut_slice());
             let mut buffer = [0u8; 256];

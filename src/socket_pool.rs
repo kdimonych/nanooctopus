@@ -13,43 +13,43 @@ use heapless::spsc::Queue;
 #[cfg(feature = "embassy_impl")]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 #[cfg(feature = "embassy_impl")]
-use embassy_sync::rwlock::{RwLock, RwLockWriteGuard};
+use embassy_sync::mutex::{Mutex, MutexGuard};
 
-#[cfg(feature = "std")]
-use std::sync::RwLock;
+#[cfg(feature = "tokio_impl")]
+use tokio::sync::Mutex;
 
 const KEEP_ALIVE_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(3);
 const SOCKET_IO_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(5);
 
 #[cfg(feature = "embassy_impl")]
-struct RwLockWrapper<T>(RwLock<NoopRawMutex, T>);
-#[cfg(feature = "std")]
-struct RwLockWrapper<T>(RwLock<T>);
+struct MutexWrapper<T>(Mutex<NoopRawMutex, T>);
+#[cfg(feature = "tokio_impl")]
+struct MutexWrapper<T>(Mutex<T>);
 
-impl<T> RwLockWrapper<T> {
-    pub const fn new(socket: T) -> Self {
-        Self(RwLock::new(socket))
+impl<T> MutexWrapper<T> {
+    pub fn new(socket: T) -> Self {
+        Self(Mutex::new(socket))
     }
 
     #[cfg(feature = "embassy_impl")]
-    pub async fn write(&self) -> RwLockWriteGuard<'_, NoopRawMutex, T> {
-        self.0.write().await
+    pub async fn write(&self) -> MutexGuard<'_, NoopRawMutex, T> {
+        self.0.lock().await
     }
 
-    #[cfg(feature = "std")]
-    pub async fn write(&self) -> std::sync::RwLockWriteGuard<'_, T> {
-        self.0.write().unwrap()
+    #[cfg(feature = "tokio_impl")]
+    pub async fn write(&self) -> tokio::sync::MutexGuard<'_, T> {
+        self.0.lock().await
     }
 }
 
 #[cfg(feature = "embassy_impl")]
-pub type SocketRef<'pool, Socket> = RwLockWriteGuard<'pool, NoopRawMutex, Socket>;
-#[cfg(feature = "std")]
-pub type SocketRef<'pool, Socket> = std::sync::RwLockWriteGuard<'pool, Socket>;
+pub type SocketRef<'pool, Socket> = MutexGuard<'pool, NoopRawMutex, Socket>;
+#[cfg(feature = "tokio_impl")]
+pub type SocketRef<'pool, Socket> = tokio::sync::MutexGuard<'pool, Socket>;
 
 pub struct SocketPool<const POOL_SIZE: usize, Socket> {
-    sockets: [RwLockWrapper<Socket>; POOL_SIZE],
-    ready: RwLockWrapper<Queue<usize, POOL_SIZE>>,
+    sockets: [MutexWrapper<Socket>; POOL_SIZE],
+    ready: MutexWrapper<Queue<usize, POOL_SIZE>>,
     endpoint: SocketEndpoint,
 }
 
@@ -78,9 +78,9 @@ impl<Socket, const POOL_SIZE: usize> SocketPool<POOL_SIZE, Socket> {
                 // This must be set to prevent eternal pending on IO operations
                 socket.set_timeout(Some(SOCKET_IO_TIMEOUT));
 
-                RwLockWrapper::new(socket)
+                MutexWrapper::new(socket)
             }),
-            ready: RwLockWrapper::new(Queue::new()),
+            ready: MutexWrapper::new(Queue::new()),
             endpoint,
         }
     }
@@ -141,7 +141,7 @@ impl<Socket, const POOL_SIZE: usize> SocketPool<POOL_SIZE, Socket> {
 }
 
 async fn accept<'stack, Socket>(
-    socket: &'stack RwLockWrapper<Socket>,
+    socket: &'stack MutexWrapper<Socket>,
     endpoint: SocketEndpoint,
 ) -> SocketRef<'stack, Socket>
 where

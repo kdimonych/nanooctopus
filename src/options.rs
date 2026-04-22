@@ -26,7 +26,6 @@ impl Default for HttpClientOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use embassy_time::Duration;
 
     #[test]
     fn test_default_options() {

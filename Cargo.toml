@@ -18,7 +18,7 @@ authors = ["rttf <contact@rttf.dev>"]
 
 
 [features]
-default = ["ws", "embassy_impl"]
+default = ["ws", "tokio_impl", "log"]
 std = ["protocols/std", "abstarct_socket/std", "embedded-io-async/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
 defmt = [
@@ -78,16 +78,18 @@ embassy-futures = "0.1"
 
 [dev-dependencies]
 futures-lite = "2.0"
-abstarct_socket = { path = "./abstarct_socket", features = [
+abstarct_socket = { path = "./abstarct_socket", default-features = false, features = [
     "std",
     "mocks",
-    "log",
 ] }
-protocols = { path = "./protocols", features = ["ws", "std", "mocks"] }
+protocols = { path = "./protocols", default-features = false, features = [
+    "ws",
+    "std",
+    "mocks",
+] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
 log = { version = "0.4.29" }
-defmt-or-log = { version = "0.2.3", features = ["log"] }
 embassy-executor = { version = "0.10.0", features = [
     "platform-std",
     "executor-thread",
@@ -97,9 +99,8 @@ embassy-executor = { version = "0.10.0", features = [
 [[example]]
 name = "hello_world"
 path = "examples/hello_world.rs"
-# std to have ability to run the server on the host machine for testing.
-# For embedded targets, the std feature can be disabled to save space.
-required-features = ["std"]
+# The example depends on the Embassy implementation surface.
+required-features = ["embassy_impl"]
 
 [workspace]
 members = [".", "abstarct_socket", "protocols"]

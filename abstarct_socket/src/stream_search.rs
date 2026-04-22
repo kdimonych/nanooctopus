@@ -4,14 +4,15 @@ use prefix_arena::{PrefixArena, StagingBuffer};
 
 /// Error returned by the stream-reading helper methods in this module.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum StreamReadError<SocketReadErrorT> {
+pub enum StreamReadError<T> {
     /// The underlying stream read failed.
-    SocketReadError(SocketReadErrorT),
+    SocketReadError(T),
     /// The allocator-backed output buffer was too small to hold the collected bytes.
     ReadBufferOverflow,
 }
+
 #[cfg(feature = "defmt")]
-impl<SocketReadErrorT: core::fmt::Debug> defmt::Format for StreamReadError<SocketReadErrorT> {
+impl<T: core::fmt::Debug> defmt::Format for StreamReadError<T> {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             StreamReadError::SocketReadError(e) => {
@@ -23,7 +24,8 @@ impl<SocketReadErrorT: core::fmt::Debug> defmt::Format for StreamReadError<Socke
 }
 
 #[cfg(not(any(feature = "defmt", feature = "log")))]
-impl<SocketReadErrorT> defmt_or_log::FormatOrDebug for StreamReadError<SocketReadErrorT> {}
+impl<T> defmt_or_log::FormatOrDebug for StreamReadError<T> {}
+
 /// Search and scan helpers for [`ReadWith`] streams.
 ///
 /// The `seek_*` methods collect bytes into an arena-backed buffer and return the data

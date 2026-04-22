@@ -2,14 +2,14 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 use crate::socket::{
-    SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo, SocketReadWith,
-    SocketWaitReadReady, SocketWaitWriteReady, SocketWriteWith,
+    SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketErrorType, SocketInfo, SocketRead,
+    SocketReadReady, SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady,
+    SocketWriteWith,
 };
 
 /// Error type used by the Tokio adapters in this crate.
@@ -184,11 +184,11 @@ impl TokioSocketWrapper {
     }
 }
 
-impl ErrorType for TokioSocketWrapper {
+impl SocketErrorType for TokioSocketWrapper {
     type Error = TokioSocketError;
 }
 
-impl Read for TokioSocketWrapper {
+impl SocketRead for TokioSocketWrapper {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Stream(stream) => stream.read(buf).await.map_err(Into::into),
@@ -198,7 +198,7 @@ impl Read for TokioSocketWrapper {
     }
 }
 
-impl Write for TokioSocketWrapper {
+impl SocketWrite for TokioSocketWrapper {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Stream(stream) => stream.write(buf).await.map_err(Into::into),
@@ -208,7 +208,7 @@ impl Write for TokioSocketWrapper {
     }
 }
 
-impl ReadReady for TokioSocketWrapper {
+impl SocketReadReady for TokioSocketWrapper {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         match self {
             Self::Stream(_) => Ok(true),
@@ -217,7 +217,7 @@ impl ReadReady for TokioSocketWrapper {
     }
 }
 
-impl WriteReady for TokioSocketWrapper {
+impl SocketWriteReady for TokioSocketWrapper {
     fn write_ready(&mut self) -> Result<bool, Self::Error> {
         match self {
             Self::Stream(stream) => match stream.try_write(&[]) {
@@ -403,11 +403,11 @@ impl<'socket> TokioSocketReadHalfWrapper<'socket> {
     }
 }
 
-impl ErrorType for TokioSocketReadHalfWrapper<'_> {
+impl SocketErrorType for TokioSocketReadHalfWrapper<'_> {
     type Error = TokioSocketError;
 }
 
-impl Read for TokioSocketReadHalfWrapper<'_> {
+impl SocketRead for TokioSocketReadHalfWrapper<'_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if !self.pending.is_empty() {
             return Ok(drain_pending_bytes(&mut self.pending, buf));
@@ -416,7 +416,7 @@ impl Read for TokioSocketReadHalfWrapper<'_> {
     }
 }
 
-impl ReadReady for TokioSocketReadHalfWrapper<'_> {
+impl SocketReadReady for TokioSocketReadHalfWrapper<'_> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -446,11 +446,11 @@ impl TokioSocketOwnedReadHalfWrapper {
     }
 }
 
-impl ErrorType for TokioSocketOwnedReadHalfWrapper {
+impl SocketErrorType for TokioSocketOwnedReadHalfWrapper {
     type Error = TokioSocketError;
 }
 
-impl Read for TokioSocketOwnedReadHalfWrapper {
+impl SocketRead for TokioSocketOwnedReadHalfWrapper {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if !self.pending.is_empty() {
             return Ok(drain_pending_bytes(&mut self.pending, buf));
@@ -459,7 +459,7 @@ impl Read for TokioSocketOwnedReadHalfWrapper {
     }
 }
 
-impl ReadReady for TokioSocketOwnedReadHalfWrapper {
+impl SocketReadReady for TokioSocketOwnedReadHalfWrapper {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -479,17 +479,17 @@ impl<'socket> TokioSocketWriteHalfWrapper<'socket> {
     }
 }
 
-impl ErrorType for TokioSocketWriteHalfWrapper<'_> {
+impl SocketErrorType for TokioSocketWriteHalfWrapper<'_> {
     type Error = TokioSocketError;
 }
 
-impl Write for TokioSocketWriteHalfWrapper<'_> {
+impl SocketWrite for TokioSocketWriteHalfWrapper<'_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.0.write(buf).await.map_err(Into::into)
     }
 }
 
-impl WriteReady for TokioSocketWriteHalfWrapper<'_> {
+impl SocketWriteReady for TokioSocketWriteHalfWrapper<'_> {
     fn write_ready(&mut self) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -509,17 +509,17 @@ impl TokioSocketOwnedWriteHalfWrapper {
     }
 }
 
-impl ErrorType for TokioSocketOwnedWriteHalfWrapper {
+impl SocketErrorType for TokioSocketOwnedWriteHalfWrapper {
     type Error = TokioSocketError;
 }
 
-impl Write for TokioSocketOwnedWriteHalfWrapper {
+impl SocketWrite for TokioSocketOwnedWriteHalfWrapper {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.0.write(buf).await.map_err(Into::into)
     }
 }
 
-impl WriteReady for TokioSocketOwnedWriteHalfWrapper {
+impl SocketWriteReady for TokioSocketOwnedWriteHalfWrapper {
     fn write_ready(&mut self) -> Result<bool, Self::Error> {
         Ok(true)
     }

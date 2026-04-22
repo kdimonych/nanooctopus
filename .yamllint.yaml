@@ -2,11 +2,16 @@
 
 extends: default
 
-ignore: # Specify files or patterns to ignore
+ignore:
+  # Specify files or patterns to ignore
   - ".clang-format"
-  - "*/.clang-format"  # Ignore .clang-format files in subdirectories
+  - "*/.clang-format" # Ignore .clang-format files in subdirectories
 
 rules:
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
   line-length:
     max: 180
     level: warning
@@ -18,5 +23,3 @@ rules:
   truthy:
     ignore: |
       .github/workflows/*
-      .clang-format
-      */.clang-format

@@ -8,18 +8,20 @@ repos:
         name: cargo fmt
         entry: bash -c 'cargo fmt -- --config edition=2024'
         language: system
-        types: [rust]
+        types: [ rust ]
       - id: cargo-clippy
-        name: cargo clippy
-        entry: bash -c 'cargo clippy -- -D warnings'
+        name: cargo clippy (feature matrix)
+        entry: bash -c 'bash scripts/check-feature-matrix.sh clippy'
         language: system
-        types: [rust]
+        types: [ rust ]
+        pass_filenames: false
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
       - id: codespell
-        exclude: '^.*\.svg$|^.*\.kicad_pcb$|^.*\.kicad_sch$|^.*\.kicad_mod$|^.*\.kicad_prl$'
+        exclude: "^.*\\.svg$|^.*\\.kicad_pcb$|^.*\\.kicad_sch$|^.*\\.kicad_mod$|^.*\\.k\
+          icad_prl$"
         name: check for common misspelled words
 
   - repo: https://github.com/executablebooks/mdformat
@@ -39,25 +41,25 @@ repos:
       - id: check-case-conflict
       - id: check-executables-have-shebangs
       - id: check-json
-        exclude: '^(\.vscode/.*\.json|cargo-generate/launch\.json)$'
+        exclude: "^(\\.vscode/.*\\.json|cargo-generate/launch\\.json)$"
       - id: check-merge-conflict
       - id: check-shebang-scripts-are-executable
-        exclude: '^.*\.rs$'
+        exclude: "^.*\\.rs$"
       - id: check-symlinks
       - id: check-xml
       - id: check-yaml
-        args: [--allow-multiple-documents]
+        args: [ --allow-multiple-documents ]
       - id: end-of-file-fixer
       - id: fix-byte-order-marker
       - id: trailing-whitespace
-        args: [--markdown-linebreak-ext=md]
+        args: [ --markdown-linebreak-ext=md ]
       - id: pretty-format-json
-        args: [--autofix, --no-sort-keys, --no-ensure-ascii]
-        exclude: '^(\.vscode/.*\.json|cargo-generate/launch\.json)$'
+        args: [ --autofix, --no-sort-keys, --no-ensure-ascii ]
+        exclude: "^(\\.vscode/.*\\.json|cargo-generate/launch\\.json)$"
 
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.37.0
     hooks:
       - id: yamllint
         name: check yaml files with yamllint
-        args: ["-c", ".yamllint.yaml"]
+        args: [ "-c", ".yamllint.yaml" ]

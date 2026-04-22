@@ -2,26 +2,22 @@ use core::mem::MaybeUninit;
 
 use crate::{HttpResponseBuilder, handler::HttpHandler, request::HttpRequest, socket_pool::SocketPool};
 
-use abstarct_socket::socket::{
-    AbstractSocket, AbstractSocketBuilder, SocketAccept, SocketEndpoint, SocketReadWith, SocketWrite,
-};
+use abstarct_socket::socket::{AbstractSocket, AbstractSocketBuilder, SocketAccept, SocketEndpoint, SocketReadWith};
 use core::time::Duration;
 use defmt_or_log as log;
 use prefix_arena::PrefixArena;
 use protocols::error::Error;
 use protocols::status_code::StatusCode;
 
+// WebSocket related imports and constants
+#[cfg(feature = "ws")]
+use abstarct_socket::socket::SocketWrite;
 #[cfg(feature = "ws")]
 use protocols::web_socket::WebSocket;
 #[cfg(feature = "ws")]
 use sha1::{Digest, Sha1};
 #[cfg(feature = "ws")]
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-#[cfg(feature = "embassy_impl")]
-use embassy_time::with_timeout;
-#[cfg(feature = "tokio_impl")]
-use tokio::time::timeout as with_timeout;
 
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
@@ -138,7 +134,7 @@ where
             );
 
             let request = match with_timeout(
-                Duration::from_secs(self.timeouts.read_timeout).try_into().unwrap(),
+                Duration::from_secs(self.timeouts.read_timeout),
                 HttpRequest::try_parse_from_stream(&mut (*socket), &mut head_arena_alloc),
             )
             .await
@@ -326,7 +322,7 @@ where
     {
         // Handle the request
         match with_timeout(
-            Duration::from_secs(self.timeouts.handler_timeout).try_into().unwrap(),
+            Duration::from_secs(self.timeouts.handler_timeout),
             handler.handle_request(allocator, request, http_socket, context_id),
         )
         .await
@@ -390,6 +386,25 @@ where
         .await?
         .with_no_body()
         .await
+}
+
+// Helper function to wrap a timeout logic around a future, since we want to use the same timeout logic for
+// both Tokio and Embassy implementations without duplicating code in the main server logic.
+#[inline]
+async fn with_timeout<F, T>(duration: Duration, future: F) -> Result<T, ()>
+where
+    F: core::future::Future<Output = T>,
+{
+    #[cfg(feature = "embassy_impl")]
+    {
+        embassy_time::with_timeout(duration.try_into().unwrap(), future)
+            .await
+            .map_err(|_| ())
+    }
+    #[cfg(feature = "tokio_impl")]
+    {
+        tokio::time::timeout(duration, future).await.map_err(|_| ())
+    }
 }
 
 #[cfg(test)]

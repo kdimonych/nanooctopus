@@ -1,10 +1,13 @@
 use crate::request::HttpRequest;
-use abstarct_socket::socket::{SocketStream, SocketWrite};
+use abstarct_socket::socket::SocketWrite;
 use prefix_arena::PrefixArena;
 
 use protocols::error::Error;
 
-/// The WebSOcket implementation
+#[cfg(feature = "ws")]
+use abstarct_socket::socket::SocketStream;
+
+/// The WebSocket implementation
 #[cfg(feature = "ws")]
 pub type WebSocket<'a, Socket> = protocols::web_socket::WebSocket<'a, Socket>;
 
