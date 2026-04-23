@@ -52,9 +52,8 @@ tokio = { version = "1.52", features = ["full"] }
 tokio-test = "0.4"
 ringbuf = "0.4.8"
 
-
 [features]
-default = []
+default = ["std", "log", "mocks"]
 std = ["embassy-net?/std", "ringbuf?/std", "embassy-time?/std"]
 defmt = [
     "dep:defmt",
