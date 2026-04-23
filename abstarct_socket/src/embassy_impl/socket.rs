@@ -181,7 +181,8 @@ type MutexGuard<'a, T> = embassy_sync::mutex::MutexGuard<'a, NoopRawMutex, T>;
 pub type SocketGuard<'a, 'stack> = MutexGuard<'a, TcpSocket<'stack>>;
 type Socket<'a> = Mutex<TcpSocket<'a>>;
 
-/// Embassy implementation of a socket builder with independent buffer and stack lifetimes.
+/// Embassy-net based implementation of AbstractSocketBuilder for TCP sockets. This builder manages a pool of
+/// TCP sockets and accepts incoming connections on a specified endpoint.
 pub struct EmbassyTcpSocketBuilder<'stack, const SOCKETS: usize> {
     sockets: [Socket<'stack>; SOCKETS],
     ready: Mutex<Queue<usize, SOCKETS>>,
@@ -193,13 +194,16 @@ impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
     ///
     /// ### Arguments
     /// - `stack`: The embassy-net stack to be used for creating sockets.
-    /// - `buffers`: A vector of `SocketBuffers` instances that will be used for creating sockets. The length of the vector must be at least `SOCKETS`.
+    /// - `endpoint`: The socket endpoint that the builder will bind to and listen on.
+    /// - `buffers`: A vector of `SocketBuffers` instances that will be used for creating sockets. The length of the vector
+    /// must be at least `SOCKETS`.
     ///
     /// ### Returns
     /// A new instance of `EmbassyTcpSocketBuilder` configured with the provided stack and buffers.
     ///
     /// ### Panics
-    /// Panics if the length of the provided buffers vector is less than `SOCKETS`.
+    /// Panics if the length of the `buffers` vector is less than `SOCKETS`, or if any of the buffers do not meet the
+    /// required size for RX and TX buffers.
     ///
     pub fn new<'buf, const RX_SIZE: usize, const TX_SIZE: usize>(
         stack: embassy_net::Stack<'stack>,
@@ -209,10 +213,13 @@ impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
     where
         'buf: 'stack,
     {
-        log::assert!(SOCKETS > 0, "Socket pool size must be greater than zero");
+        const {
+            assert!(SOCKETS > 0, "Socket pool size must be greater than zero");
+        };
+
         log::assert!(
             buffer.len() >= SOCKETS * (RX_SIZE + TX_SIZE),
-            "Buffer size must be at least SOCKETS * (RX_SIZE + TX_SIZE)"
+            "SocketBuilder: Buffer size must be at least SOCKETS * (RX_SIZE + TX_SIZE)"
         );
 
         let mut chanks = buffer.chunks_exact_mut(RX_SIZE + TX_SIZE).map(|mem_chank| {
@@ -271,7 +278,7 @@ impl<'stack, const SOCKETS: usize> AbstractSocketBuilder for EmbassyTcpSocketBui
             let end_point = socket.remote_endpoint();
 
             log::info!(
-                "SocketPool: Socket[{:?}] {:?} is ready on port {}",
+                "SocketBuilders: Socket[{:?}] {:?} is ready on port {}",
                 ready_idx,
                 end_point,
                 endpoint
@@ -294,7 +301,7 @@ async fn accept_loop<'a, 'stack>(
 ) -> SocketGuard<'a, 'stack> {
     let mut socket = socket.lock().await;
     log::debug!(
-        "SocketPool: Socket {:?} released. Current state: {:?}",
+        "SocketBuilder: Socket {:?} released. Current state: {:?}",
         socket.remote_endpoint(),
         socket.state()
     );
@@ -307,14 +314,17 @@ async fn wait_for_socket_ready(socket: &mut SocketGuard<'_, '_>, endpoint: Socke
     loop {
         use embassy_net::tcp::State;
         log::debug!(
-            "SocketPool: Waiting for socket {:?} to be ready. Current state: {:?}",
+            "SocketBuilder: Waiting for socket {:?} to be ready. Current state: {:?}",
             socket.remote_endpoint(),
             socket.state()
         );
         match socket.state() {
             State::Established | State::SynSent | State::SynReceived => {
                 socket.flush().await.map_err(|e| {
-                    log::error!("SocketPool: Error while flushing socket: {:?}", log::Debug2Format(&e));
+                    log::error!(
+                        "SocketBuilder: Error while flushing socket: {:?}",
+                        log::Debug2Format(&e)
+                    );
                 })?;
                 socket.wait_read_ready().await;
                 return Ok(());
@@ -322,7 +332,7 @@ async fn wait_for_socket_ready(socket: &mut SocketGuard<'_, '_>, endpoint: Socke
             State::Closed | State::Listen => {
                 socket.accept(endpoint.port()).await.map_err(|e| {
                     log::error!(
-                        "SocketPool: Error while accepting connection: {:?}",
+                        "SocketBuilder: Error while accepting connection: {:?}",
                         log::Debug2Format(&e)
                     );
                 })?;
@@ -332,13 +342,27 @@ async fn wait_for_socket_ready(socket: &mut SocketGuard<'_, '_>, endpoint: Socke
             State::TimeWait | State::FinWait1 | State::Closing | State::LastAck | State::CloseWait => {
                 // The socket is in a state where it is either closing or waiting for the remote to close,
                 // we need to gracefully bring it down first before accepting a new connection on it.
+                // Close the write side of the connection
                 socket.close();
+                // Ensure all pending data is sent
                 socket.flush().await.map_err(|e| {
-                    log::error!("SocketPool: Error while flushing socket: {:?}", log::Debug2Format(&e));
+                    log::error!(
+                        "SocketBuilder: Error while flushing socket: {:?}",
+                        log::Debug2Format(&e)
+                    );
+                })?;
+                // Close the socket
+                socket.abort();
+                // Ensure the RST is sent
+                socket.flush().await.map_err(|e| {
+                    log::error!(
+                        "SocketBuilder: Error while flushing socket: {:?}",
+                        log::Debug2Format(&e)
+                    );
                 })?;
                 socket.accept(endpoint.port()).await.map_err(|e| {
                     log::error!(
-                        "SocketPool: Error while accepting connection: {:?}",
+                        "SocketBuilder: Error while accepting connection: {:?}",
                         log::Debug2Format(&e)
                     );
                 })?;

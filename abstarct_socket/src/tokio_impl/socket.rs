@@ -15,13 +15,15 @@ pub struct TokioTcpSocketBuilder<'stack> {
 }
 
 impl<'stack> TokioTcpSocketBuilder<'stack> {
-    /// Create a new TokioTcpSocketBuilder with the specified IP version.
-    /// The builder will create a TcpSocket of the appropriate type when build() is called.
+    /// Create a new TokioTcpSocketBuilder with the specified endpoint.
+    /// The endpoint can be a socket address or a string that can be parsed into one.
+    /// The builder will bind to the endpoint and be ready to accept connections.
     /// ### Arguments
-    /// * `ip_version` - The IP version (IPv4 or IPv6) for the socket to be built.
-    /// ### Returns
-    /// A new instance of TokioTcpSocketBuilder configured for the specified IP version.
-    /// ### Example
+    /// * `endpoint` - The socket endpoint to bind to, which can be a SocketEndpoint or a type that can be converted into one.
+    /// ### Results
+    /// Returns a new instance of TokioTcpSocketBuilder that is bound to the specified endpoint and ready to accept connections.
+    /// ### Panics
+    /// This function will panic if binding to the endpoint fails, which can happen if the address is invalid or already in use.
     pub async fn new(endpoint: impl Into<SocketEndpoint>) -> Self {
         let addr = endpoint.into();
         let listener = TcpListener::bind(addr)
