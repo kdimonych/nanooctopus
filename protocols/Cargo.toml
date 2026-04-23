@@ -39,8 +39,7 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
 abstarct_socket = { path = "../abstarct_socket", default-features = false, features = [
     "mocks",
-    "log",
-    "tokio_impl",
+    "std",
 ] }
 sha1 = { version = "0.10", default-features = false }
 binascii = { version = "0.1.4", default-features = false, features = [
@@ -49,10 +48,10 @@ binascii = { version = "0.1.4", default-features = false, features = [
 modular-bitfield = { version = "0.13.0" }
 log = { version = "0.4.29" }
 env_logger = { version = "0.11" }
-defmt-or-log = { version = "0.2.3", features = ["log"] }
+defmt-or-log = { version = "0.2.3", features = [] }
 
 [features]
-default = ["std", "log"]
+default = []
 std = ["abstarct_socket/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield"]
 defmt = [

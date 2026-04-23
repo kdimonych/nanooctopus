@@ -31,7 +31,6 @@ impl<T: ?Sized + SocketReadWith> SocketReadWith for &mut T {
         T::read_with(self, f)
     }
 }
-
 /// Trait representing a write stream interface
 pub trait SocketWriteWith: SocketErrorType {
     /// Write to the stream using the provided function
@@ -161,54 +160,6 @@ impl<T: ?Sized + SocketInfo> SocketInfo for &T {
     }
 }
 
-/// Socket connect trait for TCP sockets, allowing for asynchronous connection to remote endpoints.
-pub trait SocketConnect {
-    /// The error type that may be returned when connecting to a remote endpoint.
-    type Error: core::fmt::Debug;
-
-    /// Connect to a remote endpoint and return a socket reference.
-    fn connect<EP>(&mut self, endpoint: EP) -> impl core::future::Future<Output = Result<(), Self::Error>>
-    where
-        EP: Into<SocketEndpoint>;
-}
-
-/// Implement SocketConnect for mutable references to types that implement SocketConnect
-impl<T: ?Sized + SocketConnect> SocketConnect for &mut T {
-    type Error = T::Error;
-
-    #[inline]
-    fn connect<EP>(&mut self, endpoint: EP) -> impl core::future::Future<Output = Result<(), Self::Error>>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        T::connect(self, endpoint)
-    }
-}
-
-/// Socket accept trait for TCP sockets, allowing for asynchronous acceptance of incoming connections.
-pub trait SocketAccept {
-    /// The error type that may be returned when accepting a connection.
-    type Error: core::fmt::Debug;
-
-    /// Accept an incoming connection and return a new socket for the connection.
-    /// This method should handle the TCP connection establishment process, including the three-way handshake.
-    fn accept<EP>(&mut self, endpoint: EP) -> impl core::future::Future<Output = Result<(), Self::Error>>
-    where
-        EP: Into<SocketEndpoint>;
-}
-
-/// Implement SocketAccept for mutable references to types that implement SocketAccept
-impl<T: ?Sized + SocketAccept> SocketAccept for &mut T {
-    type Error = T::Error;
-
-    #[inline]
-    fn accept<EP>(&mut self, endpoint: EP) -> impl core::future::Future<Output = Result<(), Self::Error>>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        T::accept(self, endpoint)
-    }
-}
 /// Socket configuration trait for TCP sockets, allowing for setting socket options such as keep-alive and
 /// timeouts.
 pub trait SocketConfig {
@@ -297,12 +248,23 @@ impl<T: ?Sized + AbstractSocket + SocketReadWith + SocketWriteWith> ExtendedSoxe
 /// ```
 pub trait AbstractSocketBuilder {
     /// The type of socket produced by the builder. This may be an implementation-specific type that implements the `AbstractSocket` trait.
-    type Socket;
-    /// Build the socket, consuming the builder and all dependencies.
-    /// The returned socket may be an implementation-specific type that implements the `AbstractSocket` trait.
-    ///
+    type Socket<'a>
+    where
+        Self: 'a;
+
+    /// Build the socket object using the provided dependencies. This method consumes the builder and returns the constructed socket object.
     /// ### Returns
-    /// - `Some(Self::Socket)` if the socket was successfully built.
-    /// - `None` if the socket could not be built due to missing dependencies or other issues.
-    fn build(&mut self) -> Option<Self::Socket>;
+    /// - `Some(Self::Socket)` if the socket was successfully built
+    /// - `None` if the socket could not be built due to missing dependencies or configuration issues
+    /// ### Example
+    /// ```ignore
+    /// let mut builder = MySocketBuilder::new(/* dependencies */);
+    /// let socket = builder.build().expect("Failed to build socket");
+    /// ```
+    fn accept(&self) -> impl core::future::Future<Output = Self::Socket<'_>>;
+
+    /// Get the socket endpoint that the builder is configured to listen on. This can be used to determine the local port number for the socket.
+    /// ### Returns
+    /// - `SocketEndpoint` representing the local endpoint that the builder is configured to listen on.
+    fn endpoint(&self) -> SocketEndpoint;
 }

@@ -1,8 +1,8 @@
 use abstarct_socket::{
     AbstractSocketBuilder,
     socket::{
-        SocketAccept, SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketWaitReadReady, SocketWaitWriteReady,
-        SocketWrite, State,
+        SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite,
+        State,
     },
 };
 use core::pin::pin;
@@ -93,7 +93,7 @@ impl<Socket, const POOL_SIZE: usize> SocketPool<POOL_SIZE, Socket> {
     ///
     pub async fn acquire_next_request(&self) -> SocketRef<'_, Socket>
     where
-        Socket: SocketInfo + SocketWrite + SocketWaitReadReady + SocketWaitWriteReady + SocketAccept + SocketClose,
+        Socket: SocketInfo + SocketWrite + SocketWaitReadReady + SocketWaitWriteReady + SocketClose,
     {
         let sockets = &self.sockets;
 
@@ -145,7 +145,7 @@ async fn accept<'stack, Socket>(
     endpoint: SocketEndpoint,
 ) -> SocketRef<'stack, Socket>
 where
-    Socket: SocketInfo + SocketWrite + SocketWaitReadReady + SocketWaitWriteReady + SocketAccept + SocketClose,
+    Socket: SocketInfo + SocketWrite + SocketWaitReadReady + SocketWaitWriteReady + SocketClose,
 {
     let mut socket = socket.write().await;
     log::debug!(
@@ -163,7 +163,7 @@ async fn wait_for_socket_ready<'stack, Socket>(
     endpoint: SocketEndpoint,
 ) -> Result<(), ()>
 where
-    Socket: SocketInfo + SocketWrite + SocketWaitReadReady + SocketWaitWriteReady + SocketAccept + SocketClose,
+    Socket: SocketInfo + SocketWrite + SocketWaitReadReady + SocketWaitWriteReady + SocketClose,
 {
     loop {
         log::debug!(

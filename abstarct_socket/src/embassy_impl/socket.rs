@@ -1,133 +1,17 @@
-use heapless::Vec;
+use heapless::spsc::Queue;
 
 use crate::socket::{
-    AbstractSocketBuilder, SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo,
-    SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWriteWith, State,
+    AbstractSocketBuilder, SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketReadWith, SocketWaitReadReady,
+    SocketWaitWriteReady, SocketWriteWith, State,
 };
 
-//TODO: Implement tests for this object.
-/// Socket trait defining the common interface for all socket implementations.
-pub struct SocketBuffers<'buf> {
-    /// Buffer for receiving data (read operations)
-    pub rx_buffer: &'buf mut [u8],
-    /// Buffer for transmitting data (write operations)
-    pub tx_buffer: &'buf mut [u8],
-}
-
-impl<'buf> SocketBuffers<'buf> {
-    /// Create new socket buffers
-    pub fn new(rx_buffer: &'buf mut [u8], tx_buffer: &'buf mut [u8]) -> Self {
-        SocketBuffers { rx_buffer, tx_buffer }
-    }
-
-    /// Create socket buffers by slicing a single buffer into RX and TX parts.
-    ///
-    /// ### Arguments
-    /// - `buf`: A mutable byte slice that will be split into RX and TX buffers. The length of the slice must be at least `RX_SIZE + TX_SIZE`.
-    ///
-    /// ### Returns
-    /// The tuple containing a `SocketBuffers` instance with RX and TX buffers, and the remaining unused buffer slice.
-    ///
-    /// ### Panics
-    /// Panics if the provided buffer is smaller than the required size for RX and TX buffers.
-    ///
-    pub fn slice_from_buffer<const RX_SIZE: usize, const TX_SIZE: usize>(
-        buf: &'buf mut [u8],
-    ) -> (Self, &'buf mut [u8]) {
-        assert!(
-            buf.len() >= RX_SIZE + TX_SIZE,
-            "Buffer size must be at least RX_SIZE + TX_SIZE"
-        );
-        let (rx_buffer, tail) = buf.split_at_mut(RX_SIZE);
-        let (tx_buffer, remainder) = tail.split_at_mut(TX_SIZE);
-        (Self { rx_buffer, tx_buffer }, remainder)
-    }
-
-    /// Fill a provided vector with socket buffers by slicing a single buffer into multiple RX and TX parts.
-    /// The provided buffer is split into `N` pairs of RX and TX buffers, which are then stored in the provided vector.
-    ///
-    /// ### Arguments
-    /// - `buf`: A mutable byte slice that will be split into multiple RX and TX buffers. The length of the slice must be at least `N * (RX_SIZE + TX_SIZE)`.
-    /// - `dst`: A mutable reference to a vector that will be filled with the created `SocketBuffers` instances. The vector must have a capacity of at least `N`.
-    ///
-    /// ### Returns
-    /// The remaining unused buffer slice after slicing out `N` pairs of RX and TX buffers.
-    ///
-    /// ### Panics
-    /// Panics if the provided buffer has a size less than `N * (RX_SIZE + TX_SIZE)`.
-    /// Panics if RX_SIZE + TX_SIZE is zero.
-    ///
-    pub fn slice_into_buffers<const RX_SIZE: usize, const TX_SIZE: usize, const N: usize>(
-        buf: &'buf mut [u8],
-        dst: &mut Vec<Self, N>,
-    ) -> &'buf mut [u8] {
-        assert!(
-            buf.len() >= N * (RX_SIZE + TX_SIZE),
-            "Buffer size must be at least N * (RX_SIZE + TX_SIZE)"
-        );
-
-        let (exact_buf, remainder) = buf.split_at_mut(N * (RX_SIZE + TX_SIZE));
-        let chanks = exact_buf.chunks_exact_mut(RX_SIZE + TX_SIZE).map(|mem_chank| {
-            let (rx_buffer, tx_buffer) = mem_chank.split_at_mut(RX_SIZE);
-            Self { rx_buffer, tx_buffer }
-        });
-        dst.extend(chanks);
-
-        remainder
-    }
-}
-
-/// Embassy implementation of a socket builder with independent buffer and stack lifetimes.
-pub struct EmbassyTcpSocketBuilder<'stack, const SOCKETS: usize> {
-    stack: embassy_net::Stack<'stack>,
-    buffers: heapless::Vec<SocketBuffers<'stack>, SOCKETS>,
-    index: usize,
-}
-
-impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
-    /// Create a new EmbassyTcpSocketBuilder with the given stack and buffers.
-    ///
-    /// ### Arguments
-    /// - `stack`: The embassy-net stack to be used for creating sockets.
-    /// - `buffers`: A vector of `SocketBuffers` instances that will be used for creating sockets. The length of the vector must be at least `SOCKETS`.
-    ///
-    /// ### Returns
-    /// A new instance of `EmbassyTcpSocketBuilder` configured with the provided stack and buffers.
-    ///
-    /// ### Panics
-    /// Panics if the length of the provided buffers vector is less than `SOCKETS`.
-    ///
-    pub fn new(stack: embassy_net::Stack<'stack>, buffers: heapless::Vec<SocketBuffers<'stack>, SOCKETS>) -> Self {
-        if buffers.len() < SOCKETS {
-            panic!("Not enough buffers provided for the number of sockets");
-        }
-        Self {
-            stack,
-            buffers,
-            index: 0,
-        }
-    }
-}
-
-impl<'stack, const SOCKETS: usize> AbstractSocketBuilder for EmbassyTcpSocketBuilder<'stack, SOCKETS> {
-    type Socket = embassy_net::tcp::TcpSocket<'stack>;
-    fn build(&mut self) -> Option<embassy_net::tcp::TcpSocket<'stack>> {
-        if self.index >= SOCKETS {
-            return None; // No more buffers available
-        }
-
-        let buffers = self.buffers.pop().unwrap(); // SAFETY: We have already checked that index is within bounds, so this unwrap is safe.
-
-        self.index += 1;
-        Some(embassy_net::tcp::TcpSocket::new(
-            self.stack,
-            buffers.rx_buffer,
-            buffers.tx_buffer,
-        ))
-    }
-}
-
+use core::pin::pin;
+use defmt_or_log as log;
+use embassy_futures::select::*;
 use embassy_net::tcp::{TcpReader, TcpSocket, TcpWriter};
+
+const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
+const SOCKET_IO_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 
 // Embassy-net based ReadStream implementation for TcpReader
 impl<'stack> SocketReadWith for TcpSocket<'stack> {
@@ -252,46 +136,6 @@ impl SocketClose for TcpSocket<'_> {
     }
 }
 
-impl SocketConnect for TcpSocket<'_> {
-    type Error = embassy_net::tcp::ConnectError;
-
-    #[inline]
-    fn connect<EP>(&mut self, endpoint: EP) -> impl core::future::Future<Output = Result<(), Self::Error>>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        let endpoint = endpoint.into();
-        let ep = match endpoint {
-            SocketEndpoint::V4(addr) => embassy_net::IpEndpoint {
-                addr: embassy_net::IpAddress::Ipv4(*addr.ip()),
-                port: addr.port(),
-            },
-            #[cfg(feature = "proto-ipv6")]
-            SocketEndpoint::V6(addr) => embassy_net::IpEndpoint {
-                addr: embassy_net::IpAddress::Ipv6(*addr.ip()),
-                port: addr.port(),
-            },
-            #[cfg(not(feature = "proto-ipv6"))]
-            SocketEndpoint::V6(_) => panic!("IPv6 is not supported"),
-        };
-        self.connect(ep)
-    }
-}
-
-impl SocketAccept for TcpSocket<'_> {
-    type Error = embassy_net::tcp::AcceptError;
-
-    /// Accept an incoming connection and return a new socket for the connection.
-    /// This method should handle the TCP connection establishment process, including the three-way handshake.
-    fn accept<EP>(&mut self, endpoint: EP) -> impl core::future::Future<Output = Result<(), Self::Error>>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        let endpoint = endpoint.into();
-        self.accept(endpoint.port())
-    }
-}
-
 impl SocketConfig for TcpSocket<'_> {
     #[inline]
     fn set_keep_alive(&mut self, interval: Option<core::time::Duration>) {
@@ -325,5 +169,186 @@ impl SocketWaitWriteReady for TcpSocket<'_> {
 impl SocketWaitWriteReady for TcpWriter<'_> {
     async fn wait_write_ready(&self) -> () {
         self.wait_write_ready().await;
+    }
+}
+
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+
+type Mutex<T> = embassy_sync::mutex::Mutex<NoopRawMutex, T>;
+type MutexGuard<'a, T> = embassy_sync::mutex::MutexGuard<'a, NoopRawMutex, T>;
+
+/// Type alias for a mutex guard that provides access to a TcpSocket with the appropriate lifetime.
+pub type SocketGuard<'a, 'stack> = MutexGuard<'a, TcpSocket<'stack>>;
+type Socket<'a> = Mutex<TcpSocket<'a>>;
+
+/// Embassy implementation of a socket builder with independent buffer and stack lifetimes.
+pub struct EmbassyTcpSocketBuilder<'stack, const SOCKETS: usize> {
+    sockets: [Socket<'stack>; SOCKETS],
+    ready: Mutex<Queue<usize, SOCKETS>>,
+    endpoint: SocketEndpoint,
+}
+
+impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
+    /// Create a new EmbassyTcpSocketBuilder with the given stack and buffers.
+    ///
+    /// ### Arguments
+    /// - `stack`: The embassy-net stack to be used for creating sockets.
+    /// - `buffers`: A vector of `SocketBuffers` instances that will be used for creating sockets. The length of the vector must be at least `SOCKETS`.
+    ///
+    /// ### Returns
+    /// A new instance of `EmbassyTcpSocketBuilder` configured with the provided stack and buffers.
+    ///
+    /// ### Panics
+    /// Panics if the length of the provided buffers vector is less than `SOCKETS`.
+    ///
+    pub fn new<'buf, const RX_SIZE: usize, const TX_SIZE: usize>(
+        stack: embassy_net::Stack<'stack>,
+        endpoint: SocketEndpoint,
+        buffer: &'buf mut [u8],
+    ) -> Self
+    where
+        'buf: 'stack,
+    {
+        log::assert!(SOCKETS > 0, "Socket pool size must be greater than zero");
+        log::assert!(
+            buffer.len() >= SOCKETS * (RX_SIZE + TX_SIZE),
+            "Buffer size must be at least SOCKETS * (RX_SIZE + TX_SIZE)"
+        );
+
+        let mut chanks = buffer.chunks_exact_mut(RX_SIZE + TX_SIZE).map(|mem_chank| {
+            let (rx_buffer, tx_buffer) = mem_chank.split_at_mut(RX_SIZE);
+            (rx_buffer, tx_buffer)
+        });
+
+        let sockets = {
+            core::array::from_fn::<_, SOCKETS, _>(|_| {
+                // SAFETY: We have already checked that the buffer has enough space for SOCKETS pairs of RX and TX buffers, so this unwrap is safe.
+                let (rx_buffer, tx_buffer) = unsafe { chanks.next().unwrap_unchecked() };
+                let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
+
+                // Set keep alive options (This must be set to prevent connections from being closed by NATs)
+                socket.set_keep_alive(Some(KEEP_ALIVE_TIMEOUT));
+                // This must be set to prevent eternal pending on IO operations
+                socket.set_timeout(Some(SOCKET_IO_TIMEOUT));
+
+                Mutex::new(socket)
+            })
+        };
+
+        EmbassyTcpSocketBuilder::<'stack, SOCKETS> {
+            sockets,
+            ready: Mutex::new(Queue::new()),
+            endpoint,
+        }
+    }
+}
+
+impl<'stack, const SOCKETS: usize> AbstractSocketBuilder for EmbassyTcpSocketBuilder<'stack, SOCKETS> {
+    type Socket<'a>
+        = SocketGuard<'a, 'stack>
+    where
+        Self: 'a;
+
+    async fn accept(&self) -> Self::Socket<'_> {
+        let sockets = &self.sockets;
+
+        {
+            let endpoint = self.endpoint;
+            let pending_sockets = pin!(core::array::from_fn::<_, SOCKETS, _>(|idx| accept_loop(
+                &sockets[idx],
+                endpoint
+            )));
+            let (socket, ready_idx) = select_slice(pending_sockets).await;
+
+            // Put the index of ready socket into the ready queue so that it can be picked up by the next acquire_next_request call if needed
+            self.ready.lock().await.enqueue(ready_idx).unwrap();
+
+            // Note: this line is crucial. It keeps the socket locked until the socket is enqueued
+            // into the ready queue. This ensures that the socket is not released before it is marked
+            // as ready, which could lead to a race condition where the socket is released and acquired
+            // by another task before it is marked as ready, causing the first task to wait indefinitely
+            // for a socket that is already in use.
+            let end_point = socket.remote_endpoint();
+
+            log::info!(
+                "SocketPool: Socket[{:?}] {:?} is ready on port {}",
+                ready_idx,
+                end_point,
+                endpoint
+            );
+        }
+
+        // Get the next ready socket index from the ready queue and return the socket reference
+        let idx = self.ready.lock().await.dequeue().unwrap();
+        sockets[idx].lock().await
+    }
+
+    fn endpoint(&self) -> SocketEndpoint {
+        self.endpoint
+    }
+}
+
+async fn accept_loop<'a, 'stack>(
+    socket: &'a Mutex<embassy_net::tcp::TcpSocket<'stack>>,
+    endpoint: SocketEndpoint,
+) -> SocketGuard<'a, 'stack> {
+    let mut socket = socket.lock().await;
+    log::debug!(
+        "SocketPool: Socket {:?} released. Current state: {:?}",
+        socket.remote_endpoint(),
+        socket.state()
+    );
+    while wait_for_socket_ready(&mut socket, endpoint).await.is_err() {}
+
+    socket
+}
+
+async fn wait_for_socket_ready(socket: &mut SocketGuard<'_, '_>, endpoint: SocketEndpoint) -> Result<(), ()> {
+    loop {
+        use embassy_net::tcp::State;
+        log::debug!(
+            "SocketPool: Waiting for socket {:?} to be ready. Current state: {:?}",
+            socket.remote_endpoint(),
+            socket.state()
+        );
+        match socket.state() {
+            State::Established | State::SynSent | State::SynReceived => {
+                socket.flush().await.map_err(|e| {
+                    log::error!("SocketPool: Error while flushing socket: {:?}", log::Debug2Format(&e));
+                })?;
+                socket.wait_read_ready().await;
+                return Ok(());
+            }
+            State::Closed | State::Listen => {
+                socket.accept(endpoint.port()).await.map_err(|e| {
+                    log::error!(
+                        "SocketPool: Error while accepting connection: {:?}",
+                        log::Debug2Format(&e)
+                    );
+                })?;
+                socket.wait_read_ready().await;
+                return Ok(());
+            }
+            State::TimeWait | State::FinWait1 | State::Closing | State::LastAck | State::CloseWait => {
+                // The socket is in a state where it is either closing or waiting for the remote to close,
+                // we need to gracefully bring it down first before accepting a new connection on it.
+                socket.close();
+                socket.flush().await.map_err(|e| {
+                    log::error!("SocketPool: Error while flushing socket: {:?}", log::Debug2Format(&e));
+                })?;
+                socket.accept(endpoint.port()).await.map_err(|e| {
+                    log::error!(
+                        "SocketPool: Error while accepting connection: {:?}",
+                        log::Debug2Format(&e)
+                    );
+                })?;
+                socket.wait_read_ready().await;
+                return Ok(());
+            }
+            State::FinWait2 => {
+                // The socket is waiting for the remote to close, we need to wait for it to be writable before accepting a new connection on it.
+                socket.wait_write_ready().await;
+            }
+        }
     }
 }

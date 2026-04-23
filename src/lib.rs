@@ -39,37 +39,32 @@ mod defmt_test_logger {
 
 /// HTTP request handlers and traits.
 pub mod handler;
-/// HTTP client configuration options.
-pub mod options;
 /// HTTP request types and parsing.
 pub mod request;
 /// HTTP response builder utilities.
-pub mod response_builder;
+pub mod response;
 /// HTTP server implementation.
 pub mod server;
 
-mod socket_pool;
+/// Common utilities and types for socket management.
+pub mod worker_memory;
 
-pub use handler::HttpHandler;
-pub use options::HttpClientOptions;
+mod allocator;
+
+pub use handler::*;
 pub use protocols::error::Error;
 pub use protocols::header::{HttpHeader, headers, mime_types};
 pub use protocols::method::HttpMethod;
 pub use protocols::status_code::StatusCode;
 
-#[cfg(feature = "ws")]
-pub use handler::{
-    WebSocket, WebSocketError, WebSocketIoError, WebSocketRead, WebSocketReadReady, WebSocketState, WebSocketWrite,
-    WebSocketWriteReady,
-};
-
-pub use abstarct_socket::socket::AbstractSocketBuilder;
+pub use abstarct_socket::socket::{AbstractSocketBuilder, SocketEndpoint};
 
 #[cfg(feature = "embassy_impl")]
-pub use abstarct_socket::embassy_impl::socket::{EmbassyTcpSocketBuilder, SocketBuffers};
+pub use abstarct_socket::embassy_impl::socket::EmbassyTcpSocketBuilder;
 #[cfg(feature = "tokio_impl")]
-pub use abstarct_socket::tokio_impl::socket::{IpVersion, TokioTcpSocketBuilder};
+pub use abstarct_socket::tokio_impl::socket::TokioTcpSocketBuilder;
 
+pub use allocator::HttpAllocator;
 pub use request::HttpRequest;
-pub use response_builder::HttpResponseBuilder;
+pub use response::HttpResponseBuilder;
 pub use server::{HttpServer, ServerTimeouts};

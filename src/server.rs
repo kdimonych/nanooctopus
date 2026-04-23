@@ -1,8 +1,11 @@
-use core::mem::MaybeUninit;
+use crate::{
+    handler::HttpHandler,
+    request::HttpRequest,
+    response::{HttpResponse, HttpResponseBuilder},
+    worker_memory::HttpMemoryBuffer,
+};
 
-use crate::{HttpResponseBuilder, handler::HttpHandler, request::HttpRequest, socket_pool::SocketPool};
-
-use abstarct_socket::socket::{AbstractSocket, AbstractSocketBuilder, SocketAccept, SocketEndpoint, SocketReadWith};
+use abstarct_socket::socket::*;
 use core::time::Duration;
 use defmt_or_log as log;
 use prefix_arena::PrefixArena;
@@ -61,31 +64,18 @@ impl ServerTimeouts {
 /// **Note**: This server only supports HTTP connections, not HTTPS/TLS.
 /// For secure connections, consider using a reverse proxy or load balancer
 /// that handles TLS termination.
-pub struct HttpServer<Socket, const SOCKETS: usize>
-where
-    Socket: AbstractSocket + SocketAccept + SocketReadWith,
-{
-    socket_pool: SocketPool<SOCKETS, Socket>,
+pub struct HttpServer<'sb, SocketBuilder> {
+    socket_builder: &'sb SocketBuilder,
     timeouts: ServerTimeouts,
     auto_close_connection: bool,
 }
 
-impl<Socket, const SOCKETS: usize> HttpServer<Socket, SOCKETS>
-where
-    Socket: AbstractSocket + SocketAccept + SocketReadWith,
-{
+impl<'sb, SocketBuilder> HttpServer<'sb, SocketBuilder> {
     /// Create a new HTTP server with default timeouts
     #[must_use]
-    pub fn new(
-        socket_builder: &mut impl AbstractSocketBuilder<Socket = Socket>,
-        endpoint: SocketEndpoint,
-        timeouts: ServerTimeouts,
-    ) -> Self {
-        //The tcp socket life cycle
-        let socket_pool = SocketPool::new(socket_builder, endpoint);
-
+    pub fn new(socket_builder: &'sb SocketBuilder, timeouts: ServerTimeouts) -> Self {
         Self {
-            socket_pool,
+            socket_builder,
             timeouts,
             auto_close_connection: false,
         }
@@ -103,14 +93,16 @@ where
     ///
     /// **Important**: This server only accepts plain HTTP connections.
     /// HTTPS/TLS is not supported by the server (only by the client).
-    pub async fn serve<H>(&self, worker_memory_buf: &mut [MaybeUninit<u8>], handler: &mut H, context_id: usize) -> !
+    pub async fn serve<H>(&self, mut worker_memory: impl HttpMemoryBuffer, mut handler: H, context_id: usize) -> !
     where
         H: HttpHandler,
+        SocketBuilder: AbstractSocketBuilder,
+        <SocketBuilder as AbstractSocketBuilder>::Socket<'sb>: AbstractSocket + SocketReadWith,
     {
         log::info!(
             "WebServer[{}]: HTTP server started on endpoint {:?}",
             context_id,
-            self.socket_pool.endpoint()
+            self.socket_builder.endpoint()
         );
 
         log::debug!("WebServer[{}]: HTTP server started listening", context_id);
@@ -122,9 +114,9 @@ where
 
         loop {
             // Create arena allocator for this connection's request and response processing
-            let mut head_arena_alloc = PrefixArena::from_uninit(worker_memory_buf);
+            let mut head_arena_alloc = PrefixArena::from_uninit(worker_memory.get_buffer());
 
-            let mut socket = self.socket_pool.acquire_next_request().await;
+            let mut socket = self.socket_builder.accept().await;
 
             log::info!(
                 "WebServer[{}]: New connection/request {:?}, {:?}",
@@ -135,7 +127,7 @@ where
 
             let request = match with_timeout(
                 Duration::from_secs(self.timeouts.read_timeout),
-                HttpRequest::try_parse_from_stream(&mut (*socket), &mut head_arena_alloc),
+                HttpRequest::try_parse_from_stream(&mut socket, &mut head_arena_alloc),
             )
             .await
             {
@@ -147,7 +139,7 @@ where
                         e,
                         socket.remote_endpoint()
                     );
-                    self.close_connection(&mut *socket, context_id).await;
+                    self.close_connection(socket, context_id).await;
                     continue;
                 }
                 Err(_) => {
@@ -156,7 +148,7 @@ where
                         context_id,
                         socket.remote_endpoint()
                     );
-                    self.close_connection(&mut *socket, context_id).await;
+                    self.close_connection(socket, context_id).await;
                     continue;
                 }
             };
@@ -175,12 +167,12 @@ where
                     .is_err()
                 {
                     // Handshake failed, close the connection
-                    self.close_connection(&mut *socket, context_id).await;
+                    self.close_connection(socket, context_id).await;
                     continue;
                 }
 
-                let socket_ref: &mut Socket = &mut socket;
-                let mut web_socket = WebSocket::new(socket_ref);
+                //let socket_ref: &mut Socket = &mut socket;
+                let mut web_socket = WebSocket::new(&mut socket);
                 if let Err(e) = handler
                     .handle_websocket_connection(&request, &mut web_socket, context_id)
                     .await
@@ -198,7 +190,7 @@ where
                     log::error!("WebServer[{}]: Error closing WebSocket connection: {}", context_id, e);
                 }
                 // After handling the WebSocket connection, we will close the TCP connection and wait for a new one
-                self.close_connection(&mut *socket, context_id).await;
+                self.close_connection(socket, context_id).await;
                 continue;
             }
             // For regular HTTP requests, we will process them as usual
@@ -210,10 +202,10 @@ where
                 );
 
                 match self
-                    .handle_connection(&mut head_arena_alloc, &request, &mut socket, handler, context_id)
+                    .handle_connection(&mut head_arena_alloc, &request, &mut socket, &mut handler, context_id)
                     .await
                 {
-                    Ok(()) => {
+                    Ok(_) => {
                         log::info!(
                             "WebServer[{}]: Request handled successfully, {:?}",
                             context_id,
@@ -230,7 +222,7 @@ where
                                 context_id
                             );
                         }
-                        self.close_connection(&mut *socket, context_id).await;
+                        self.close_connection(socket, context_id).await;
                         continue;
                     }
                 }
@@ -245,7 +237,7 @@ where
     }
 
     #[cfg(feature = "ws")]
-    async fn web_socket_handshake(
+    async fn web_socket_handshake<Socket: SocketWrite>(
         &self,
         allocator: &mut PrefixArena<'_>,
         web_socket_key: &str,
@@ -268,7 +260,12 @@ where
         }
     }
 
-    async fn send_response(&self, socket: &mut Socket, response_bytes: &[u8], context_id: usize) -> Result<(), ()> {
+    async fn send_response<Socket: SocketWrite>(
+        &self,
+        socket: &mut Socket,
+        response_bytes: &[u8],
+        context_id: usize,
+    ) -> Result<(), ()> {
         #[cfg(any(feature = "defmt", feature = "log"))]
         if response_bytes.len() < 256 {
             log::trace!(
@@ -293,13 +290,17 @@ where
         })
     }
 
-    async fn send_server_internal_error(&self, socket: &mut Socket, context_id: usize) -> Result<(), ()> {
+    async fn send_server_internal_error<Socket: SocketWrite>(
+        &self,
+        socket: &mut Socket,
+        context_id: usize,
+    ) -> Result<(), ()> {
         let error_response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nInternal Server Error";
         self.send_response(socket, error_response, context_id).await
     }
 
     /// Close the connection gracefully
-    async fn close_connection(&self, socket: &mut Socket, context_id: usize) {
+    async fn close_connection<Socket: SocketClose + SocketInfo>(&self, mut socket: Socket, context_id: usize) {
         let remote_endpoint = socket.remote_endpoint();
 
         if socket.close().await.is_err() {
@@ -309,16 +310,17 @@ where
         log::info!("WebServer[{}]: Connection closed {:?}", context_id, remote_endpoint);
     }
 
-    async fn handle_connection<H>(
+    async fn handle_connection<H, Socket>(
         &self,
         allocator: &mut PrefixArena<'_>,
         request: &HttpRequest<'_>,
         http_socket: &mut Socket,
         handler: &mut H,
         context_id: usize,
-    ) -> Result<(), Error>
+    ) -> Result<HttpResponse, Error>
     where
         H: HttpHandler,
+        Socket: SocketWrite,
     {
         // Handle the request
         match with_timeout(
@@ -385,7 +387,8 @@ where
         .with_header_from_slice("Sec-WebSocket-Accept", encoded_hash)
         .await?
         .with_no_body()
-        .await
+        .await?;
+    Ok(())
 }
 
 // Helper function to wrap a timeout logic around a future, since we want to use the same timeout logic for

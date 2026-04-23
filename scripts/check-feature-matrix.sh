@@ -25,8 +25,12 @@ run_for_all_features() {
   for feature_set in "${FEATURE_SETS[@]}"; do
     printf '\n==> %s [%s]\n' "$cargo_subcommand" "$feature_set"
     if ((${#extra_args[@]} == 0)); then
+      # Trace command line for better visibility when running with `all`.
+      echo "Command: cargo $cargo_subcommand --no-default-features --features $feature_set"
       cargo "$cargo_subcommand" --no-default-features --features "$feature_set"
     else
+      # Trace command line for better visibility when running with `all`.
+      echo "Command: cargo $cargo_subcommand --no-default-features --features $feature_set ${extra_args[*]}"
       cargo "$cargo_subcommand" --no-default-features --features "$feature_set" "${extra_args[@]}"
     fi
   done

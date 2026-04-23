@@ -29,6 +29,8 @@ embassy-net = { version = "0.7.1", features = [
 ], optional = true }
 # The `embassy-time` dependency is used for time-related functionality in the Embassy-based implementation.
 embassy-time = { version = "0.5.0", default-features = false, optional = true }
+embassy-sync = { version = "0.7", default-features = false, optional = true }
+embassy-futures = { version = "0.1", default-features = false, optional = true }
 
 # The `ringbuf` dependency is used for the mock implementations of the socket traits, providing a simple
 # ring buffer for testing purposes.
@@ -52,7 +54,7 @@ ringbuf = "0.4.8"
 
 
 [features]
-default = ["mocks", "tokio_impl", "log"]
+default = []
 std = ["embassy-net?/std", "ringbuf?/std", "embassy-time?/std"]
 defmt = [
     "dep:defmt",
@@ -62,7 +64,12 @@ defmt = [
 ]
 mocks = ["dep:ringbuf"]
 log = ["dep:log", "defmt-or-log/log"]
-embassy_impl = ["dep:embassy-net", "dep:embassy-time"]
+embassy_impl = [
+    "dep:embassy-net",
+    "dep:embassy-time",
+    "dep:embassy-sync",
+    "dep:embassy-futures",
+]
 tokio_impl = ["dep:tokio", "std"]
 proto-ipv6 = ["embassy_impl", "embassy-net/proto-ipv6"]
 

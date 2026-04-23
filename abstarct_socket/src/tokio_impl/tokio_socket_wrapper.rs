@@ -4,12 +4,11 @@ use alloc::vec::Vec;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 
 use crate::socket::{
-    SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketErrorType, SocketInfo, SocketRead,
-    SocketReadReady, SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady,
-    SocketWriteWith,
+    SocketClose, SocketConfig, SocketEndpoint, SocketErrorType, SocketInfo, SocketRead, SocketReadReady,
+    SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady, SocketWriteWith,
 };
 
 /// Error type used by the Tokio adapters in this crate.
@@ -19,13 +18,30 @@ pub struct TokioSocketError(pub embedded_io_async::ErrorKind);
 const READ_BUFFER_SIZE: usize = 1024;
 const WRITE_BUFFER_SIZE: usize = 1024;
 
+/// A Tokio-backed wrapper around TCP sockets, listeners, and connected streams.
+pub enum TokioSocketState {
+    /// A configurable socket that has not connected yet.
+    Socket(TcpSocket),
+    /// A connected TCP stream.
+    Stream(TcpStream),
+}
+
+/// A wrapper around Tokio TCP sockets and streams that implements the traits defined in the `socket` module.
+pub struct TokioSocketWrapper {
+    state: TokioSocketState,
+}
+
+impl SocketErrorType for TokioSocketWrapper {
+    type Error = TokioSocketError;
+}
+
 impl SocketReadWith for TokioSocketWrapper {
     async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
-        match self {
-            TokioSocketWrapper::Stream(stream) => {
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => {
                 stream.readable().await?;
                 let mut buf = [0u8; READ_BUFFER_SIZE];
                 let peeked = stream.peek(&mut buf).await?;
@@ -36,11 +52,8 @@ impl SocketReadWith for TokioSocketWrapper {
                 }
                 Ok(result)
             }
-            TokioSocketWrapper::Socket(_) => {
+            TokioSocketState::Socket(_) => {
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Tokio socket is not connected").into())
-            }
-            TokioSocketWrapper::Listener(_) => {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Tokio listener cannot be read from").into())
             }
         }
     }
@@ -81,8 +94,8 @@ impl SocketWriteWith for TokioSocketWrapper {
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
-        match self {
-            TokioSocketWrapper::Stream(stream) => {
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => {
                 stream.writable().await?;
                 let mut buf = [0u8; WRITE_BUFFER_SIZE];
                 let (written, result) = f(&mut buf);
@@ -90,11 +103,8 @@ impl SocketWriteWith for TokioSocketWrapper {
                 stream.write_all(&buf[..written]).await?;
                 Ok(result)
             }
-            TokioSocketWrapper::Socket(_) => {
+            TokioSocketState::Socket(_) => {
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Tokio socket is not connected").into())
-            }
-            TokioSocketWrapper::Listener(_) => {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Tokio listener cannot be written to").into())
             }
         }
     }
@@ -157,93 +167,64 @@ impl embedded_io_async::Error for TokioSocketError {
     }
 }
 
-/// A Tokio-backed wrapper around TCP sockets, listeners, and connected streams.
-pub enum TokioSocketWrapper {
-    /// A configurable socket that has not connected yet.
-    Socket(TcpSocket),
-    /// A listening socket that can accept incoming connections.
-    Listener(TcpListener),
-    /// A connected TCP stream.
-    Stream(TcpStream),
-}
-
 impl TokioSocketWrapper {
-    /// Creates a wrapper around an unconnected Tokio socket.
-    pub const fn new_socket(socket: TcpSocket) -> Self {
-        Self::Socket(socket)
-    }
-
-    /// Creates a wrapper around a Tokio listener.
-    pub fn new_listener(listener: TcpListener) -> Self {
-        Self::Listener(listener)
-    }
-
     /// Creates a wrapper around a connected Tokio stream.
-    pub fn new_stream(stream: TcpStream) -> Self {
-        Self::Stream(stream)
+    pub(crate) fn new_stream(stream: TcpStream) -> Self {
+        Self {
+            state: TokioSocketState::Stream(stream),
+        }
     }
-}
-
-impl SocketErrorType for TokioSocketWrapper {
-    type Error = TokioSocketError;
 }
 
 impl SocketRead for TokioSocketWrapper {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        match self {
-            Self::Stream(stream) => stream.read(buf).await.map_err(Into::into),
-            Self::Socket(_) => Err(invalid_input_error("Tokio socket is not connected").into()),
-            Self::Listener(_) => Err(invalid_input_error("Tokio listener cannot be read from").into()),
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => stream.read(buf).await.map_err(Into::into),
+            TokioSocketState::Socket(_) => Err(invalid_input_error("Tokio socket is not connected").into()),
         }
     }
 }
 
 impl SocketWrite for TokioSocketWrapper {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        match self {
-            Self::Stream(stream) => stream.write(buf).await.map_err(Into::into),
-            Self::Socket(_) => Err(invalid_input_error("Tokio socket is not connected").into()),
-            Self::Listener(_) => Err(invalid_input_error("Tokio listener cannot be written to").into()),
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => stream.write(buf).await.map_err(Into::into),
+            TokioSocketState::Socket(_) => Err(invalid_input_error("Tokio socket is not connected").into()),
         }
     }
 }
 
 impl SocketReadReady for TokioSocketWrapper {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        match self {
-            Self::Stream(_) => Ok(true),
-            Self::Socket(_) | Self::Listener(_) => Ok(false),
+        match &mut self.state {
+            TokioSocketState::Stream(_) => Ok(true),
+            TokioSocketState::Socket(_) => Ok(false),
         }
     }
 }
 
 impl SocketWriteReady for TokioSocketWrapper {
     fn write_ready(&mut self) -> Result<bool, Self::Error> {
-        match self {
-            Self::Stream(stream) => match stream.try_write(&[]) {
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => match stream.try_write(&[]) {
                 Ok(_) => Ok(true),
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
                 Err(error) => Err(error.into()),
             },
-            Self::Socket(_) | Self::Listener(_) => Ok(false),
+            TokioSocketState::Socket(_) => Ok(false),
         }
     }
 }
 
 impl SocketInfo for TokioSocketWrapper {
     fn local_endpoint(&self) -> Option<SocketEndpoint> {
-        match self {
-            Self::Socket(socket) => {
+        match &self.state {
+            TokioSocketState::Socket(socket) => {
                 let local_addr = socket.local_addr().ok()?;
                 let port = local_addr.port();
                 Some(SocketEndpoint::new(local_addr.ip(), port))
             }
-            Self::Listener(listener) => {
-                let local_addr = listener.local_addr().ok()?;
-                let port = local_addr.port();
-                Some(SocketEndpoint::new(local_addr.ip(), port))
-            }
-            Self::Stream(stream) => {
+            TokioSocketState::Stream(stream) => {
                 let local_addr = stream.local_addr().ok()?;
                 let port = local_addr.port();
                 Some(SocketEndpoint::new(local_addr.ip(), port))
@@ -252,20 +233,20 @@ impl SocketInfo for TokioSocketWrapper {
     }
 
     fn remote_endpoint(&self) -> Option<SocketEndpoint> {
-        match self {
-            Self::Stream(stream) => {
+        match &self.state {
+            TokioSocketState::Stream(stream) => {
                 let remote_addr = stream.peer_addr().ok()?;
                 let port = remote_addr.port();
                 Some(SocketEndpoint::new(remote_addr.ip(), port))
             }
-            Self::Socket(_) | Self::Listener(_) => None,
+            TokioSocketState::Socket(_) => None,
         }
     }
 
     fn state(&self) -> crate::socket::State {
-        match self {
-            Self::Stream(_) => crate::socket::State::Established,
-            Self::Socket(_) | Self::Listener(_) => crate::socket::State::Closed,
+        match &self.state {
+            TokioSocketState::Stream(_) => crate::socket::State::Established,
+            TokioSocketState::Socket(_) => crate::socket::State::Closed,
         }
     }
 }
@@ -274,67 +255,9 @@ impl SocketClose for TokioSocketWrapper {
     type Error = TokioSocketError;
 
     async fn close(&mut self) -> Result<(), Self::Error> {
-        match self {
-            Self::Stream(stream) => stream.shutdown().await.map_err(Into::into),
-            Self::Socket(_) | Self::Listener(_) => Ok(()),
-        }
-    }
-}
-
-impl SocketConnect for TokioSocketWrapper {
-    type Error = TokioSocketError;
-
-    async fn connect<T>(&mut self, endpoint: T) -> Result<(), Self::Error>
-    where
-        T: Into<SocketEndpoint>,
-    {
-        let endpoint = endpoint.into();
-        match self {
-            Self::Socket(socket) => {
-                let replacement = if endpoint.is_ipv4() {
-                    TcpSocket::new_v4().map_err(TokioSocketError::from)?
-                } else {
-                    TcpSocket::new_v6().map_err(TokioSocketError::from)?
-                };
-                let socket = core::mem::replace(socket, replacement);
-                let stream = socket.connect(endpoint).await.map_err(TokioSocketError::from)?;
-                *self = Self::Stream(stream);
-                Ok(())
-            }
-            Self::Stream(_) => Err(invalid_input_error("Tokio stream is already connected").into()),
-            Self::Listener(_) => Err(invalid_input_error("Tokio listener cannot initiate connections").into()),
-        }
-    }
-}
-
-impl SocketAccept for TokioSocketWrapper {
-    type Error = TokioSocketError;
-
-    async fn accept<EP>(&mut self, endpoint: EP) -> Result<(), Self::Error>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        let endpoint = endpoint.into();
-        loop {
-            match self {
-                Self::Listener(listener) => {
-                    let (stream, _) = listener.accept().await?;
-                    *self = Self::Stream(stream);
-                    return Ok(());
-                }
-                Self::Stream(s) => {
-                    s.shutdown().await?;
-                    if endpoint.is_ipv4() {
-                        *self = Self::Socket(TcpSocket::new_v4()?);
-                    } else {
-                        *self = Self::Socket(TcpSocket::new_v6()?);
-                    }
-                }
-                Self::Socket(_) => {
-                    let listener = TcpListener::bind(endpoint).await?;
-                    *self = Self::Listener(listener);
-                }
-            }
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => stream.shutdown().await.map_err(Into::into),
+            TokioSocketState::Socket(_) => Ok(()),
         }
     }
 }
@@ -343,12 +266,12 @@ impl SocketConfig for TokioSocketWrapper {
     /// Set the TCP keep-alive option for the socket, with the specified interval for sending keep-alive
     /// probes.
     fn set_keep_alive(&mut self, interval: Option<core::time::Duration>) {
-        match self {
-            Self::Socket(s) => {
+        match &self.state {
+            TokioSocketState::Socket(s) => {
                 // Tokio exposes keep-alive as a boolean on TcpSocket, so enabling it uses the OS default interval.
                 s.set_keepalive(interval.is_some()).ok();
             }
-            Self::Listener(_) | Self::Stream(_) => {}
+            TokioSocketState::Stream(_) => {}
         }
     }
 
@@ -528,11 +451,11 @@ impl SocketWriteReady for TokioSocketOwnedWriteHalfWrapper {
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitReadReady for TokioSocketWrapper {
     async fn wait_read_ready(&self) -> () {
-        match self {
-            Self::Stream(stream) => {
+        match &self.state {
+            TokioSocketState::Stream(stream) => {
                 let _ = stream.readable().await;
             }
-            Self::Socket(_) | Self::Listener(_) => {
+            TokioSocketState::Socket(_) => {
                 panic!(
                     "Tokio sockets and listeners are never ready for reading, so wait_read_ready should not be called on them"
                 );
@@ -549,13 +472,20 @@ impl SocketWaitReadReady for TokioSocketReadHalfWrapper<'_> {
 }
 
 // TODO: Implement tests for this trait implementation.
+impl SocketWaitReadReady for TokioSocketOwnedReadHalfWrapper {
+    async fn wait_read_ready(&self) -> () {
+        let _ = self.inner.readable().await;
+    }
+}
+
+// TODO: Implement tests for this trait implementation.
 impl SocketWaitWriteReady for TokioSocketWrapper {
     async fn wait_write_ready(&self) -> () {
-        match self {
-            Self::Stream(stream) => {
+        match &self.state {
+            TokioSocketState::Stream(stream) => {
                 let _ = stream.writable().await;
             }
-            Self::Socket(_) | Self::Listener(_) => {
+            TokioSocketState::Socket(_) => {
                 panic!(
                     "Tokio sockets and listeners are never ready for writing, so wait_write_ready should not be called on them"
                 );
@@ -566,6 +496,13 @@ impl SocketWaitWriteReady for TokioSocketWrapper {
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitWriteReady for TokioSocketWriteHalfWrapper<'_> {
+    async fn wait_write_ready(&self) -> () {
+        let _ = self.0.writable().await;
+    }
+}
+
+// TODO: Implement tests for this trait implementation.
+impl SocketWaitWriteReady for TokioSocketOwnedWriteHalfWrapper {
     async fn wait_write_ready(&self) -> () {
         let _ = self.0.writable().await;
     }

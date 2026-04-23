@@ -20,6 +20,17 @@ pub struct BuildChankedBodyWithTrailer;
 /// A simple marker type for trailer stage
 pub struct Trailer;
 
+/// The response type representing an HTTP response.
+/// This struct is deliberately empty as response is being sent in a streaming manner using HttpResponseBuilder.
+pub struct HttpResponse(core::marker::PhantomData<()>);
+
+impl HttpResponse {
+    /// Creates a new HttpResponse instance.
+    const fn new() -> Self {
+        HttpResponse(core::marker::PhantomData)
+    }
+}
+
 /// HTTP Response Builder for constructing HTTP responses in a staged manner.
 pub struct HttpResponseBuilder<'a, WriteSocket: SocketWrite, Stage = NotCreated> {
     base: BuilderBase<'a, WriteSocket>,
@@ -64,7 +75,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 
     /// Creates a preflight response with CORS-like PNA headers.
-    pub async fn preflight_response(self) -> Result<(), Error> {
+    pub async fn preflight_response(self) -> Result<HttpResponse, Error> {
         self.with_status(StatusCode::NoContent)
             .await?
             .with_cors_like_pna_headers()
@@ -107,11 +118,11 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
 
     /// Finalizes response.
     #[inline(always)]
-    pub async fn with_no_body(mut self) -> Result<(), Error> {
+    pub async fn with_no_body(mut self) -> Result<HttpResponse, Error> {
         self.add_header("Content-Length", "0").await?;
         self.new_line().await?;
         self.base.flush().await?;
-        Ok(())
+        Ok(HttpResponse::new())
     }
 
     /// Prepares the builder to add a chunked body to the HTTP response.
@@ -142,7 +153,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 
     /// Prepares the builder to add a binary body to the HTTP response.
-    pub async fn with_body_from_slice(mut self, s: &[u8]) -> Result<(), Error> {
+    pub async fn with_body_from_slice(mut self, s: &[u8]) -> Result<HttpResponse, Error> {
         // Prepare space for Content-Length header
         self.write_header_name("Content-Length").await?;
 
@@ -154,16 +165,17 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
         self.new_line().await?;
 
         self.base.extend_from_slice(s).await?;
-        self.base.flush().await
+        self.base.flush().await?;
+        Ok(HttpResponse::new())
     }
 
     /// Prepares the builder to add a text body to the HTTP response.
-    pub async fn with_body_from_str(self, s: &str) -> Result<(), Error> {
+    pub async fn with_body_from_str(self, s: &str) -> Result<HttpResponse, Error> {
         self.with_body_from_slice(s.as_bytes()).await
     }
 
     /// Prepares the builder to add a plain text body to the HTTP response.
-    pub async fn with_plain_text_body(self, s: &str) -> Result<(), Error> {
+    pub async fn with_plain_text_body(self, s: &str) -> Result<HttpResponse, Error> {
         self.with_header("Content-Type", "text/plain; charset=utf-8")
             .await?
             .with_body_from_str(s)
@@ -193,11 +205,11 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 
     /// Creates the response out of compressed HTML page
-    /// # Note:
+    /// # Note:s
     /// The page data must be in HTML format compressed with gzip algorithm.
     /// No check is performed to verify the format.
     ///
-    pub async fn with_compressed_page(self, page_data: &[u8]) -> Result<(), Error> {
+    pub async fn with_compressed_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
         self.with_header("Content-Encoding", "gzip")
             .await?
             .with_header("Content-Type", "text/html; charset=utf-8")
@@ -211,7 +223,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     /// The page data must be in HTML format.
     /// No check is performed to verify the format.
     ///
-    pub async fn with_page(self, page_data: &[u8]) -> Result<(), Error> {
+    pub async fn with_page(self, page_data: &[u8]) -> Result<HttpResponse, Error> {
         self.with_header("Content-Type", "text/html; charset=utf-8")
             .await?
             .with_body_from_slice(page_data)
@@ -252,10 +264,11 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 
     /// Finalizes the chunked body by writing the zero-length chunk.
-    pub async fn finalize_chunked_body(mut self) -> Result<(), Error> {
+    pub async fn finalize_chunked_body(mut self) -> Result<HttpResponse, Error> {
         // Write zero-length chunk to indicate end of chunks
         self.base.extend_from_str("0\r\n\r\n").await?;
-        self.base.flush().await
+        self.base.flush().await?;
+        Ok(HttpResponse::new())
     }
 }
 
@@ -299,9 +312,9 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 
     /// Finalizes the chunked body by writing the zero-length chunk.
-    pub async fn finalize_trailer(mut self) -> Result<(), Error> {
+    pub async fn finalize_trailer(mut self) -> Result<HttpResponse, Error> {
         self.base.flush().await?;
-        Ok(())
+        Ok(HttpResponse::new())
     }
 }
 

@@ -18,7 +18,7 @@ authors = ["rttf <contact@rttf.dev>"]
 
 
 [features]
-default = ["ws", "tokio_impl", "log"]
+default = ["tokio_impl", "log"]
 std = ["protocols/std", "abstarct_socket/std", "embedded-io-async/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
 defmt = [
@@ -47,7 +47,6 @@ tokio_impl = ["dep:tokio", "abstarct_socket/tokio_impl", "std"]
 [dependencies]
 defmt = { version = "1.0", optional = true }
 log = { version = "0.4", optional = true }
-
 defmt-or-log = { version = "0.2.3", default-features = false }
 
 embassy-net = { version = "0.7.1", features = [
@@ -78,29 +77,22 @@ embassy-futures = "0.1"
 
 [dev-dependencies]
 futures-lite = "2.0"
-abstarct_socket = { path = "./abstarct_socket", default-features = false, features = [
-    "std",
-    "mocks",
-] }
-protocols = { path = "./protocols", default-features = false, features = [
-    "ws",
-    "std",
-    "mocks",
-] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
-log = { version = "0.4.29" }
-embassy-executor = { version = "0.10.0", features = [
-    "platform-std",
-    "executor-thread",
-    "log",
+log = "0.4"
+defmt-or-log = { version = "0.2.3", default-features = false, features = [] }
+env_logger = "0.11"
+abstarct_socket = { path = "./abstarct_socket", default-features = false, features = [
+    "mocks",
+    "std",
 ] }
 
 [[example]]
-name = "hello_world"
-path = "examples/hello_world.rs"
-# The example depends on the Embassy implementation surface.
-required-features = ["embassy_impl"]
+name = "tokio_hello_world"
+path = "examples/tokio_hello_world.rs"
+# The example depends on the Tokio implementation surface.
+required-features = ["tokio_impl", "log"]
+
 
 [workspace]
 members = [".", "abstarct_socket", "protocols"]

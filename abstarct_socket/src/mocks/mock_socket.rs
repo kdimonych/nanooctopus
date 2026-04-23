@@ -1,8 +1,5 @@
 pub use crate::mocks::error::MockStreamError;
-use crate::socket::{
-    SocketAccept, SocketClose, SocketConfig, SocketConnect, SocketEndpoint, SocketInfo, SocketReadWith,
-    SocketWriteWith, State,
-};
+use crate::socket::{SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketReadWith, SocketWriteWith, State};
 use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 extern crate alloc;
 extern crate std;
@@ -18,7 +15,6 @@ type ReadyCallback = dyn FnMut() -> Result<bool, MockStreamError>;
 type CloseCallback = dyn FnMut() -> ResultFuture<(), MockStreamError>;
 type EndpointCallback = dyn Fn() -> Option<SocketEndpoint>;
 type StateCallback = dyn Fn() -> State;
-type AcceptCallback = dyn FnMut(SocketEndpoint) -> ResultFuture<(), MockAcceptError>;
 type DurationCallback = dyn FnMut(Option<core::time::Duration>);
 
 /// A highly customizable mock socket implementation for testing purposes.
@@ -34,8 +30,6 @@ pub struct MockSocket {
     on_local_endpoint: Option<Box<EndpointCallback>>,
     on_remote_endpoint: Option<Box<EndpointCallback>>,
     on_state: Option<Box<StateCallback>>,
-    on_accept: Option<Box<AcceptCallback>>,
-    on_connect: Option<Box<AcceptCallback>>,
     on_set_keep_alive: Option<Box<DurationCallback>>,
     on_set_timeout: Option<Box<DurationCallback>>,
 }
@@ -64,8 +58,6 @@ impl MockSocket {
             on_local_endpoint: None,
             on_remote_endpoint: None,
             on_state: None,
-            on_accept: None,
-            on_connect: None,
             on_set_keep_alive: None,
             on_set_timeout: None,
         }
@@ -138,24 +130,6 @@ impl MockSocket {
         F: 'static + Fn() -> State,
     {
         self.on_state = Some(Box::new(callback));
-    }
-
-    /// Set the callback for accepting incoming connections. The callback should return a new mock socket
-    /// representing the accepted connection or an error.
-    pub fn set_on_accept<F>(&mut self, callback: F)
-    where
-        F: 'static + FnMut(SocketEndpoint) -> ResultFuture<(), MockAcceptError>,
-    {
-        self.on_accept = Some(Box::new(callback));
-    }
-
-    /// Set the callback for the connect operation. The callback should return Ok(()) if the connection was successful,
-    /// or an error if an error occurs while connecting.
-    pub fn set_on_connect<F>(&mut self, callback: F)
-    where
-        F: 'static + FnMut(SocketEndpoint) -> ResultFuture<(), MockAcceptError>,
-    {
-        self.on_connect = Some(Box::new(callback));
     }
 
     /// Set the callback for the set_keep_alive operation. The callback should return Ok(()) if the operation was successful,
@@ -355,42 +329,6 @@ impl SocketInfo for MockSocket {
             on_state()
         } else {
             log::panic!("State callback not set for MockSocket");
-        }
-    }
-}
-
-impl SocketAccept for MockSocket {
-    type Error = MockAcceptError;
-
-    #[inline]
-    async fn accept<EP>(&mut self, endpoint: EP) -> Result<(), Self::Error>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        if let Some(on_accept) = &mut self.on_accept {
-            let endpoint = endpoint.into();
-            on_accept(endpoint).await?;
-            Ok(())
-        } else {
-            log::panic!("Accept callback not set for MockSocket");
-        }
-    }
-}
-
-impl SocketConnect for MockSocket {
-    type Error = MockAcceptError;
-
-    #[inline]
-    async fn connect<EP>(&mut self, endpoint: EP) -> Result<(), Self::Error>
-    where
-        EP: Into<SocketEndpoint>,
-    {
-        if let Some(on_connect) = &mut self.on_connect {
-            let endpoint = endpoint.into();
-            on_connect(endpoint).await?;
-            Ok(())
-        } else {
-            log::panic!("Connect callback not set for MockSocket");
         }
     }
 }
@@ -607,44 +545,6 @@ mod tests {
         mock_socket.set_on_state(on_state_always(State::Established));
 
         assert_eq!(mock_socket.state(), State::Established);
-    }
-
-    #[tokio::test]
-    async fn test_mock_socket_accept_forwards_endpoint() {
-        let expected = SocketEndpoint::new(core::net::IpAddr::V4(core::net::Ipv4Addr::LOCALHOST), 8081);
-        let seen = Rc::new(RefCell::new(None));
-
-        let mut mock_socket = MockSocket::new();
-        mock_socket.set_on_accept({
-            let seen = Rc::clone(&seen);
-            move |endpoint| {
-                *seen.borrow_mut() = Some(endpoint);
-                Box::pin(ready(Ok(())))
-            }
-        });
-
-        mock_socket.accept(expected).await.unwrap();
-
-        assert_eq!(*seen.borrow(), Some(expected));
-    }
-
-    #[tokio::test]
-    async fn test_mock_socket_connect_forwards_endpoint() {
-        let expected = SocketEndpoint::new(core::net::IpAddr::V4(core::net::Ipv4Addr::LOCALHOST), 9091);
-        let seen = Rc::new(RefCell::new(None));
-
-        let mut mock_socket = MockSocket::new();
-        mock_socket.set_on_connect({
-            let seen = Rc::clone(&seen);
-            move |endpoint| {
-                *seen.borrow_mut() = Some(endpoint);
-                Box::pin(ready(Ok(())))
-            }
-        });
-
-        mock_socket.connect(expected).await.unwrap();
-
-        assert_eq!(*seen.borrow(), Some(expected));
     }
 
     #[test]
