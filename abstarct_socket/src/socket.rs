@@ -227,29 +227,29 @@ impl<T: ?Sized + SocketStream + SocketInfo + SocketClose + SocketConfig> Abstrac
 /// socket operations across different platforms and implementations. Implementers of the `Socket` trait must also
 /// implement the `SocketInfo`, `SocketClose`, `SocketRead`, `SocketReadReady`, `SocketWrite`, `SocketWriteReady`,
 /// `SocketReadWith`, and `SocketWriteWith` traits.
-pub trait ExtendedSoxet: AbstractSocket + SocketReadWith + SocketWriteWith {}
-impl<T: ?Sized + AbstractSocket + SocketReadWith + SocketWriteWith> ExtendedSoxet for T {}
+pub trait ExtendedSocket: AbstractSocket + SocketReadWith + SocketWriteWith {}
+impl<T: ?Sized + AbstractSocket + SocketReadWith + SocketWriteWith> ExtendedSocket for T {}
 
-/// A trait representing a socket builder, which provides methods for constructing socket instances and retrieving
-/// socket endpoint information. This trait is designed to be implemented by various socket builder types, allowing
+/// A trait representing a socket listener, which provides methods for constructing socket instances and retrieving
+/// socket endpoint information. This trait is designed to be implemented by various socket listener types, allowing
 /// for a consistent interface for constructing socket instances across different platforms and implementations. The
-/// `AbstractSocketBuilder` trait includes an associated type `Socket` that represents the type of socket produced
-/// by the builder, and methods for accepting incoming connections and retrieving the socket endpoint.
-/// Implementers of the `AbstractSocketBuilder` trait must provide an implementation for the `accept` method, which
-/// constructs a new socket instance based on the builder's configuration, and the `endpoint` method, which returns
-/// the socket endpoint that the builder is configured to listen on.
-/// The `AbstractSocketBuilder` trait is designed to be flexible and extensible, allowing for different types of
-/// socket builders to be implemented while still adhering to a common interface for constructing socket instances
+/// `AbstractSocketListener` trait includes an associated type `Socket` that represents the type of socket produced
+/// by the listener, and methods for accepting incoming connections and retrieving the socket endpoint.
+/// Implementers of the `AbstractSocketListener` trait must provide an implementation for the `accept` method, which
+/// constructs a new socket instance based on the listener's configuration, and the `endpoint` method, which returns
+/// the socket endpoint that the listener is configured to listen on.
+/// The `AbstractSocketListener` trait is designed to be flexible and extensible, allowing for different types of
+/// socket listeners to be implemented while still adhering to a common interface for constructing socket instances
 /// and retrieving endpoint information.
-pub trait AbstractSocketBuilder {
-    /// The associated type representing the socket produced by the builder.
-    /// The produced socket has a lifetime parameter that is tied to the builder, ensuring that the socket cannot
-    /// outlive the builder that created it.
+pub trait AbstractSocketListener {
+    /// The associated type representing the socket produced by the listener.
+    /// The produced socket has a lifetime parameter that is tied to the listener, ensuring that the socket cannot
+    /// outlive the listener that created it.
     type Socket<'a>
     where
         Self: 'a;
 
-    /// Accept an incoming connection and construct a new socket instance based on the builder's configuration.
+    /// Accept an incoming connection and construct a new socket instance based on the listener's configuration.
     /// This method should block until a new connection is accepted, and has some pending data to be read from
     /// the socket, or until an error occurs.
     ///
@@ -259,12 +259,12 @@ pub trait AbstractSocketBuilder {
     /// Note: this method should not panic on errors.
     fn accept(&self) -> impl core::future::Future<Output = Self::Socket<'_>>;
 
-    /// Get the socket endpoint that the builder is configured to listen on.
-    /// This method should return the endpoint that the builder is currently configured to bind to,
+    /// Get the socket endpoint that the listener is configured to listen on.
+    /// This method should return the endpoint that the listener is currently configured to bind to,
     /// which can be used for informational purposes or for constructing socket instances that need
     /// to know the local endpoint.
     ///
     /// ### Returns
-    /// - Returns a `SocketEndpoint` representing the endpoint that the builder is configured to listen on.
+    /// - Returns a `SocketEndpoint` representing the endpoint that the listener is configured to listen on.
     fn endpoint(&self) -> SocketEndpoint;
 }

@@ -24,7 +24,7 @@ The main target is parity between Embassy TCP sockets and the web server impleme
 - `SocketStream`: the socket read/write related functionality.
 - `SocketAccept`: the connection accept functionality.
 - `SocketConnect`: the external connection functionality.
-- `AbstractSocketBuilder`: a tiny builder trait used to construct implementation-specific sockets.
+- `AbstractSocketListener`: a tiny builder trait used to construct implementation-specific sockets.
 - `StreamSearch`: helpers for reading until a byte or sequence without duplicating parsing logic in the server.
 
 ## Feature flags
@@ -64,7 +64,7 @@ assert_eq!(header, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
 `TokioTcpSocketBuilder` gives the server a socket-shaped object that still behaves like Tokio underneath.
 
 ```no_run
-use abstarct_socket::socket::{AbstractSocketBuilder, SocketConnect, SocketInfo};
+use abstarct_socket::socket::{AbstractSocketListener, SocketConnect, SocketInfo};
 use abstarct_socket::tokio_impl::socket::{IpVersion, TokioTcpSocketBuilder};
 
 #[tokio::main(flavor = "current_thread")]
@@ -85,7 +85,7 @@ Embassy keeps ownership of the network stack and the I/O buffers. The builder ju
 
 ```ignore
 use abstarct_socket::embassy_impl::socket::EmbassyTcpSocketBuilder;
-use abstarct_socket::socket::AbstractSocketBuilder;
+use abstarct_socket::socket::AbstractSocketListener;
 
 let mut rx_buffer = [0u8; 1024];
 let mut tx_buffer = [0u8; 1024];

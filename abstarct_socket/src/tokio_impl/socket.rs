@@ -4,17 +4,17 @@ pub use crate::tokio_impl::tokio_socket_wrapper::{
     TokioSocketWriteHalfWrapper,
 };
 
-use crate::socket::{AbstractSocketBuilder, SocketEndpoint};
+use crate::socket::{AbstractSocketListener, SocketEndpoint};
 use defmt_or_log as log;
 use tokio::net::TcpListener;
 
 /// Tokio implementation of a socket builder that borrows the TcpSocket for its lifetime.
-pub struct TokioTcpSocketBuilder<'stack> {
+pub struct TcpListenerBuilder<'stack> {
     listener: TcpListener,
     _marker: core::marker::PhantomData<&'stack ()>,
 }
 
-impl<'stack> TokioTcpSocketBuilder<'stack> {
+impl<'stack> TcpListenerBuilder<'stack> {
     /// Create a new TokioTcpSocketBuilder with the specified endpoint.
     /// The endpoint can be a socket address or a string that can be parsed into one.
     /// The builder will bind to the endpoint and be ready to accept connections.
@@ -38,7 +38,7 @@ impl<'stack> TokioTcpSocketBuilder<'stack> {
     }
 }
 
-impl<'stack> AbstractSocketBuilder for TokioTcpSocketBuilder<'stack> {
+impl<'stack> AbstractSocketListener for TcpListenerBuilder<'stack> {
     type Socket<'a>
         = TokioSocketWrapper
     where
@@ -231,12 +231,12 @@ mod tests {
     }
 
     mod tokio_builder {
-        use crate::socket::AbstractSocketBuilder;
-        use crate::tokio_impl::socket::{IpVersion, TokioTcpSocketBuilder};
+        use crate::socket::AbstractSocketListener;
+        use crate::tokio_impl::socket::{IpVersion, TcpListenerBuilder};
 
         #[test]
         fn builder_creates_socket() {
-            let mut builder = TokioTcpSocketBuilder::new(IpVersion::V4);
+            let mut builder = TcpListenerBuilder::new(IpVersion::V4);
             let _wrapper = builder.build();
         }
     }

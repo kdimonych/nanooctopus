@@ -96,8 +96,8 @@ impl<'sb, SocketBuilder> HttpServer<'sb, SocketBuilder> {
     pub async fn serve<H>(&self, mut worker_memory: impl HttpMemoryBuffer, mut handler: H, context_id: usize) -> !
     where
         H: HttpHandler,
-        SocketBuilder: AbstractSocketBuilder,
-        <SocketBuilder as AbstractSocketBuilder>::Socket<'sb>: AbstractSocket + SocketReadWith,
+        SocketBuilder: AbstractSocketListener,
+        <SocketBuilder as AbstractSocketListener>::Socket<'sb>: AbstractSocket + SocketReadWith,
     {
         log::info!(
             "WebServer[{}]: HTTP server started on endpoint {:?}",

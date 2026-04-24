@@ -1,7 +1,7 @@
 use heapless::spsc::Queue;
 
 use crate::socket::{
-    AbstractSocketBuilder, SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketReadWith, SocketWaitReadReady,
+    AbstractSocketListener, SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketReadWith, SocketWaitReadReady,
     SocketWaitWriteReady, SocketWriteWith, State,
 };
 
@@ -181,15 +181,15 @@ type MutexGuard<'a, T> = embassy_sync::mutex::MutexGuard<'a, NoopRawMutex, T>;
 pub type SocketGuard<'a, 'stack> = MutexGuard<'a, TcpSocket<'stack>>;
 type Socket<'a> = Mutex<TcpSocket<'a>>;
 
-/// Embassy-net based implementation of AbstractSocketBuilder for TCP sockets. This builder manages a pool of
+/// Embassy-net based implementation of AbstractSocketListener for TCP sockets. This builder manages a pool of
 /// TCP sockets and accepts incoming connections on a specified endpoint.
-pub struct EmbassyTcpSocketBuilder<'stack, const SOCKETS: usize> {
+pub struct TcpSocketPoolBuilder<'stack, const SOCKETS: usize> {
     sockets: [Socket<'stack>; SOCKETS],
     ready: Mutex<Queue<usize, SOCKETS>>,
     endpoint: SocketEndpoint,
 }
 
-impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
+impl<'stack, const SOCKETS: usize> TcpSocketPoolBuilder<'stack, SOCKETS> {
     /// Create a new EmbassyTcpSocketBuilder with the given stack and buffers.
     ///
     /// ### Arguments
@@ -242,7 +242,7 @@ impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
             })
         };
 
-        EmbassyTcpSocketBuilder::<'stack, SOCKETS> {
+        TcpSocketPoolBuilder::<'stack, SOCKETS> {
             sockets,
             ready: Mutex::new(Queue::new()),
             endpoint,
@@ -250,7 +250,7 @@ impl<'stack, const SOCKETS: usize> EmbassyTcpSocketBuilder<'stack, SOCKETS> {
     }
 }
 
-impl<'stack, const SOCKETS: usize> AbstractSocketBuilder for EmbassyTcpSocketBuilder<'stack, SOCKETS> {
+impl<'stack, const SOCKETS: usize> AbstractSocketListener for TcpSocketPoolBuilder<'stack, SOCKETS> {
     type Socket<'a>
         = SocketGuard<'a, 'stack>
     where

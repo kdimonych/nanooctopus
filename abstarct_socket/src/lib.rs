@@ -12,7 +12,7 @@ pub mod find_sequence;
 pub mod socket;
 
 /// Socket builder trait and related utilities for constructing socket instances.
-pub use socket::AbstractSocketBuilder;
+pub use socket::AbstractSocketListener;
 
 /// Implementations for various socket types.
 #[cfg(feature = "embassy_impl")]

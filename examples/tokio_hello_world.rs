@@ -1,6 +1,6 @@
 use nanooctopus::{
     Error, HttpAllocator, HttpHandler, HttpRequest, HttpResponseBuilder, HttpServer, HttpSocketWrite, ServerTimeouts,
-    SocketEndpoint, StatusCode, TokioTcpSocketBuilder, response::HttpResponse, worker_memory::HttpWorkerMemory,
+    SocketEndpoint, StatusCode, TcpListenerBuilder, response::HttpResponse, worker_memory::HttpWorkerMemory,
 };
 
 struct HelloWorldHandler;
@@ -36,7 +36,7 @@ async fn main() {
 
     tokio::task::spawn_local(async move {
         let socket_builder =
-            TokioTcpSocketBuilder::new(SocketEndpoint::new([127, 0, 0, 1].try_into().unwrap(), 8080)).await;
+            TcpListenerBuilder::new(SocketEndpoint::new([127, 0, 0, 1].try_into().unwrap(), 8080)).await;
 
         let server = HttpServer::new(&socket_builder, ServerTimeouts::default());
 

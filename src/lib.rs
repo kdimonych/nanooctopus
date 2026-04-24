@@ -57,12 +57,12 @@ pub use protocols::header::{HttpHeader, headers, mime_types};
 pub use protocols::method::HttpMethod;
 pub use protocols::status_code::StatusCode;
 
-pub use abstarct_socket::socket::{AbstractSocketBuilder, SocketEndpoint};
+pub use abstarct_socket::socket::{AbstractSocketListener, SocketEndpoint};
 
 #[cfg(feature = "embassy_impl")]
-pub use abstarct_socket::embassy_impl::socket::EmbassyTcpSocketBuilder;
+pub use abstarct_socket::embassy_impl::socket::TcpSocketPoolBuilder;
 #[cfg(feature = "tokio_impl")]
-pub use abstarct_socket::tokio_impl::socket::TokioTcpSocketBuilder;
+pub use abstarct_socket::tokio_impl::socket::TcpListenerBuilder;
 
 pub use allocator::HttpAllocator;
 pub use request::HttpRequest;
