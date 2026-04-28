@@ -60,7 +60,7 @@ pub use protocols::status_code::StatusCode;
 pub use abstarct_socket::socket::{AbstractSocketListener, SocketEndpoint};
 
 #[cfg(feature = "embassy_impl")]
-pub use abstarct_socket::embassy_impl::socket::TcpSocketPoolBuilder;
+pub use abstarct_socket::embassy_impl::tcp_socket_pool::{TcpSocketPool, TcpSocketPoolRunner, TcpSocketPoolState};
 #[cfg(feature = "tokio_impl")]
 pub use abstarct_socket::tokio_impl::socket::TcpListenerBuilder;
 

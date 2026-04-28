@@ -250,8 +250,7 @@ pub trait AbstractSocketListener {
         Self: 'a;
 
     /// Accept an incoming connection and construct a new socket instance based on the listener's configuration.
-    /// This method should block until a new connection is accepted, and has some pending data to be read from
-    /// the socket, or until an error occurs.
+    /// This method should block until a new connection is accepted.
     ///
     /// ### Returns
     /// - Returns an instance of `Self::Socket` representing the accepted connection if successful.
@@ -259,12 +258,10 @@ pub trait AbstractSocketListener {
     /// Note: this method should not panic on errors.
     fn accept(&self) -> impl core::future::Future<Output = Self::Socket<'_>>;
 
-    /// Get the socket endpoint that the listener is configured to listen on.
-    /// This method should return the endpoint that the listener is currently configured to bind to,
-    /// which can be used for informational purposes or for constructing socket instances that need
-    /// to know the local endpoint.
-    ///
+    /// Attempt to accept an incoming connection without blocking. This method should return immediately, indicating
+    /// whether a new connection was accepted or if no connections are currently pending.
     /// ### Returns
-    /// - Returns a `SocketEndpoint` representing the endpoint that the listener is configured to listen on.
-    fn endpoint(&self) -> SocketEndpoint;
+    /// - Returns `Some(Self::Socket)` if a new connection was accepted successfully.
+    /// - Returns `None` if no connections are currently pending or if an error occurs while attempting to accept a connection.
+    fn try_accept(&self) -> impl core::future::Future<Output = Option<Self::Socket<'_>>>;
 }

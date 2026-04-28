@@ -46,6 +46,7 @@ embedded-io-async = "0.6"
 heapless = { version = "0.8", features = ["serde"] }
 defmt-or-log = { version = "0.2.3", default-features = false }
 prefix-arena = "0.1"
+pin-project = "1.1"
 
 [dev-dependencies]
 tokio = { version = "1.52", features = ["full"] }

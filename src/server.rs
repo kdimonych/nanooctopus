@@ -99,11 +99,7 @@ impl<'sb, SocketBuilder> HttpServer<'sb, SocketBuilder> {
         SocketBuilder: AbstractSocketListener,
         <SocketBuilder as AbstractSocketListener>::Socket<'sb>: AbstractSocket + SocketReadWith,
     {
-        log::info!(
-            "WebServer[{}]: HTTP server started on endpoint {:?}",
-            context_id,
-            self.socket_builder.endpoint()
-        );
+        log::info!("WebServer[{}]: HTTP server started", context_id);
 
         log::debug!("WebServer[{}]: HTTP server started listening", context_id);
         log::info!(

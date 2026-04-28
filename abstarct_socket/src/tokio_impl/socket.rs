@@ -1,4 +1,3 @@
-//! Tokio-specific socket exports.
 pub use crate::tokio_impl::tokio_socket_wrapper::{
     TokioSocketOwnedReadHalfWrapper, TokioSocketOwnedWriteHalfWrapper, TokioSocketReadHalfWrapper, TokioSocketWrapper,
     TokioSocketWriteHalfWrapper,
@@ -53,13 +52,15 @@ impl<'stack> AbstractSocketListener for TcpListenerBuilder<'stack> {
             .unwrap()
     }
 
-    fn endpoint(&self) -> SocketEndpoint {
-        // Convert the listener's local address to a SocketEndpoint
-        self.listener
-            .local_addr()
-            .map(|addr| SocketEndpoint::from(addr))
-            .inspect_err(|e| log::error!("Failed to get local address: {:?}", e))
-            .unwrap()
+    async fn try_accept(&self) -> Option<Self::Socket<'_>> {
+        core::future::poll_fn(|cx| {
+            if let core::task::Poll::Ready(Ok((socket, _))) = self.listener.poll_accept(cx) {
+                core::task::Poll::Ready(Some(TokioSocketWrapper::new_stream(socket)))
+            } else {
+                core::task::Poll::Ready(None)
+            }
+        })
+        .await
     }
 }
 
