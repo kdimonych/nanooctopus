@@ -5,9 +5,6 @@
 #[cfg(all(feature = "tokio_impl", feature = "embassy_impl"))]
 compile_error!("features `tokio_impl` and `embassy_impl` are mutually exclusive");
 
-#[cfg(not(any(feature = "tokio_impl", feature = "embassy_impl")))]
-compile_error!("either feature `tokio_impl` or `embassy_impl` must be enabled");
-
 #[cfg(all(feature = "tokio_impl", feature = "defmt"))]
 compile_error!("feature `defmt` is only supported with `embassy_impl`");
 
@@ -62,7 +59,7 @@ pub use abstarct_socket::socket::{AbstractSocketListener, SocketEndpoint};
 #[cfg(feature = "embassy_impl")]
 pub use abstarct_socket::embassy_impl::tcp_socket_pool::{TcpSocketPool, TcpSocketPoolRunner, TcpSocketPoolState};
 #[cfg(feature = "tokio_impl")]
-pub use abstarct_socket::tokio_impl::socket::TcpListenerBuilder;
+pub use abstarct_socket::tokio_impl::socket::TokioTcpListener;
 
 pub use allocator::HttpAllocator;
 pub use request::HttpRequest;

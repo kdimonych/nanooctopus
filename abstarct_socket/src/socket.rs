@@ -63,7 +63,7 @@ impl<T: ?Sized + SocketWriteWith> SocketWriteWith for &mut T {
 /// Socket close trait for TCP sockets, allowing for graceful shutdown of connections.
 pub trait SocketClose {
     /// The error type that may be returned when closing the socket.
-    type Error: core::fmt::Debug;
+    type Error;
 
     /// Close the TCP socket gracefully, ensuring that all pending data is sent and acknowledged before closing the connection.
     /// This method should handle the TCP connection teardown process, including sending FIN packets and waiting for ACKs from the remote endpoint.
@@ -160,17 +160,6 @@ impl<T: ?Sized + SocketInfo> SocketInfo for &T {
     }
 }
 
-/// Socket configuration trait for TCP sockets, allowing for setting socket options such as keep-alive and
-/// timeouts.
-pub trait SocketConfig {
-    /// Set the TCP keep-alive option for the socket, with the specified interval for sending keep-alive
-    /// probes.
-    fn set_keep_alive(&mut self, interval: Option<core::time::Duration>);
-
-    /// Set the timeout for socket operations, such as read and write timeouts.
-    fn set_timeout(&mut self, duration: Option<core::time::Duration>);
-}
-
 /// A trait that provides a method for waiting until a socket is ready for reading.
 pub trait SocketWaitReadReady {
     /// Wait until the socket is ready for reading, which means that there is data available to read
@@ -218,8 +207,8 @@ impl<
 /// socket operations across different platforms and implementations. Implementers of the `Socket` trait must also
 /// implement the `SocketInfo`, `SocketClose`, `SocketRead`, `SocketReadReady`, `SocketWrite`, `SocketWriteReady`,
 /// `SocketReadWith`, and `SocketWriteWith` traits.
-pub trait AbstractSocket: SocketStream + SocketInfo + SocketClose + SocketConfig {}
-impl<T: ?Sized + SocketStream + SocketInfo + SocketClose + SocketConfig> AbstractSocket for T {}
+pub trait AbstractSocket: SocketStream + SocketInfo + SocketClose {}
+impl<T: ?Sized + SocketStream + SocketInfo + SocketClose> AbstractSocket for T {}
 
 /// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown,
 /// and asynchronous read/write operations with custom buffer management.
@@ -264,4 +253,50 @@ pub trait AbstractSocketListener {
     /// - Returns `Some(Self::Socket)` if a new connection was accepted successfully.
     /// - Returns `None` if no connections are currently pending or if an error occurs while attempting to accept a connection.
     fn try_accept(&self) -> impl core::future::Future<Output = Option<Self::Socket<'_>>>;
+
+    /// Get the local endpoint that the listener is configured to listen on. This method should return the socket endpoint
+    /// that the listener is bound to, which can be used by clients to connect to the listener.
+    ///
+    /// ### Returns
+    /// - Returns a `SocketEndpoint` representing the local endpoint that the listener is configured to listen on.
+    ///
+    /// ### Panics
+    /// This method may panic if the listener is not properly initialized or if there is an error retrieving the local
+    /// endpoint information. Implementers of this trait should ensure that the listener is properly initialized and ready to
+    /// provide the local endpoint information before calling this method.
+    fn local_endpoint(&self) -> SocketEndpoint;
+}
+
+/// A trait representing a socket connector. This trait provides a method for connecting to a remote
+/// socket endpoint and obtaining a socket instance representing the established connection. The
+/// `AbstractSocketConnector` trait includes an associated type `Socket` that represents the type of
+/// socket produced by the connector, and a method for connecting to a remote endpoint. Implementers
+/// of the `AbstractSocketConnector` trait must provide an implementation for the `connect` method,
+/// which takes a `SocketEndpoint` as an argument and returns a future that resolves to a `Result`
+/// containing either an instance of `Self::Socket` representing the established connection or an
+/// error if the connection attempt fails. The `AbstractSocketConnector` trait is designed to be
+/// flexible and extensible, allowing for different types of socket connectors to be implemented
+/// while still adhering to a common interface for establishing connections to remote endpoints.
+///
+pub trait AbstarctSocketConnector {
+    /// The associated type representing the socket produced by the connector.
+    type Error;
+    /// The associated type representing the socket produced by the connector.
+    type Socket<'a>
+    where
+        Self: 'a;
+
+    /// Connect to a remote socket endpoint and obtain a socket instance representing the established
+    /// connection.
+    ///
+    /// ### Arguments
+    /// - `endpoint`: The `SocketEndpoint` representing the remote endpoint to connect to.
+    ///
+    /// ### Returns
+    /// - Returns a future that resolves to a `Result` containing either an instance of `Self::Socket`
+    /// representing the established connection or an error if the connection attempt fails.
+    fn connect(
+        &self,
+        endpoint: SocketEndpoint,
+    ) -> impl core::future::Future<Output = Result<Self::Socket<'_>, Self::Error>>;
 }

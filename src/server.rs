@@ -390,20 +390,24 @@ where
 // Helper function to wrap a timeout logic around a future, since we want to use the same timeout logic for
 // both Tokio and Embassy implementations without duplicating code in the main server logic.
 #[inline]
-async fn with_timeout<F, T>(duration: Duration, future: F) -> Result<T, ()>
+async fn with_timeout<F, T>(_duration: Duration, future: F) -> Result<T, ()>
 where
     F: core::future::Future<Output = T>,
 {
     #[cfg(feature = "embassy_impl")]
     {
-        embassy_time::with_timeout(duration.try_into().unwrap(), future)
+        embassy_time::with_timeout(_duration.try_into().unwrap(), future)
             .await
             .map_err(|_| ())
     }
     #[cfg(feature = "tokio_impl")]
     {
-        tokio::time::timeout(duration, future).await.map_err(|_| ())
+        tokio::time::timeout(_duration, future).await.map_err(|_| ())
     }
+
+    #[cfg(not(any(feature = "tokio_impl", feature = "embassy_impl")))]
+    // No timeout mechanism available, just await the future directly (this is not ideal, but allows the code to compile without either feature)
+    Ok(future.await)
 }
 
 #[cfg(test)]

@@ -52,9 +52,10 @@ pin-project = "1.1"
 tokio = { version = "1.52", features = ["full"] }
 tokio-test = "0.4"
 ringbuf = "0.4.8"
+serial_test = "3"
 
 [features]
-default = ["std", "log", "mocks"]
+default = []
 std = ["embassy-net?/std", "ringbuf?/std", "embassy-time?/std"]
 defmt = [
     "dep:defmt",
@@ -62,7 +63,7 @@ defmt = [
     "embassy-net?/defmt",
     "embedded-io-async/defmt-03",
 ]
-mocks = ["dep:ringbuf"]
+mocks = ["dep:ringbuf", "dep:tokio", "std"]
 log = ["dep:log", "defmt-or-log/log"]
 embassy_impl = [
     "dep:embassy-net",
@@ -77,3 +78,8 @@ proto-ipv6 = ["embassy_impl", "embassy-net/proto-ipv6"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[test]]
+name = "tokio_impl_tests"
+path = "tests/tokio_impl_tests.rs"
+required-features = ["tokio_impl"]

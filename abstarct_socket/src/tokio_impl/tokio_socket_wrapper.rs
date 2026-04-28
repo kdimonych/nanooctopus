@@ -7,8 +7,8 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
 use tokio::net::{TcpSocket, TcpStream};
 
 use crate::socket::{
-    SocketClose, SocketConfig, SocketEndpoint, SocketErrorType, SocketInfo, SocketRead, SocketReadReady,
-    SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady, SocketWriteWith,
+    SocketClose, SocketEndpoint, SocketErrorType, SocketInfo, SocketRead, SocketReadReady, SocketReadWith,
+    SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady, SocketWriteWith,
 };
 
 /// Error type used by the Tokio adapters in this crate.
@@ -29,6 +29,15 @@ pub enum TokioSocketState {
 /// A wrapper around Tokio TCP sockets and streams that implements the traits defined in the `socket` module.
 pub struct TokioSocketWrapper {
     state: TokioSocketState,
+}
+
+impl TokioSocketWrapper {
+    /// Creates a wrapper around a connected Tokio stream.
+    pub(crate) fn new_stream(stream: TcpStream) -> Self {
+        Self {
+            state: TokioSocketState::Stream(stream),
+        }
+    }
 }
 
 impl SocketErrorType for TokioSocketWrapper {
@@ -167,15 +176,6 @@ impl embedded_io_async::Error for TokioSocketError {
     }
 }
 
-impl TokioSocketWrapper {
-    /// Creates a wrapper around a connected Tokio stream.
-    pub(crate) fn new_stream(stream: TcpStream) -> Self {
-        Self {
-            state: TokioSocketState::Stream(stream),
-        }
-    }
-}
-
 impl SocketRead for TokioSocketWrapper {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match &mut self.state {
@@ -259,25 +259,6 @@ impl SocketClose for TokioSocketWrapper {
             TokioSocketState::Stream(stream) => stream.shutdown().await.map_err(Into::into),
             TokioSocketState::Socket(_) => Ok(()),
         }
-    }
-}
-
-impl SocketConfig for TokioSocketWrapper {
-    /// Set the TCP keep-alive option for the socket, with the specified interval for sending keep-alive
-    /// probes.
-    fn set_keep_alive(&mut self, interval: Option<core::time::Duration>) {
-        match &self.state {
-            TokioSocketState::Socket(s) => {
-                // Tokio exposes keep-alive as a boolean on TcpSocket, so enabling it uses the OS default interval.
-                s.set_keepalive(interval.is_some()).ok();
-            }
-            TokioSocketState::Stream(_) => {}
-        }
-    }
-
-    /// Set the timeout for socket operations, such as read and write timeouts.
-    fn set_timeout(&mut self, _: Option<core::time::Duration>) {
-        // Tokio does not have built-in support for socket timeouts, so this method is a no-op.
     }
 }
 

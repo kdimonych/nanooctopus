@@ -10,23 +10,22 @@ use pin_project::pin_project;
 
 type Mutex<T> = embassy_sync::mutex::Mutex<NoopRawMutex, T>;
 type MutexGuard<'a, T> = embassy_sync::mutex::MutexGuard<'a, NoopRawMutex, T>;
-
-/// Type alias for a mutex guard that provides access to a TcpSocket with the appropriate lifetime.
-pub type SocketGuard<'a> = MutexGuard<'a, TcpSocket<'a>>;
-type Socket<'a> = Mutex<TcpSocket<'a>>;
-
 type Channel<T, const N: usize> = embassy_sync::channel::Channel<NoopRawMutex, T, N>;
-type Receiver<'a, T, const N: usize> = embassy_sync::channel::Receiver<'a, NoopRawMutex, T, N>;
 
+/// A socket guard type that provides exclusive access to a TcpSocket for the duration of its lifetime.
+/// The guard is created by the TcpSocketPool and ensures that the socket is not accessed concurrently
+/// by multiple tasks.
+pub type SocketGuard<'a> = MutexGuard<'a, TcpSocket<'a>>;
+
+type Socket<'a> = Mutex<TcpSocket<'a>>;
 type SocketQueue<'a, const N: usize> = Channel<SocketGuard<'a>, N>;
-type SocketQueueConsumer<'a, const N: usize> = Receiver<'a, SocketGuard<'a>, N>;
 
 const KEEP_ALIVE_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(3);
 const SOCKET_IO_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 
 /// A socket pool implementation for managing multiple TCP socket connections using embassy-net.
 pub struct TcpSocketPool<'pool, const SOCKETS: usize> {
-    consumer: SocketQueueConsumer<'pool, SOCKETS>,
+    state: Pin<&'pool TcpSocketPoolState<'pool, SOCKETS>>,
 }
 
 impl<'pool, const SOCKETS: usize> TcpSocketPool<'pool, SOCKETS> {
@@ -35,9 +34,8 @@ impl<'pool, const SOCKETS: usize> TcpSocketPool<'pool, SOCKETS> {
         state: Pin<&'pool mut TcpSocketPoolState<'pool, SOCKETS>>,
     ) -> (Self, TcpSocketPoolRunner<'pool, SOCKETS>) {
         let state = state.into_ref();
-        let consumer = state.get_consumer();
 
-        (Self { consumer }, TcpSocketPoolRunner { state })
+        (Self { state }, TcpSocketPoolRunner { state })
     }
 }
 
@@ -48,11 +46,15 @@ impl<'pool, const SOCKETS: usize> AbstractSocketListener for TcpSocketPool<'pool
         Self: 'a;
 
     async fn accept(&self) -> Self::Socket<'_> {
-        unsafe { core::mem::transmute::<_, Self::Socket<'_>>(self.consumer.receive().await) }
+        unsafe { core::mem::transmute::<_, Self::Socket<'_>>(self.state.queue.receive().await) }
     }
 
     async fn try_accept(&self) -> Option<Self::Socket<'_>> {
-        unsafe { core::mem::transmute::<_, Option<Self::Socket<'_>>>(self.consumer.try_receive().ok()) }
+        unsafe { core::mem::transmute::<_, Option<Self::Socket<'_>>>(self.state.queue.try_receive().ok()) }
+    }
+
+    fn local_endpoint(&self) -> SocketEndpoint {
+        self.state.endpoint
     }
 }
 
@@ -116,13 +118,6 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
             queue: SocketQueue::new(),
             endpoint,
         }
-    }
-
-    fn get_consumer<'pool>(self: Pin<&'pool Self>) -> SocketQueueConsumer<'pool, SOCKETS> {
-        // SAFETY: The queue is guaranteed to be valid for whole lifetime of the TcpSocketPoolData, and the SocketGuard will ensure that
-        // it is not accessed concurrently.
-        // The consumer is only used to receive ready sockets from the accept loop, which ensures that it is not accessed concurrently with the producer.
-        unsafe { core::mem::transmute::<_, SocketQueueConsumer<'pool, SOCKETS>>(self.queue.receiver()) }
     }
 
     #[inline]

@@ -1,5 +1,5 @@
 use crate::socket::{
-    SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady,
+    SocketClose, SocketEndpoint, SocketInfo, SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady,
     SocketWriteWith, State,
 };
 
@@ -125,18 +125,6 @@ impl SocketClose for TcpSocket<'_> {
         // Ensure the RST is sent
         self.flush().await?;
         Result::<_, Self::Error>::Ok(())
-    }
-}
-
-impl SocketConfig for TcpSocket<'_> {
-    #[inline]
-    fn set_keep_alive(&mut self, interval: Option<core::time::Duration>) {
-        self.set_keep_alive(interval.map(|duration| embassy_time::Duration::from_millis(duration.as_millis() as u64)));
-    }
-
-    #[inline]
-    fn set_timeout(&mut self, duration: Option<core::time::Duration>) {
-        self.set_timeout(duration.map(|duration| embassy_time::Duration::from_millis(duration.as_millis() as u64)));
     }
 }
 

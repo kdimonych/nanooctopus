@@ -1,5 +1,5 @@
 pub use crate::mocks::error::MockStreamError;
-use crate::socket::{SocketClose, SocketConfig, SocketEndpoint, SocketInfo, SocketReadWith, SocketWriteWith, State};
+use crate::socket::{SocketClose, SocketEndpoint, SocketInfo, SocketReadWith, SocketWriteWith, State};
 use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 extern crate alloc;
 extern crate std;
@@ -15,7 +15,6 @@ type ReadyCallback = dyn FnMut() -> Result<bool, MockStreamError>;
 type CloseCallback = dyn FnMut() -> ResultFuture<(), MockStreamError>;
 type EndpointCallback = dyn Fn() -> Option<SocketEndpoint>;
 type StateCallback = dyn Fn() -> State;
-type DurationCallback = dyn FnMut(Option<core::time::Duration>);
 
 /// A highly customizable mock socket implementation for testing purposes.
 /// This struct allows users to set custom callbacks for read, write, readiness,
@@ -30,8 +29,6 @@ pub struct MockSocket {
     on_local_endpoint: Option<Box<EndpointCallback>>,
     on_remote_endpoint: Option<Box<EndpointCallback>>,
     on_state: Option<Box<StateCallback>>,
-    on_set_keep_alive: Option<Box<DurationCallback>>,
-    on_set_timeout: Option<Box<DurationCallback>>,
 }
 
 /// Error returned by accept functions.
@@ -58,8 +55,6 @@ impl MockSocket {
             on_local_endpoint: None,
             on_remote_endpoint: None,
             on_state: None,
-            on_set_keep_alive: None,
-            on_set_timeout: None,
         }
     }
 
@@ -130,24 +125,6 @@ impl MockSocket {
         F: 'static + Fn() -> State,
     {
         self.on_state = Some(Box::new(callback));
-    }
-
-    /// Set the callback for the set_keep_alive operation. The callback should return Ok(()) if the operation was successful,
-    /// or an error if an error occurs while setting the keep-alive option.
-    pub fn set_on_set_keep_alive<F>(&mut self, callback: F)
-    where
-        F: 'static + FnMut(Option<core::time::Duration>),
-    {
-        self.on_set_keep_alive = Some(Box::new(callback));
-    }
-
-    /// Set the callback for the set_timeout operation. The callback should return Ok(()) if the operation was successful,
-    /// or an error if an error occurs while setting the timeout.
-    pub fn set_on_set_timeout<F>(&mut self, callback: F)
-    where
-        F: 'static + FnMut(Option<core::time::Duration>),
-    {
-        self.on_set_timeout = Some(Box::new(callback));
     }
 }
 
@@ -329,24 +306,6 @@ impl SocketInfo for MockSocket {
             on_state()
         } else {
             log::panic!("State callback not set for MockSocket");
-        }
-    }
-}
-
-impl SocketConfig for MockSocket {
-    fn set_keep_alive(&mut self, interval: Option<core::time::Duration>) {
-        if let Some(on_set_keep_alive) = &mut self.on_set_keep_alive {
-            on_set_keep_alive(interval);
-        } else {
-            log::panic!("Set keep-alive callback not set for MockSocket");
-        }
-    }
-
-    fn set_timeout(&mut self, duration: Option<core::time::Duration>) {
-        if let Some(on_set_timeout) = &mut self.on_set_timeout {
-            on_set_timeout(duration);
-        } else {
-            log::panic!("Set timeout callback not set for MockSocket");
         }
     }
 }
@@ -545,30 +504,6 @@ mod tests {
         mock_socket.set_on_state(on_state_always(State::Established));
 
         assert_eq!(mock_socket.state(), State::Established);
-    }
-
-    #[test]
-    fn test_mock_socket_config_forwards_durations() {
-        let keep_alive = Rc::new(RefCell::new(None));
-        let timeout = Rc::new(RefCell::new(None));
-        let keep_alive_value = Some(Duration::from_secs(5));
-        let timeout_value = Some(Duration::from_secs(2));
-
-        let mut mock_socket = MockSocket::new();
-        mock_socket.set_on_set_keep_alive({
-            let keep_alive = Rc::clone(&keep_alive);
-            move |value| *keep_alive.borrow_mut() = value
-        });
-        mock_socket.set_on_set_timeout({
-            let timeout = Rc::clone(&timeout);
-            move |value| *timeout.borrow_mut() = value
-        });
-
-        mock_socket.set_keep_alive(keep_alive_value);
-        mock_socket.set_timeout(timeout_value);
-
-        assert_eq!(*keep_alive.borrow(), keep_alive_value);
-        assert_eq!(*timeout.borrow(), timeout_value);
     }
 
     #[tokio::test]

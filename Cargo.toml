@@ -18,7 +18,7 @@ authors = ["rttf <contact@rttf.dev>"]
 
 
 [features]
-default = ["tokio_impl", "log"]
+default = []
 std = ["protocols/std", "abstarct_socket/std", "embedded-io-async/std"]
 ws = ["dep:sha1", "dep:binascii", "dep:modular-bitfield", "protocols/ws"]
 defmt = [
