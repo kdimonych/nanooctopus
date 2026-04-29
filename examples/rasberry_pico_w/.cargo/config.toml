@@ -1,0 +1,13 @@
+[build]
+target = "thumbv6m-none-eabi"
+
+[target.thumbv6m-none-eabi]
+runner = "probe-rs run --chip RP2040 --protocol swd"
+rustflags = ["-C", "no-vectorize-loops"]
+
+[env]
+# Set the log level for defmt to "info" and enable debug printing
+DEFMT_LOG = "info"
+# Enables debug printing of build scripts, which can be helpful for troubleshooting build issues.
+# "1" - enables debug printing, "0" - disables it. By default, it's disabled.
+DBG_PRINT = "0"

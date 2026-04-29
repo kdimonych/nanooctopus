@@ -1,0 +1,22 @@
+[package]
+name = "tokio_hello_world"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nanooctopus = { path = "../../lib", features = ["tokio_impl", "log"] }
+tokio = { version = "1", features = ["full"] }
+
+# Enable logging for the example
+log = "0.4"
+defmt-or-log = { version = "0.2.3", default-features = false, features = [
+  "log",
+] }
+env_logger = "0.11"
+
+[[bin]]
+name = "tokio_hello_world"
+path = "src/main.rs"
+
+# Keep this example as a standalone crate when opened directly by rust-analyzer.
+[workspace]

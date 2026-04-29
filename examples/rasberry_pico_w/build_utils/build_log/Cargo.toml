@@ -1,0 +1,10 @@
+[package]
+name = "build_log"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+
+[lib]
+name = "build_log"
+path = "src/lib.rs"

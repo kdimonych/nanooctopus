@@ -1,0 +1,13 @@
+[package]
+name = "file_operations"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "file_operations"
+path = "src/lib.rs"
+
+[dependencies]
+build_log = { path = "../build_log" }
+cargo_command = { path = "../cargo_command" }

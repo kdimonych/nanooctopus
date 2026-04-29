@@ -3,6 +3,9 @@
 	"tasks": [
 		{
 			"type": "cargo",
+			"options": {
+				"cwd": "${workspaceFolder}/lib"
+			},
 			"command": "build",
 			"problemMatcher": [
 				"$rustc"

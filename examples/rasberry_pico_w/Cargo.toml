@@ -1,0 +1,82 @@
+
+[package]
+name = "rasberry_pico_w"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# HTTP server
+nanooctopus = { path = "../../lib", default-features = false, features = [
+  "ws",
+  "embassy_impl",
+  "defmt",
+] }
+
+#-----------------------------------------------------------------------------#
+# External dependencies
+#-----------------------------------------------------------------------------#
+cortex-m = "0.7"
+cortex-m-rt = { version = "0.7", features = ["set-sp"] }
+embedded-hal-async = "1.0"
+embedded-hal = "1.0"
+
+# Debug logging
+defmt = { version = "1" }
+defmt-rtt = { version = "1" }
+panic-probe = { version = "1", features = ["print-defmt"] }
+panic-halt = "1.0"
+
+# Critical section and atomics for embedded
+portable-atomic = { version = "1.11.1", features = ["critical-section"] }
+critical-section = "1.2.0"
+static_cell = "2.1.1"
+
+# Embassy
+embassy-embedded-hal = { version = "0.5.0", features = ["defmt"] }
+embassy-executor = { version = "0.9", features = [
+  "arch-cortex-m",
+  "executor-thread",
+  "defmt",
+] }
+embassy-time = { version = "0.5", features = [
+  "defmt-timestamp-uptime",
+  "defmt",
+] }
+embassy-rp = { version = "0.8", features = [
+  "rp2040",
+  "rt",
+  "unstable-pac",
+  "time-driver",
+  "critical-section-impl",
+  "intrinsics",
+  "defmt",
+  "rom-v2-intrinsics",
+] }
+embassy-sync = "0.7"
+embassy-futures = "0.1"
+embassy-net = { version = "0.7.1", features = [
+  "tcp",
+  "udp",
+  "dhcpv4",
+  "medium-ethernet",
+  "defmt",
+] }
+
+# WiFi/bluetooth driver for the CYW43 chip on the Pico W
+cyw43 = "0.5.0"
+cyw43-pio = "0.8"
+# Firmware for CYW43 (Needed to include firmware binary for the CYW43 chip used in raspberry Pi Pico W)
+cyw43-firmware = { version = "0.1.0", features = ["wifi"] }
+
+heapless = { version = "0.8" }
+
+[build-dependencies]
+dotenvy = "0.15"
+build_log = { path = "./build_utils/build_log" }
+cargo_command = { path = "./build_utils/cargo_command" }
+file_operations = { path = "./build_utils/file_operations" }
+
+# Keep this example as a standalone crate when opened directly by rust-analyzer.
+[workspace]
+resolver = "3"
+exclude = ["./build_utils/*"]

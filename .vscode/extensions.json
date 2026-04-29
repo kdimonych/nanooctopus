@@ -5,6 +5,7 @@
     // ========================================================================
     "rust-lang.rust-analyzer", // Rust language server
     "tamasfe.even-better-toml", // Enhanced TOML support for Cargo.toml
+    "fill-labs.dependi", // Dependency management and updates for Rust projects
     // ========================================================================
     // EMBEDDED DEVELOPMENT - For embedded/hardware programming
     // ========================================================================

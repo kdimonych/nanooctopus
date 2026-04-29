@@ -1,0 +1,9 @@
+[package]
+name = "cargo_command"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "cargo_command"
+path = "src/lib.rs"

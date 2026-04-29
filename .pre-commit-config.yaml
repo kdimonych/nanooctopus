@@ -6,12 +6,13 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: bash -c 'cargo fmt -- --config edition=2024'
+        entry: bash -c 'bash scripts/fmt-rust-targets.sh'
         language: system
         types: [ rust ]
+        pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy (feature matrix)
-        entry: bash -c 'bash scripts/check-feature-matrix.sh clippy'
+        entry: bash -c 'bash scripts/check-build-matrix.sh clippy'
         language: system
         types: [ rust ]
         pass_filenames: false

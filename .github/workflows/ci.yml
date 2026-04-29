@@ -55,10 +55,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: 🏗️ Build
-        run: bash scripts/check-feature-matrix.sh build
+        run: bash scripts/check-build-matrix.sh build
 
       - name: 🔍 Clippy lint
-        run: bash scripts/check-feature-matrix.sh clippy
+        run: bash scripts/check-build-matrix.sh clippy
 
       - name: 🧪 Run tests
-        run: bash scripts/check-feature-matrix.sh test
+        run: bash scripts/check-build-matrix.sh test

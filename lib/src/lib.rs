@@ -1,0 +1,88 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+#![doc = include_str!("../../README.md")]
+#![warn(missing_docs)]
+
+#[cfg(all(feature = "tokio_impl", feature = "embassy_impl"))]
+compile_error!("features `tokio_impl` and `embassy_impl` are mutually exclusive");
+
+#[cfg(all(feature = "tokio_impl", feature = "defmt"))]
+compile_error!("feature `defmt` is only supported with `embassy_impl`");
+
+#[cfg(all(feature = "tokio_impl", feature = "proto-ipv6"))]
+compile_error!("feature `proto-ipv6` is only supported with `embassy_impl`");
+
+#[cfg(all(feature = "embassy_impl", feature = "log"))]
+compile_error!("feature `log` is only supported with `tokio_impl`");
+
+#[cfg(all(test, feature = "defmt"))]
+mod defmt_test_logger {
+    #[defmt::global_logger]
+    struct TestLogger;
+
+    unsafe impl defmt::Logger for TestLogger {
+        fn acquire() {}
+
+        unsafe fn release() {}
+
+        unsafe fn flush() {}
+
+        unsafe fn write(bytes: &[u8]) {
+            let _ = bytes;
+        }
+    }
+
+    defmt::timestamp!("{=u8}", 0);
+}
+
+/// HTTP header types and helpers.
+pub mod header;
+
+/// HTTP method enum and helpers.
+pub mod method;
+
+/// Stream-based HTTP request parser.
+pub mod http_header_parser;
+
+/// Error types for HTTP operations.
+pub mod error;
+/// Predefined HTTP status codes as per RFC 2616.
+pub mod status_code;
+
+/// HTTP request handlers and traits.
+pub mod handler;
+/// HTTP request types and parsing.
+pub mod request;
+/// HTTP response builder utilities.
+pub mod response;
+/// HTTP server implementation.
+pub mod server;
+
+/// Common utilities and types for socket management.
+pub mod worker_memory;
+
+#[cfg(test)]
+mod mocks;
+
+/// This module contains the implementation of WebSocket traits and utilities, providing support for WebSocket communication in the library.
+#[cfg(feature = "ws")]
+pub mod web_socket;
+
+mod allocator;
+
+pub use crate::error::Error;
+pub use crate::handler::*;
+pub use crate::header::{HttpHeader, headers, mime_types};
+pub use crate::method::HttpMethod;
+pub use crate::status_code::StatusCode;
+
+pub use abstarct_socket::socket::{AbstractSocketListener, SocketEndpoint};
+
+#[cfg(feature = "embassy_impl")]
+pub use abstarct_socket::embassy_impl::tcp_socket_pool::{TcpSocketPool, TcpSocketPoolRunner, TcpSocketPoolState};
+#[cfg(feature = "tokio_impl")]
+pub use abstarct_socket::tokio_impl::socket::TokioTcpListener;
+
+pub use allocator::HttpAllocator;
+pub use request::HttpRequest;
+pub use response::HttpResponseBuilder;
+pub use server::{HttpServer, ServerTimeouts};
