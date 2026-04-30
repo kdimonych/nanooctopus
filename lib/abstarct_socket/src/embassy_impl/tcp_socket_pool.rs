@@ -141,10 +141,9 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
         };
 
         loop {
-            let mut socket: embassy_sync::mutex::MutexGuard<'_, NoopRawMutex, TcpSocket<'stack>> =
-                this.sockets[index].lock().await;
+            let mut socket = this.sockets[index].lock().await;
             log::info!(
-                "SocketPool: Socket[{}] released with state: {:?}",
+                "SocketPool:1: Socket[{}] released with state: {:?}",
                 index,
                 socket.state()
             );
@@ -190,6 +189,7 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
             // SAFETY: The socket is guaranteed to be valid for whole lifetime of the TcpSocketPoolData, and the SocketGuard will ensure that it is not accessed concurrently.
             let socket = unsafe { core::mem::transmute::<_, SocketGuard<'static>>(socket) };
             this.queue.send(socket).await;
+            log::info!("SocketPool:2: Socket[{}] enqueued", index);
         }
     }
 }

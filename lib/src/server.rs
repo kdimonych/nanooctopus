@@ -116,24 +116,23 @@ impl<SocketBuilder: AbstractSocketListener> HttpServer<SocketBuilder> {
     {
         log::info!("WebServer[{}]: HTTP server started", context_id);
 
-        log::debug!("WebServer[{}]: HTTP server started listening", context_id);
-        log::info!(
+        log::debug!(
             "WebServer[{}]: Auto-close connection is {}",
             context_id,
             self.auto_close_connection
         );
 
         loop {
+            log::info!("WebServer[{}]: Waiting for new connection...", context_id);
+
             // Create arena allocator for this connection's request and response processing
             let mut head_arena_alloc = PrefixArena::from_uninit(worker_memory.get_buffer());
-
             let mut socket = self.socket_builder.accept().await;
 
             log::info!(
-                "WebServer[{}]: New connection/request {:?}, {:?}",
+                "WebServer[{}]: New connection/request {:?}",
                 context_id,
-                socket.remote_endpoint(),
-                self.auto_close_connection
+                socket.remote_endpoint()
             );
 
             let request = match with_timeout(

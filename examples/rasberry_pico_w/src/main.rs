@@ -41,7 +41,7 @@ const SOCKETS: usize = 5; // Number of simultaneous sockets the server can accep
 const RX_SIZE: usize = 256; // Size of the receive buffer for each socket; adjust as needed
 const TX_SIZE: usize = 256; // Size of the transmit buffer for each socket; adjust as needed
 const WORKER_MEMORY: usize = 4096; // Size of the worker memory buffer for parsing HTTP headers; adjust as needed
-const HTTP_SERVER_WORKERS: usize = 3; // Number of worker tasks for handling HTTP requests; adjust as needed
+const HTTP_SERVER_WORKERS: usize = 2; // Number of worker tasks for handling HTTP requests; adjust as needed
 const HTTP_SERVER_PORT: u16 = 8080; // Port for the HTTP server to listen on; adjust as needed
 
 static SOCKET_BUFFER: StaticCell<[u8; SOCKETS * (RX_SIZE + TX_SIZE)]> = StaticCell::new(); // Buffer for the socket pool; adjust size as needed
@@ -233,7 +233,7 @@ impl http_handler::HttpHandler for HelloWorldHandler {
         http_socket: &mut impl http_handler::HttpSocketWrite,
         context_id: usize,
     ) -> Result<http_handler::HttpResponse, http_handler::Error> {
-        defmt::info!("HelloWorldHandler[{}]: Received request: {:?}", context_id, request);
+        defmt::debug!("HelloWorldHandler[{}]: Received request: {:?}", context_id, request);
 
         let mut greetings: heapless::String<128> = heapless::String::new();
         let _ = core::fmt::write(

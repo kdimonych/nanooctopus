@@ -22,9 +22,10 @@ Tracked statistics
   requests_ok              – responses received successfully
   requests_lost            – requests that failed to receive a response
   overall_rps              – requests_ok / test_duration_s
-  per_conn_rate_avg        – average req/s across all finished connections
-  per_conn_rate_min        – minimum req/s across all finished connections
-  per_conn_rate_max        – maximum req/s across all finished connections
+  per_conn_rate_avg        – average req/s across all finished connections per connection
+  per_conn_rate_min        – minimum req/s across all finished connections per connection
+  per_conn_rate_max        – maximum req/s across all finished connections per connection
+  request_rate_overall     – total req/s across all finished connections
 """
 
 import argparse
@@ -100,6 +101,9 @@ class Stats:
 
     def max_conn_rate(self) -> float:
         return max(self._conn_rates) if self._conn_rates else 0.0
+
+    def request_rate_overall(self) -> float:
+        return sum(self._conn_rates)
 
 # ---------------------------------------------------------------------------
 # HTTP response reader
@@ -358,6 +362,7 @@ async def main() -> None:
         print(f"  per_conn_rate_avg       : {stats.avg_conn_rate():.2f} req/s")
         print(f"  per_conn_rate_min       : {stats.min_conn_rate():.2f} req/s")
         print(f"  per_conn_rate_max       : {stats.max_conn_rate():.2f} req/s")
+        print(f"  request_rate_overall    : {stats.request_rate_overall():.2f} req/s")
     print("=" * 61)
 
 

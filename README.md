@@ -183,7 +183,7 @@ The example is in:
 The current example uses these fixed-size resources:
 
 - `SOCKETS = 5`
-- `HTTP_SERVER_WORKERS = 3`
+- `HTTP_SERVER_WORKERS = 2`
 - `WORKER_MEMORY = 4096`
 
 That setup demonstrates the main idea of the crate: a device may keep more sockets open than the number of HTTP workers actively serving requests.
