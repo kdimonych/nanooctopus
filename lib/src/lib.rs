@@ -35,54 +35,57 @@ mod defmt_test_logger {
 }
 
 /// HTTP header types and helpers.
-pub mod header;
+mod header;
 
 /// HTTP method enum and helpers.
-pub mod method;
+mod method;
 
 /// Stream-based HTTP request parser.
-pub mod http_header_parser;
+mod http_header_parser;
 
 /// Error types for HTTP operations.
-pub mod error;
+mod error;
 /// Predefined HTTP status codes as per RFC 2616.
-pub mod status_code;
+mod status_code;
 
 /// HTTP request handlers and traits.
-pub mod handler;
+mod handler;
 /// HTTP request types and parsing.
-pub mod request;
+mod request;
 /// HTTP response builder utilities.
-pub mod response;
-/// HTTP server implementation.
+mod response;
+/// HTTP server implementation and related types.
 pub mod server;
 
 /// Common utilities and types for socket management.
-pub mod worker_memory;
+mod worker_memory;
 
 #[cfg(test)]
 mod mocks;
 
 /// This module contains the implementation of WebSocket traits and utilities, providing support for WebSocket communication in the library.
 #[cfg(feature = "ws")]
-pub mod web_socket;
+mod web_socket;
 
 mod allocator;
 
-pub use crate::error::Error;
-pub use crate::handler::*;
-pub use crate::header::{HttpHeader, headers, mime_types};
-pub use crate::method::HttpMethod;
-pub use crate::status_code::StatusCode;
+/// This module re-exports the main HTTP handling traits and types for easier access by users of the library.
+pub mod http_handler {
+    pub use crate::handler::*;
 
-pub use abstarct_socket::socket::{AbstractSocketListener, SocketEndpoint};
+    /// This module contains the implementation of the allocator types and utilities, providing efficient memory management for
+    /// HTTP request handling.
+    pub use crate::allocator::*;
 
-#[cfg(feature = "embassy_impl")]
-pub use abstarct_socket::embassy_impl::tcp_socket_pool::{TcpSocketPool, TcpSocketPoolRunner, TcpSocketPoolState};
-#[cfg(feature = "tokio_impl")]
-pub use abstarct_socket::tokio_impl::socket::TokioTcpListener;
+    pub use crate::request::HttpRequest;
+    pub use crate::response::*;
 
-pub use allocator::HttpAllocator;
-pub use request::HttpRequest;
-pub use response::HttpResponseBuilder;
-pub use server::{HttpServer, ServerTimeouts};
+    pub use crate::error::Error;
+
+    pub use crate::method::HttpMethod;
+    pub use crate::status_code::StatusCode;
+
+    pub use crate::header::{HttpHeader, headers, mime_types};
+
+    pub use abstarct_socket::socket::SocketEndpoint;
+}

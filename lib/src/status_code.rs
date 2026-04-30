@@ -272,18 +272,6 @@ impl TryFrom<&str> for StatusCode {
     type Error = crate::error::Error;
 
     /// Parse a status code from a string slice.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanooctopus::StatusCode;
-    ///
-    /// let code: StatusCode = "200".try_into().unwrap();
-    /// assert_eq!(code, StatusCode::Ok);
-    ///
-    /// let result: Result<StatusCode, _> = "999".try_into();
-    /// assert_eq!(result.unwrap(), StatusCode::Other(999));
-    /// ```
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         if let Ok(code) = value.parse::<u16>() {
             Ok(StatusCode::from(code))

@@ -1,4 +1,4 @@
-use crate::socket::{AbstractSocketListener, SocketEndpoint};
+use crate::socket::*;
 
 use embassy_futures::select::*;
 use embassy_net::tcp::TcpSocket;
@@ -15,7 +15,7 @@ type Channel<T, const N: usize> = embassy_sync::channel::Channel<NoopRawMutex, T
 /// A socket guard type that provides exclusive access to a TcpSocket for the duration of its lifetime.
 /// The guard is created by the TcpSocketPool and ensures that the socket is not accessed concurrently
 /// by multiple tasks.
-pub type SocketGuard<'a> = MutexGuard<'a, TcpSocket<'a>>;
+type SocketGuard<'a> = MutexGuard<'a, TcpSocket<'a>>;
 
 type Socket<'a> = Mutex<TcpSocket<'a>>;
 type SocketQueue<'a, const N: usize> = Channel<SocketGuard<'a>, N>;
@@ -40,17 +40,16 @@ impl<'pool, const SOCKETS: usize> TcpSocketPool<'pool, SOCKETS> {
 }
 
 impl<'pool, const SOCKETS: usize> AbstractSocketListener for TcpSocketPool<'pool, SOCKETS> {
-    type Socket<'a>
-        = SocketGuard<'a>
-    where
-        Self: 'a;
+    type Socket = PoolSocket<'pool>;
 
-    async fn accept(&self) -> Self::Socket<'_> {
-        unsafe { core::mem::transmute::<_, Self::Socket<'_>>(self.state.queue.receive().await) }
+    async fn accept(&self) -> Self::Socket {
+        unsafe { core::mem::transmute::<_, Self::Socket>(PoolSocket::new(self.state.queue.receive().await)) }
     }
 
-    async fn try_accept(&self) -> Option<Self::Socket<'_>> {
-        unsafe { core::mem::transmute::<_, Option<Self::Socket<'_>>>(self.state.queue.try_receive().ok()) }
+    async fn try_accept(&self) -> Option<Self::Socket> {
+        unsafe {
+            core::mem::transmute::<_, Option<Self::Socket>>(self.state.queue.try_receive().map(PoolSocket::new).ok())
+        }
     }
 
     fn local_endpoint(&self) -> SocketEndpoint {
@@ -92,7 +91,7 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
 
         log::assert!(
             buffer.len() >= SOCKETS * (RX_SIZE + TX_SIZE),
-            "SocketBuilder: Buffer size must be at least SOCKETS * (RX_SIZE + TX_SIZE)"
+            "SocketPool: Buffer size must be at least SOCKETS * (RX_SIZE + TX_SIZE)"
         );
 
         let mut chunks = buffer.chunks_exact_mut(RX_SIZE + TX_SIZE).map(|mem_chunk| {
@@ -131,20 +130,10 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
         use embassy_net::tcp::State;
         let this = self.project_ref();
 
-        let flush = async move |socket: &'_ mut embassy_net::tcp::TcpSocket<'_>| {
-            socket.flush().await.unwrap_or_else(|e| {
-                log::error!(
-                    "SocketBuilder: Error while flushing socket[{}]: {:?}",
-                    index,
-                    log::Debug2Format(&e)
-                );
-            });
-        };
-
         let accept = async move |socket: &'_ mut embassy_net::tcp::TcpSocket<'_>| {
             socket.accept(this.endpoint.port()).await.unwrap_or_else(|e| {
                 log::panic!(
-                    "SocketBuilder: Error while accepting connection[{}]: {:?}",
+                    "SocketPool: Error while accepting connection[{}]: {:?}",
                     index,
                     log::Debug2Format(&e)
                 );
@@ -154,15 +143,27 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
         loop {
             let mut socket: embassy_sync::mutex::MutexGuard<'_, NoopRawMutex, TcpSocket<'stack>> =
                 this.sockets[index].lock().await;
+            log::info!(
+                "SocketPool: Socket[{}] released with state: {:?}",
+                index,
+                socket.state()
+            );
 
             match socket.state() {
                 State::Established | State::SynSent | State::SynReceived => {
-                    flush(&mut socket).await;
-                    socket.wait_read_ready().await;
+                    if SocketWaitReadReady::wait_read_ready(&mut *socket).await.is_err() {
+                        socket.close();
+                        socket.flush().await.ok();
+                        continue;
+                    }
                 }
                 State::Closed | State::Listen => {
                     accept(&mut socket).await;
-                    socket.wait_read_ready().await;
+                    if SocketWaitReadReady::wait_read_ready(&mut *socket).await.is_err() {
+                        socket.close();
+                        socket.flush().await.ok();
+                        continue;
+                    }
                 }
                 State::TimeWait | State::FinWait1 | State::Closing | State::LastAck | State::CloseWait => {
                     // The socket is in a state where it is either closing or waiting for the remote to close,
@@ -170,13 +171,17 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
                     // Close the write side of the connection
                     socket.close();
                     // Ensure all pending data is sent
-                    flush(&mut socket).await;
+                    socket.flush().await.ok();
                     accept(&mut socket).await;
-                    socket.wait_read_ready().await;
+                    if SocketWaitReadReady::wait_read_ready(&mut *socket).await.is_err() {
+                        socket.close();
+                        continue;
+                    }
                 }
                 State::FinWait2 => {
                     // The socket is waiting for the remote to close, we need to wait for it to be writable before accepting a new connection on it.
-                    socket.wait_write_ready().await;
+                    SocketWaitWriteReady::wait_write_ready(&mut *socket).await.ok();
+                    socket.close();
                     continue;
                 }
             };
@@ -186,5 +191,124 @@ impl<'stack, const SOCKETS: usize> TcpSocketPoolState<'stack, SOCKETS> {
             let socket = unsafe { core::mem::transmute::<_, SocketGuard<'static>>(socket) };
             this.queue.send(socket).await;
         }
+    }
+}
+
+/// Represents a socket that is managed by the TcpSocketPool.
+/// This type is used as the associated Socket type in the AbstractSocketListener implementation for
+/// TcpSocketPool, and it provides access to the underlying TcpSocket through the SocketGuard.
+pub struct PoolSocket<'pool>(SocketGuard<'pool>);
+
+impl<'pool> PoolSocket<'pool> {
+    /// Create a new PoolSocket from a SocketGuard.
+    const fn new(guard: SocketGuard<'pool>) -> Self {
+        Self(guard)
+    }
+}
+
+impl SocketErrorType for PoolSocket<'_> {
+    type Error = embassy_net::tcp::Error;
+}
+
+impl SocketReadWith for PoolSocket<'_> {
+    #[inline]
+    fn read_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    where
+        F: FnOnce(&mut [u8]) -> (usize, R),
+    {
+        self.0.read_with::<F, R>(f)
+    }
+}
+
+impl SocketWriteWith for PoolSocket<'_> {
+    #[inline]
+    fn write_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    where
+        F: FnOnce(&mut [u8]) -> (usize, R),
+    {
+        self.0.write_with::<F, R>(f)
+    }
+}
+
+impl SocketRead for PoolSocket<'_> {
+    #[inline]
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.0.read(buf).await
+    }
+
+    #[inline]
+    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), SocketReadExactError<Self::Error>> {
+        self.0.read_exact(buf).await
+    }
+}
+
+impl SocketWrite for PoolSocket<'_> {
+    #[inline]
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.0.write(buf).await
+    }
+
+    #[inline]
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await
+    }
+
+    #[inline]
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.0.write_all(buf).await
+    }
+}
+
+impl SocketWriteReady for PoolSocket<'_> {
+    #[inline]
+    fn write_ready(&mut self) -> Result<bool, Self::Error> {
+        self.0.write_ready()
+    }
+}
+
+impl SocketReadReady for PoolSocket<'_> {
+    #[inline]
+    fn read_ready(&mut self) -> Result<bool, Self::Error> {
+        self.0.read_ready()
+    }
+}
+
+impl SocketWaitReadReady for PoolSocket<'_> {
+    #[inline]
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
+        <TcpSocket<'_> as SocketWaitReadReady>::wait_read_ready(&mut self.0).await
+    }
+}
+
+impl SocketWaitWriteReady for PoolSocket<'_> {
+    #[inline]
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
+        <TcpSocket<'_> as SocketWaitWriteReady>::wait_write_ready(&mut self.0).await
+    }
+}
+
+impl SocketClose for PoolSocket<'_> {
+    type Error = embassy_net::tcp::Error;
+
+    #[inline]
+    async fn close(&mut self) -> Result<(), Self::Error> {
+        <TcpSocket<'_> as SocketClose>::close(&mut self.0).await
+    }
+}
+
+impl SocketInfo for PoolSocket<'_> {
+    #[inline]
+    fn local_endpoint(&self) -> Option<SocketEndpoint> {
+        <TcpSocket<'_> as SocketInfo>::local_endpoint(&self.0)
+    }
+
+    #[inline]
+    fn remote_endpoint(&self) -> Option<SocketEndpoint> {
+        <TcpSocket<'_> as SocketInfo>::remote_endpoint(&self.0)
+    }
+
+    #[inline]
+    fn state(&self) -> State {
+        State::from(<TcpSocket<'_> as SocketInfo>::state(&self.0))
     }
 }

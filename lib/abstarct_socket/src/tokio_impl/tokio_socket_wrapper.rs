@@ -7,8 +7,8 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
 use tokio::net::{TcpSocket, TcpStream};
 
 use crate::socket::{
-    SocketClose, SocketEndpoint, SocketErrorType, SocketInfo, SocketRead, SocketReadReady, SocketReadWith,
-    SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady, SocketWriteWith,
+    SocketClose, SocketEndpoint, SocketErrorKind, SocketErrorType, SocketInfo, SocketRead, SocketReadReady,
+    SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady, SocketWriteWith,
 };
 
 /// Error type used by the Tokio adapters in this crate.
@@ -431,11 +431,12 @@ impl SocketWriteReady for TokioSocketOwnedWriteHalfWrapper {
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitReadReady for TokioSocketWrapper {
-    async fn wait_read_ready(&self) -> () {
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
         match &self.state {
-            TokioSocketState::Stream(stream) => {
-                let _ = stream.readable().await;
-            }
+            TokioSocketState::Stream(stream) => stream
+                .readable()
+                .await
+                .map_err(|_| TokioSocketError(SocketErrorKind::ConnectionReset)),
             TokioSocketState::Socket(_) => {
                 panic!(
                     "Tokio sockets and listeners are never ready for reading, so wait_read_ready should not be called on them"
@@ -447,25 +448,32 @@ impl SocketWaitReadReady for TokioSocketWrapper {
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitReadReady for TokioSocketReadHalfWrapper<'_> {
-    async fn wait_read_ready(&self) -> () {
-        let _ = self.inner.readable().await;
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
+        self.inner
+            .readable()
+            .await
+            .map_err(|_| TokioSocketError(SocketErrorKind::ConnectionReset))
     }
 }
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitReadReady for TokioSocketOwnedReadHalfWrapper {
-    async fn wait_read_ready(&self) -> () {
-        let _ = self.inner.readable().await;
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
+        self.inner
+            .readable()
+            .await
+            .map_err(|_| TokioSocketError(SocketErrorKind::ConnectionReset))
     }
 }
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitWriteReady for TokioSocketWrapper {
-    async fn wait_write_ready(&self) -> () {
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
         match &self.state {
-            TokioSocketState::Stream(stream) => {
-                let _ = stream.writable().await;
-            }
+            TokioSocketState::Stream(stream) => stream
+                .writable()
+                .await
+                .map_err(|_| TokioSocketError(SocketErrorKind::ConnectionReset)),
             TokioSocketState::Socket(_) => {
                 panic!(
                     "Tokio sockets and listeners are never ready for writing, so wait_write_ready should not be called on them"
@@ -477,14 +485,20 @@ impl SocketWaitWriteReady for TokioSocketWrapper {
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitWriteReady for TokioSocketWriteHalfWrapper<'_> {
-    async fn wait_write_ready(&self) -> () {
-        let _ = self.0.writable().await;
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
+        self.0
+            .writable()
+            .await
+            .map_err(|_| TokioSocketError(SocketErrorKind::ConnectionReset))
     }
 }
 
 // TODO: Implement tests for this trait implementation.
 impl SocketWaitWriteReady for TokioSocketOwnedWriteHalfWrapper {
-    async fn wait_write_ready(&self) -> () {
-        let _ = self.0.writable().await;
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
+        self.0
+            .writable()
+            .await
+            .map_err(|_| TokioSocketError(SocketErrorKind::ConnectionReset))
     }
 }

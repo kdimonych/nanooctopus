@@ -13,6 +13,7 @@ pub const MAX_HEADERS: usize = 16;
 
 /// HTTP request parsed from client
 #[derive(Debug)]
+#[defmt_or_log::maybe_derive_format]
 pub struct HttpRequest<'a> {
     /// HTTP method
     pub method: HttpMethod,
@@ -221,7 +222,6 @@ impl<'buf> WebSocketKeySearch<'buf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HttpMethod;
     use abstarct_socket::mocks::mock_read_stream::MockReadStream;
 
     fn create_mock_stream<'buf>(data: &'buf mut [u8]) -> MockReadStream<'buf> {

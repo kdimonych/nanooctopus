@@ -27,6 +27,7 @@ defmt = [
     "abstarct_socket/defmt",
     "defmt-or-log/defmt",
     "embedded-io-async/defmt-03",
+    "heapless/defmt-03",
 ]
 log = ["dep:log", "defmt-or-log/log", "abstarct_socket/log"]
 
@@ -56,7 +57,7 @@ embassy-net = { version = "0.7.1", features = [
 ], optional = true }
 embassy-time = { version = "0.5.0", default-features = false, optional = true }
 embassy-sync = { version = "0.7", default-features = false, optional = true }
-heapless = "0.7.11"
+heapless = "0.8"
 embedded-io-async = "0.6"
 # SHA-1 for no_std environments - try sha1 crate instead
 sha1 = { version = "0.10", default-features = false, optional = true }

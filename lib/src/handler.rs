@@ -18,7 +18,8 @@ pub use crate::web_socket::{WebSocketError, WebSocketState};
 #[cfg(feature = "ws")]
 pub use crate::web_socket::{WebSocketIoError, WebSocketRead, WebSocketReadReady, WebSocketWrite, WebSocketWriteReady};
 
-/// Trait for handling HTTP requests
+/// Trait for handling incoming HTTP requests.
+/// Implementers of this trait can define custom logic to process HTTP requests and generate appropriate responses.
 #[allow(async_fn_in_trait)]
 pub trait HttpHandler {
     /// Handle an incoming HTTP request and produce a response.

@@ -1,8 +1,8 @@
 use core::mem::MaybeUninit;
 
-/// Common utilities and types for socket management.
+/// Trait for accessing the worker memory buffer, which can be used for parsing HTTP requests or constructing responses.
 pub trait HttpMemoryBuffer {
-    /// Get a mutable reference to the worker memory buffer
+    /// Get a mutable reference to the worker memory buffer, which is a slice of uninitialized bytes.
     fn get_buffer(&mut self) -> &mut [MaybeUninit<u8>];
 }
 

@@ -550,16 +550,19 @@ impl<S> SocketWaitReadReady for WebSocket<'_, S>
 where
     S: SocketWaitReadReady,
 {
-    async fn wait_read_ready(&self) -> () {
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
         if self.active_payload_reader.is_some() {
             // There is an active payload reader, so there still is pending data to read even if socket is closed.
             // Return immediately without waiting for the socket to be ready.
-            return;
+            return Ok(());
         }
         if self.receiving_state == PipeState::Closed {
             log::panic!("WebSocket: Attempt to wait for read ready on closed receiving pipe");
         }
-        self.socket.wait_read_ready().await;
+        self.socket
+            .wait_read_ready()
+            .await
+            .map_err(|e| WebSocketError::SocketError(self.close_on_critical_error(e)))
     }
 }
 
@@ -567,10 +570,13 @@ impl<S> SocketWaitWriteReady for WebSocket<'_, S>
 where
     S: SocketWaitWriteReady,
 {
-    async fn wait_write_ready(&self) -> () {
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
         if self.sending_state == PipeState::Closed {
             log::panic!("WebSocket: Attempt to wait for write ready on closed sending pipe");
         }
-        self.socket.wait_write_ready().await;
+        self.socket
+            .wait_write_ready()
+            .await
+            .map_err(|e| WebSocketError::SocketError(self.close_on_critical_error(e)))
     }
 }

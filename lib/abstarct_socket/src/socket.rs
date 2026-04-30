@@ -1,6 +1,9 @@
+#![allow(async_fn_in_trait)]
+
 pub use embedded_io_async::{
     Error as SocketError, ErrorKind as SocketErrorKind, ErrorType as SocketErrorType, Read as SocketRead,
-    ReadReady as SocketReadReady, Write as SocketWrite, WriteReady as SocketWriteReady,
+    ReadExactError as SocketReadExactError, ReadReady as SocketReadReady, Write as SocketWrite,
+    WriteReady as SocketWriteReady,
 };
 
 /// Trait representing a read stream interface
@@ -16,7 +19,7 @@ pub trait SocketReadWith: SocketErrorType {
     /// ## Errors
     /// - Returns `Self::Error` if an error occurs while reading from the stream.
     ///
-    fn read_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R);
 }
@@ -24,11 +27,11 @@ pub trait SocketReadWith: SocketErrorType {
 /// Implement ReadWith for mutable references to types that implement ReadWith
 impl<T: ?Sized + SocketReadWith> SocketReadWith for &mut T {
     #[inline]
-    fn read_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    async fn read_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
-        T::read_with(self, f)
+        T::read_with(self, f).await
     }
 }
 /// Trait representing a write stream interface
@@ -44,7 +47,7 @@ pub trait SocketWriteWith: SocketErrorType {
     /// ## Errors
     /// - Returns `Self::Error` if an error occurs while writing to the stream.
     ///
-    fn write_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    async fn write_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R);
 }
@@ -52,11 +55,11 @@ pub trait SocketWriteWith: SocketErrorType {
 /// Implement WriteWith for mutable references to types that implement WriteWith
 impl<T: ?Sized + SocketWriteWith> SocketWriteWith for &mut T {
     #[inline]
-    fn write_with<F, R>(&mut self, f: F) -> impl core::future::Future<Output = Result<R, Self::Error>>
+    async fn write_with<F, R>(&mut self, f: F) -> Result<R, Self::Error>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
-        T::write_with(self, f)
+        T::write_with(self, f).await
     }
 }
 
@@ -70,7 +73,7 @@ pub trait SocketClose {
     /// ## Returns
     /// - Returns Ok(()) if the socket was closed successfully.
     /// - Returns `Self::Error` if an error occurs while closing the socket.
-    fn close(&mut self) -> impl core::future::Future<Output = Result<(), Self::Error>>;
+    async fn close(&mut self) -> Result<(), Self::Error>;
 }
 
 /// Implement SocketClose for mutable references to types that implement SocketClose
@@ -78,8 +81,8 @@ impl<T: ?Sized + SocketClose> SocketClose for &mut T {
     type Error = T::Error;
 
     #[inline]
-    fn close(&mut self) -> impl core::future::Future<Output = Result<(), Self::Error>> {
-        T::close(self)
+    async fn close(&mut self) -> Result<(), Self::Error> {
+        T::close(self).await
     }
 }
 
@@ -161,32 +164,42 @@ impl<T: ?Sized + SocketInfo> SocketInfo for &T {
 }
 
 /// A trait that provides a method for waiting until a socket is ready for reading.
-pub trait SocketWaitReadReady {
+pub trait SocketWaitReadReady: SocketErrorType {
     /// Wait until the socket is ready for reading, which means that there is data available to read
     /// from the socket.
-    fn wait_read_ready(&self) -> impl core::future::Future<Output = ()>;
+    ///
+    /// ## Returns
+    /// - Returns Ok(()) if the socket is ready for reading.
+    /// - Returns `Self::Error` if the socket is not readable anymore, which may occur if the connection
+    /// has been closed or if an error occurs while waiting for the socket to become ready.
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error>;
 }
 
 /// Implement SocketWaitReadReady for immutable references to types that implement SocketWaitReadReady
-impl<T: ?Sized + SocketWaitReadReady> SocketWaitReadReady for &T {
+impl<T: ?Sized + SocketWaitReadReady> SocketWaitReadReady for &mut T {
     #[inline]
-    fn wait_read_ready(&self) -> impl core::future::Future<Output = ()> {
-        T::wait_read_ready(self)
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
+        T::wait_read_ready(self).await
     }
 }
 
 /// A trait that provides a method for waiting until a socket is ready for writing.
-pub trait SocketWaitWriteReady {
+pub trait SocketWaitWriteReady: SocketErrorType {
     /// Wait until the socket is ready for writing, which means that the socket can accept data to be written
     /// without blocking.
-    fn wait_write_ready(&self) -> impl core::future::Future<Output = ()>;
+    ///
+    /// ## Returns
+    /// - Returns Ok(()) if the socket is ready for writing.
+    /// - Returns `Self::Error` if the socket is not writable anymore, which may occur if the connection
+    /// has been closed or if an error occurs while waiting for the socket to become ready
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error>;
 }
 
 /// Implement SocketWaitWriteReady for immutable references to types that implement SocketWaitWriteReady
-impl<T: ?Sized + SocketWaitWriteReady> SocketWaitWriteReady for &T {
+impl<T: ?Sized + SocketWaitWriteReady> SocketWaitWriteReady for &mut T {
     #[inline]
-    fn wait_write_ready(&self) -> impl core::future::Future<Output = ()> {
-        T::wait_write_ready(self)
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
+        T::wait_write_ready(self).await
     }
 }
 /// A trait that encompasses all socket-related functionality, including information retrieval, graceful shutdown,
@@ -234,9 +247,7 @@ pub trait AbstractSocketListener {
     /// The associated type representing the socket produced by the listener.
     /// The produced socket has a lifetime parameter that is tied to the listener, ensuring that the socket cannot
     /// outlive the listener that created it.
-    type Socket<'a>
-    where
-        Self: 'a;
+    type Socket;
 
     /// Accept an incoming connection and construct a new socket instance based on the listener's configuration.
     /// This method should block until a new connection is accepted.
@@ -245,14 +256,14 @@ pub trait AbstractSocketListener {
     /// - Returns an instance of `Self::Socket` representing the accepted connection if successful.
     ///
     /// Note: this method should not panic on errors.
-    fn accept(&self) -> impl core::future::Future<Output = Self::Socket<'_>>;
+    async fn accept(&self) -> Self::Socket;
 
     /// Attempt to accept an incoming connection without blocking. This method should return immediately, indicating
     /// whether a new connection was accepted or if no connections are currently pending.
     /// ### Returns
     /// - Returns `Some(Self::Socket)` if a new connection was accepted successfully.
     /// - Returns `None` if no connections are currently pending or if an error occurs while attempting to accept a connection.
-    fn try_accept(&self) -> impl core::future::Future<Output = Option<Self::Socket<'_>>>;
+    async fn try_accept(&self) -> Option<Self::Socket>;
 
     /// Get the local endpoint that the listener is configured to listen on. This method should return the socket endpoint
     /// that the listener is bound to, which can be used by clients to connect to the listener.
@@ -265,6 +276,25 @@ pub trait AbstractSocketListener {
     /// endpoint information. Implementers of this trait should ensure that the listener is properly initialized and ready to
     /// provide the local endpoint information before calling this method.
     fn local_endpoint(&self) -> SocketEndpoint;
+}
+
+impl<T: ?Sized + AbstractSocketListener> AbstractSocketListener for &T {
+    type Socket = T::Socket;
+
+    #[inline]
+    async fn accept(&self) -> Self::Socket {
+        T::accept(self).await
+    }
+
+    #[inline]
+    async fn try_accept(&self) -> Option<Self::Socket> {
+        T::try_accept(self).await
+    }
+
+    #[inline]
+    fn local_endpoint(&self) -> SocketEndpoint {
+        T::local_endpoint(self)
+    }
 }
 
 /// A trait representing a socket connector. This trait provides a method for connecting to a remote
@@ -282,9 +312,7 @@ pub trait AbstarctSocketConnector {
     /// The associated type representing the socket produced by the connector.
     type Error;
     /// The associated type representing the socket produced by the connector.
-    type Socket<'a>
-    where
-        Self: 'a;
+    type Socket;
 
     /// Connect to a remote socket endpoint and obtain a socket instance representing the established
     /// connection.
@@ -295,8 +323,15 @@ pub trait AbstarctSocketConnector {
     /// ### Returns
     /// - Returns a future that resolves to a `Result` containing either an instance of `Self::Socket`
     /// representing the established connection or an error if the connection attempt fails.
-    fn connect(
-        &self,
-        endpoint: SocketEndpoint,
-    ) -> impl core::future::Future<Output = Result<Self::Socket<'_>, Self::Error>>;
+    async fn connect(&self, endpoint: SocketEndpoint) -> Result<Self::Socket, Self::Error>;
+}
+
+impl<T: ?Sized + AbstarctSocketConnector> AbstarctSocketConnector for &T {
+    type Error = T::Error;
+    type Socket = T::Socket;
+
+    #[inline]
+    async fn connect(&self, endpoint: SocketEndpoint) -> Result<Self::Socket, Self::Error> {
+        T::connect(self, endpoint).await
+    }
 }

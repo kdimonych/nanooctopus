@@ -4,6 +4,7 @@ use crate::socket::{
 };
 
 use embassy_net::tcp::{TcpReader, TcpSocket, TcpWriter};
+use embedded_io_async::ReadReady;
 
 // Embassy-net based ReadStream implementation for TcpReader
 impl<'stack> SocketReadWith for TcpSocket<'stack> {
@@ -129,25 +130,86 @@ impl SocketClose for TcpSocket<'_> {
 }
 
 impl SocketWaitReadReady for TcpSocket<'_> {
-    async fn wait_read_ready(&self) -> () {
-        self.wait_read_ready().await;
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
+        use core::future::poll_fn;
+        use core::pin::pin;
+        use core::task::Poll;
+
+        poll_fn(|cx| -> Poll<Result<(), Self::Error>> {
+            let wait_read_ready = pin!(TcpSocket::wait_read_ready(self));
+            if let Poll::Ready(()) = wait_read_ready.poll(cx) {
+                Poll::Ready(Ok(()))
+            } else {
+                if !self.may_recv() {
+                    // If the socket is not ready for reading and cannot receive more data, it means the connection has been closed.
+                    return Poll::Ready(Err(Self::Error::ConnectionReset));
+                }
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
 impl SocketWaitReadReady for TcpReader<'_> {
-    async fn wait_read_ready(&self) -> () {
-        self.wait_read_ready().await;
+    async fn wait_read_ready(&mut self) -> Result<(), Self::Error> {
+        use core::future::poll_fn;
+        use core::pin::pin;
+        use core::task::Poll;
+
+        poll_fn(|cx| -> Poll<Result<(), Self::Error>> {
+            if let Poll::Ready(()) = pin!(TcpReader::wait_read_ready(self)).poll(cx) {
+                Poll::Ready(Ok(()))
+            } else {
+                if !self.read_ready().unwrap() {
+                    // If the socket is not ready for reading and cannot receive more data, it means the connection has been closed.
+                    return Poll::Ready(Err(Self::Error::ConnectionReset));
+                }
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
 impl SocketWaitWriteReady for TcpSocket<'_> {
-    async fn wait_write_ready(&self) -> () {
-        self.wait_write_ready().await;
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
+        use core::future::poll_fn;
+        use core::pin::pin;
+        use core::task::Poll;
+
+        poll_fn(|cx| -> Poll<Result<(), Self::Error>> {
+            if let Poll::Ready(()) = pin!(TcpSocket::wait_write_ready(self)).poll(cx) {
+                Poll::Ready(Ok(()))
+            } else {
+                if let Poll::Ready(Err(e)) = pin!(TcpSocket::flush(self)).poll(cx) {
+                    // If flushing the socket results in an error, it means the connection has been closed.
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
 impl SocketWaitWriteReady for TcpWriter<'_> {
-    async fn wait_write_ready(&self) -> () {
-        self.wait_write_ready().await;
+    async fn wait_write_ready(&mut self) -> Result<(), Self::Error> {
+        use core::future::poll_fn;
+        use core::pin::pin;
+        use core::task::Poll;
+
+        poll_fn(|cx| -> Poll<Result<(), Self::Error>> {
+            if let Poll::Ready(()) = pin!(TcpWriter::wait_write_ready(self)).poll(cx) {
+                Poll::Ready(Ok(()))
+            } else {
+                if let Poll::Ready(Err(e)) = pin!(TcpWriter::flush(self)).poll(cx) {
+                    // If flushing the socket results in an error, it means the connection has been closed.
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Pending
+            }
+        })
+        .await
     }
 }

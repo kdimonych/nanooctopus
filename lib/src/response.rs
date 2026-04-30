@@ -5,21 +5,23 @@ use abstarct_socket::socket::SocketWrite;
 const CONTENT_LENGTH_PLACEHOLDER_SIZE: usize = usize::ilog10(usize::MAX) as usize + 1;
 const CHUNK_LENGTH_PLACEHOLDER_SIZE: usize = usize::BITS as usize / 4;
 
-/// Marker types for the builder stages
-pub struct NotCreated;
-/// Marker type for building status stage
-pub struct BuildStatus;
-/// Marker type for building body stage
-pub struct BuildHeader;
+/// The response builder stages
+pub mod stages {
+    /// Marker types for the builder stages
+    pub struct NotCreated;
+    /// Marker type for building status stage
+    pub struct BuildStatus;
+    /// Marker type for building body stage
+    pub struct BuildHeader;
 
-/// A simple marker type for building chunked body stage
-pub struct BuildChankedBody;
-/// A simple marker type for building chunked body with trailer stage
-pub struct BuildChankedBodyWithTrailer;
+    /// A simple marker type for building chunked body stage
+    pub struct BuildChankedBody;
+    /// A simple marker type for building chunked body with trailer stage
+    pub struct BuildChankedBodyWithTrailer;
 
-/// A simple marker type for trailer stage
-pub struct Trailer;
-
+    /// A simple marker type for trailer stage
+    pub struct Trailer;
+}
 /// The response type representing an HTTP response.
 /// This struct is deliberately empty as response is being sent in a streaming manner using HttpResponseBuilder.
 pub struct HttpResponse(core::marker::PhantomData<()>);
@@ -32,7 +34,7 @@ impl HttpResponse {
 }
 
 /// HTTP Response Builder for constructing HTTP responses in a staged manner.
-pub struct HttpResponseBuilder<'a, WriteSocket: SocketWrite, Stage = NotCreated> {
+pub struct HttpResponseBuilder<'a, WriteSocket: SocketWrite, Stage = stages::NotCreated> {
     base: BuilderBase<'a, WriteSocket>,
     _phantom: core::marker::PhantomData<Stage>,
 }
@@ -41,9 +43,9 @@ struct BuilderBase<'a, WriteSocket: SocketWrite> {
     write_socket: &'a mut WriteSocket,
 }
 
-impl<'a, WriteSocket: SocketWrite> HttpResponseBuilder<'a, WriteSocket, NotCreated> {
+impl<'a, WriteSocket: SocketWrite> HttpResponseBuilder<'a, WriteSocket, stages::NotCreated> {
     /// Creates a new HttpResponseBuilder with the provided buffer.
-    pub fn new(http_socket: &'a mut WriteSocket) -> HttpResponseBuilder<'a, WriteSocket, BuildStatus> {
+    pub fn new(http_socket: &'a mut WriteSocket) -> HttpResponseBuilder<'a, WriteSocket, stages::BuildStatus> {
         HttpResponseBuilder {
             base: BuilderBase {
                 write_socket: http_socket,
@@ -53,12 +55,12 @@ impl<'a, WriteSocket: SocketWrite> HttpResponseBuilder<'a, WriteSocket, NotCreat
     }
 }
 
-impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildStatus> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, stages::BuildStatus> {
     /// Adds a header to the HTTP response.
     pub async fn with_status(
         mut self,
         status_code: StatusCode,
-    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, BuildHeader>, Error> {
+    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, stages::BuildHeader>, Error> {
         // Write "HTTP/1.1 "
         self.base.extend_from_slice(b"HTTP/1.1 ").await?;
         // Write status code in decimal
@@ -85,7 +87,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 }
 
-impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildHeader> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, stages::BuildHeader> {
     /// Adds a header to the HTTP response.
     #[inline(always)]
     pub async fn add_header(&mut self, name: &str, value: &str) -> Result<(), Error> {
@@ -128,7 +130,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     /// Prepares the builder to add a chunked body to the HTTP response.
     pub async fn with_chanked_body(
         mut self,
-    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBody>, Error> {
+    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, stages::BuildChankedBody>, Error> {
         self.add_header("Transfer-Encoding", "chunked").await?;
         self.new_line().await?;
         Ok(HttpResponseBuilder {
@@ -141,7 +143,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     pub async fn chanked_body_and_trailer(
         mut self,
         trailer: &str,
-    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBodyWithTrailer>, Error> {
+    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, stages::BuildChankedBodyWithTrailer>, Error> {
         self.add_header("Transfer-Encoding", "chunked").await?;
         self.add_header("Trailer", trailer).await?;
         self.new_line().await?;
@@ -246,7 +248,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 }
 
-impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBody> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, stages::BuildChankedBody> {
     /// Adds a chunk to the chunked body.
     pub async fn with_chunk(mut self, chunk: &[u8]) -> Result<Self, Error> {
         // Write chunk size in hexadecimal
@@ -272,7 +274,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 }
 
-impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, BuildChankedBodyWithTrailer> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, stages::BuildChankedBodyWithTrailer> {
     /// Adds a chunk to the chunked body.
     pub async fn with_chunk(mut self, chunk: &[u8]) -> Result<Self, Error> {
         // Write chunk size in hexadecimal
@@ -290,7 +292,9 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 
     /// Finalizes the chunked body by writing the zero-length chunk.
-    pub async fn finalize_chunked_body(mut self) -> Result<HttpResponseBuilder<'buffer, WriteSocket, Trailer>, Error> {
+    pub async fn finalize_chunked_body(
+        mut self,
+    ) -> Result<HttpResponseBuilder<'buffer, WriteSocket, stages::Trailer>, Error> {
         // Write zero-length chunk to indicate end of chunks
         self.base.extend_from_str("0\r\n\r\n").await?;
         Ok(HttpResponseBuilder {
@@ -300,7 +304,7 @@ impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket
     }
 }
 
-impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, Trailer> {
+impl<'buffer, WriteSocket: SocketWrite> HttpResponseBuilder<'buffer, WriteSocket, stages::Trailer> {
     /// Adds a trailer header to the HTTP response.
     pub async fn with_trailer_header(mut self, header: &str, value: &str) -> Result<Self, Error> {
         self.base.extend_from_str(header).await?;

@@ -37,12 +37,9 @@ impl<'stack> TokioTcpListener<'stack> {
 }
 
 impl<'stack> AbstractSocketListener for TokioTcpListener<'stack> {
-    type Socket<'a>
-        = TokioSocketWrapper
-    where
-        Self: 'a;
+    type Socket = TokioSocketWrapper;
 
-    async fn accept(&self) -> Self::Socket<'_> {
+    async fn accept(&self) -> Self::Socket {
         self.listener
             .accept()
             .await
@@ -51,7 +48,7 @@ impl<'stack> AbstractSocketListener for TokioTcpListener<'stack> {
             .unwrap()
     }
 
-    async fn try_accept(&self) -> Option<Self::Socket<'_>> {
+    async fn try_accept(&self) -> Option<Self::Socket> {
         core::future::poll_fn(|cx| {
             if let core::task::Poll::Ready(Ok((socket, _))) = self.listener.poll_accept(cx) {
                 core::task::Poll::Ready(Some(TokioSocketWrapper::new_stream(socket)))
@@ -79,12 +76,9 @@ impl TokioTcpSocketConnector {
 
 impl AbstarctSocketConnector for TokioTcpSocketConnector {
     type Error = std::io::Error;
-    type Socket<'a>
-        = TokioSocketWrapper
-    where
-        Self: 'a;
+    type Socket = TokioSocketWrapper;
 
-    async fn connect(&self, endpoint: SocketEndpoint) -> Result<Self::Socket<'_>, Self::Error> {
+    async fn connect(&self, endpoint: SocketEndpoint) -> Result<Self::Socket, Self::Error> {
         let stream = tokio::net::TcpStream::connect(endpoint).await?;
         Ok(TokioSocketWrapper::new_stream(stream))
     }

@@ -44,6 +44,7 @@ pub mod mime_types {
 /// Headers are used to pass additional information about the request or response.
 /// For `no_std` compatibility, we use `heapless::String` with fixed capacity.
 #[derive(Clone, Debug)]
+#[defmt_or_log::maybe_derive_format]
 pub struct HttpHeader<'a> {
     /// The name of the header (e.g., "Content-Type", "Authorization")
     pub name: &'a str,

@@ -1,101 +1,57 @@
 # abstarct_socket
 
-`abstarct_socket` is a thin TCP socket abstraction layer for `nanooctopus`.
+`abstarct_socket` provides a minimal async TCP abstraction used by `nanooctopus`.
 
-The crate exists to let the web server work against one socket-oriented contract while keeping the underlying transport as transparent as possible. The abstraction is intentionally small:
+The crate defines transport-agnostic traits and ships adapter modules for Embassy and Tokio so higher-level HTTP/WebSocket logic can run on both embedded and host environments.
 
-- common TCP metadata via `SocketInfo`
-- connection lifecycle via `SocketConnect`, `SocketAccept`, and `SocketClose`
-- async I/O via `embedded_io_async::Read` and `embedded_io_async::Write`
-- optional direct-buffer hooks via `ReadWith` and `WriteWith`
+## What This Crate Covers
 
-The main target is parity between Embassy TCP sockets and the web server implementation. Tokio support is provided as an adapter so the same higher-level code can be tested and exercised on a host machine.
+- Unified socket metadata via `SocketInfo` (`local_endpoint`, `remote_endpoint`, `state`).
+- Connection lifecycle via `SocketClose`, `AbstractSocketListener`, and `AbstarctSocketConnector`.
+- Async stream I/O via re-exported `embedded_io_async` traits (`SocketRead`, `SocketWrite`, `SocketReadReady`, `SocketWriteReady`).
+- Readiness waiting via `SocketWaitReadReady` and `SocketWaitWriteReady`.
+- Optional closure-based zero-copy style hooks via `SocketReadWith` and `SocketWriteWith`.
 
-## Design goals
+## Core Trait Model
 
-- Keep the abstraction close to the native TCP socket model.
-- Reuse `embedded-io-async` traits instead of inventing another I/O API.
-- Preserve platform-specific behavior when possible instead of hiding it behind a large wrapper.
-- Support no-std Embassy targets and host-side Tokio execution from the same crate.
+- `SocketStream`: combines read/write + readiness traits.
+- `AbstractSocket`: `SocketStream + SocketInfo + SocketClose`.
+- `ExtendedSocket`: `AbstractSocket + SocketReadWith + SocketWriteWith`.
+- `AbstractSocketListener`: async accept interface producing implementation-specific sockets.
+- `AbstarctSocketConnector`: async outbound connection interface.
 
-## Main pieces
+The design keeps the abstraction close to native TCP semantics instead of masking platform behavior behind a large custom API.
 
-- `Socket`: the common TCP contract used by the client/server.
-- `SocketStream`: the socket read/write related functionality.
-- `SocketAccept`: the connection accept functionality.
-- `SocketConnect`: the external connection functionality.
-- `AbstractSocketListener`: a tiny builder trait used to construct implementation-specific sockets.
-- `StreamSearch`: helpers for reading until a byte or sequence without duplicating parsing logic in the server.
+## Stream Utilities
 
-## Feature flags
+`stream_search::StreamSearch` adds parser-oriented helpers on top of `SocketReadWith`:
 
-- `embassy_impl`: adapters for `embassy_net::tcp::TcpSocket`, `TcpReader`, and `TcpWriter`
-- `tokio_impl`: host-side wrappers around Tokio TCP types
-- `mocks`: mock streams and sockets used in tests and examples
-- `std`: enables standard-library support; tests also enable it automatically
+- `seek_until*`: collect bytes into a `prefix_arena::PrefixArena` buffer until a boundary is found.
+- `skip*`: consume bytes without storing them.
 
-## Example: parse until the HTTP header boundary
+Errors are represented by `StreamReadError<T>`:
 
-This example uses the testing mock, but the same `StreamSearch` code works with any type that implements `ReadWith`.
+- `SocketReadError(T)` for underlying transport failures.
+- `ReadBufferOverflow` when the arena-backed output buffer is exhausted.
 
-```rust
-use abstarct_socket::mocks::mock_read_stream::MockReadStream;
-use abstarct_socket::stream_search::StreamSearch;
-use prefix_arena::PrefixArena;
+`find_sequence::FindSequence` supports sequence detection across chunk boundaries and is used by `StreamSearch` sequence-based operations.
 
-# tokio_test::block_on(async {
-let mut input = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\nbody".to_vec();
-let mut stream = MockReadStream::new(&mut input);
+## Implementations
 
-let mut arena_storage = [0u8; 128];
-let mut arena = PrefixArena::new(&mut arena_storage);
+- `embassy_impl`: adapters for `embassy_net::tcp::TcpSocket`, `TcpReader`, and `TcpWriter`, plus `TcpSocketPool` for queued multi-socket acceptance.
+- `tokio_impl`: `TokioTcpListener`, `TokioTcpSocketConnector`, and `TokioSocketWrapper` with read/write-half wrappers.
+- `mocks`: mock sockets and streams for deterministic unit and integration tests.
 
-let header = stream
-	.seek_until_sequence(b"\r\n\r\n", &mut arena)
-	.await
-	.unwrap();
+## Feature Flags
 
-assert_eq!(header, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
-# });
-```
+- `embassy_impl`: enables Embassy adapters and pool support.
+- `tokio_impl`: enables Tokio adapters (requires `std`).
+- `mocks`: enables mock transport/testing helpers.
+- `std`: enables standard library support for applicable dependencies.
+- `proto-ipv6`: enables IPv6 support through Embassy (`embassy-net/proto-ipv6`).
+- `defmt` / `log`: choose logging backend via `defmt-or-log` integration.
 
-## Example: build a Tokio-backed socket
+## Notes
 
-`TokioTcpSocketBuilder` gives the server a socket-shaped object that still behaves like Tokio underneath.
-
-```no_run
-use abstarct_socket::socket::{AbstractSocketListener, SocketConnect, SocketInfo};
-use abstarct_socket::tokio_impl::socket::{IpVersion, TokioTcpSocketBuilder};
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-	let builder = TokioTcpSocketBuilder::new(IpVersion::V4);
-	let mut socket = builder.build();
-
-	socket.connect(([127, 0, 0, 1], 8080)).await.unwrap();
-
-	assert!(socket.local_endpoint().is_some());
-	assert!(socket.remote_endpoint().is_some());
-}
-```
-
-## Example: build an Embassy socket
-
-Embassy keeps ownership of the network stack and the I/O buffers. The builder just packages those dependencies into a socket that matches the crate traits.
-
-```ignore
-use abstarct_socket::embassy_impl::socket::EmbassyTcpSocketBuilder;
-use abstarct_socket::socket::AbstractSocketListener;
-
-let mut rx_buffer = [0u8; 1024];
-let mut tx_buffer = [0u8; 1024];
-
-let builder = EmbassyTcpSocketBuilder::new(stack, &mut rx_buffer, &mut tx_buffer);
-let socket = builder.build();
-```
-
-## When to use `read_with` and `write_with`
-
-Use plain `Read` and `Write` when copied buffers are fine.
-
-Use `read_with` and `write_with` when the parser or serializer wants to work directly with the adapter's currently available chunk. That keeps the abstraction thin and lets adapters preserve implementation-specific buffering behavior.
+- The crate is `no_std` by default (`std` feature opt-in).
+- Crate-level docs are generated from this README via `#![doc = include_str!("../README.md")]`.

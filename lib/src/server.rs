@@ -2,7 +2,6 @@ use crate::{
     handler::HttpHandler,
     request::HttpRequest,
     response::{HttpResponse, HttpResponseBuilder},
-    worker_memory::HttpMemoryBuffer,
 };
 
 use crate::error::Error;
@@ -11,6 +10,12 @@ use abstarct_socket::socket::*;
 use core::time::Duration;
 use defmt_or_log as log;
 use prefix_arena::PrefixArena;
+
+/// Re-exports for easier access by users of the library
+pub use abstarct_socket::socket::{AbstractSocketListener, SocketEndpoint};
+
+/// Re-exports of the memory buffer trait and related types for easier allocation of memory for HTTP request handling.
+pub use crate::worker_memory::*;
 
 // WebSocket related imports and constants
 #[cfg(feature = "ws")]
@@ -22,15 +27,30 @@ use sha1::{Digest, Sha1};
 #[cfg(feature = "ws")]
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+const READ_TIMEOUT_SECS: u64 = 30;
+const HANDLER_TIMEOUT_SECS: u64 = 60;
+
+/// This module contains the embassy implementation of TCP socket pool, that manage multiple TCP socket connections efficiently.
+/// It provides abstractions for creating and handling TCP listeners and connections, allowing the server to manage multiple
+/// simultaneous client connections in a cooperative manner, leveraging the async capabilities of the embassy framework.
+#[cfg(feature = "embassy_impl")]
+pub mod socket_pool {
+    pub use abstarct_socket::embassy_impl::tcp_socket_pool::{TcpSocketPool, TcpSocketPoolRunner, TcpSocketPoolState};
+}
+
+/// This module contains the tokio implementation of TCP socket pool, that manage multiple TCP socket connections efficiently.
+/// It provides abstractions for creating and handling TCP listeners and connections, allowing the server to manage multiple
+/// simultaneous client connections in a cooperative manner, leveraging the async capabilities of the tokio framework.
+#[cfg(feature = "tokio_impl")]
+pub mod socket_listener {
+    pub use abstarct_socket::tokio_impl::socket::TokioTcpListener;
+}
+
 /// HTTP server timeout configuration
 #[derive(Debug, Clone, Copy)]
 pub struct ServerTimeouts {
-    /// Socket accept timeout in seconds
-    pub accept_timeout: u64,
     /// Socket read timeout in seconds
     pub read_timeout: u64,
-    /// Keep-alive timeout in seconds (currently not used, placeholder for future functionality)
-    pub keep_alive_timeout: u64,
     /// Request handler timeout in seconds
     pub handler_timeout: u64,
 }
@@ -38,10 +58,8 @@ pub struct ServerTimeouts {
 impl Default for ServerTimeouts {
     fn default() -> Self {
         Self {
-            accept_timeout: 10,
-            read_timeout: 30,
-            keep_alive_timeout: 5,
-            handler_timeout: 60,
+            read_timeout: READ_TIMEOUT_SECS,
+            handler_timeout: HANDLER_TIMEOUT_SECS,
         }
     }
 }
@@ -49,11 +67,9 @@ impl Default for ServerTimeouts {
 impl ServerTimeouts {
     /// Create new server timeouts with custom values
     #[must_use]
-    pub fn new(accept_timeout: u64, read_timeout: u64, keep_alive_timeout: u64, handler_timeout: u64) -> Self {
+    pub fn new(read_timeout: u64, handler_timeout: u64) -> Self {
         Self {
-            accept_timeout,
             read_timeout,
-            keep_alive_timeout,
             handler_timeout,
         }
     }
@@ -64,16 +80,16 @@ impl ServerTimeouts {
 /// **Note**: This server only supports HTTP connections, not HTTPS/TLS.
 /// For secure connections, consider using a reverse proxy or load balancer
 /// that handles TLS termination.
-pub struct HttpServer<'sb, SocketBuilder> {
-    socket_builder: &'sb SocketBuilder,
+pub struct HttpServer<SocketBuilder> {
+    socket_builder: SocketBuilder,
     timeouts: ServerTimeouts,
     auto_close_connection: bool,
 }
 
-impl<'sb, SocketBuilder> HttpServer<'sb, SocketBuilder> {
+impl<SocketBuilder: AbstractSocketListener> HttpServer<SocketBuilder> {
     /// Create a new HTTP server with default timeouts
     #[must_use]
-    pub fn new(socket_builder: &'sb SocketBuilder, timeouts: ServerTimeouts) -> Self {
+    pub fn new(socket_builder: SocketBuilder, timeouts: ServerTimeouts) -> Self {
         Self {
             socket_builder,
             timeouts,
@@ -81,7 +97,7 @@ impl<'sb, SocketBuilder> HttpServer<'sb, SocketBuilder> {
         }
     }
 
-    /// Set whether to automatically close the connection after each response
+    /// Determine whether to automatically close the connection after handling a request.
     #[must_use]
     pub fn with_auto_close_connection(mut self, auto_close: bool) -> Self {
         // Currently no-op, placeholder for future functionality
@@ -96,8 +112,7 @@ impl<'sb, SocketBuilder> HttpServer<'sb, SocketBuilder> {
     pub async fn serve<H>(&self, mut worker_memory: impl HttpMemoryBuffer, mut handler: H, context_id: usize) -> !
     where
         H: HttpHandler,
-        SocketBuilder: AbstractSocketListener,
-        <SocketBuilder as AbstractSocketListener>::Socket<'sb>: AbstractSocket + SocketReadWith,
+        <SocketBuilder as AbstractSocketListener>::Socket: AbstractSocket + SocketReadWith,
     {
         log::info!("WebServer[{}]: HTTP server started", context_id);
 
@@ -382,7 +397,7 @@ where
 
     let builder = HttpResponseBuilder::new(http_socket);
     builder
-        .with_status(crate::StatusCode::SwitchingProtocols)
+        .with_status(crate::status_code::StatusCode::SwitchingProtocols)
         .await?
         .with_header("Upgrade", "websocket")
         .await?

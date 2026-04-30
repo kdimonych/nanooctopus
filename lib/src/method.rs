@@ -3,6 +3,7 @@
 /// This enum represents the standard HTTP methods that can be used
 /// when making requests with the `HttpClient`.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[defmt_or_log::maybe_derive_format]
 pub enum HttpMethod {
     /// The GET method requests a representation of the specified resource.
     /// Requests using GET should only retrieve data.

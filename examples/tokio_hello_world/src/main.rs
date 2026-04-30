@@ -1,24 +1,21 @@
-use nanooctopus::{
-    Error, HttpAllocator, HttpHandler, HttpRequest, HttpResponseBuilder, HttpServer, HttpSocketWrite, ServerTimeouts,
-    SocketEndpoint, StatusCode, TokioTcpListener, response::HttpResponse, worker_memory::HttpWorkerMemory,
-};
+use nanooctopus::*;
 
 /// Request handler that responds to every HTTP request with "Hello, World!".
 struct HelloWorldHandler;
 
-impl HttpHandler for HelloWorldHandler {
+impl http_handler::HttpHandler for HelloWorldHandler {
     async fn handle_request(
         &mut self,
-        _allocator: &mut HttpAllocator<'_>, // unused in this simple handler
-        request: &HttpRequest<'_>,
-        http_socket: &mut impl HttpSocketWrite,
+        _allocator: &mut http_handler::HttpAllocator<'_>, // unused in this simple handler
+        request: &http_handler::HttpRequest<'_>,
+        http_socket: &mut impl http_handler::HttpSocketWrite,
         context_id: usize,
-    ) -> Result<HttpResponse, Error> {
-        log::info!("Received request: {:?} in context {}", request, context_id);
+    ) -> Result<http_handler::HttpResponse, http_handler::Error> {
+        log::info!("HelloWorldHandler[{}]: Received request: {:?}", context_id, request);
 
         // Stream the response directly to the socket: status → headers → body.
-        HttpResponseBuilder::new(http_socket)
-            .with_status(StatusCode::Ok)
+        http_handler::HttpResponseBuilder::new(http_socket)
+            .with_status(http_handler::StatusCode::Ok)
             .await?
             .with_header("Content-Type", "text/plain")
             .await?
@@ -39,14 +36,16 @@ async fn main() {
     // single-threaded (`flavor = "local"`) Tokio runtime used here.
     tokio::task::spawn_local(async move {
         // Bind the TCP listener to localhost:8080.
-        let listener = TokioTcpListener::new(SocketEndpoint::new([127, 0, 0, 1].into(), 8080)).await;
+        let listener =
+            server::socket_listener::TokioTcpListener::new(server::SocketEndpoint::new([127, 0, 0, 1].into(), 8080))
+                .await;
 
-        let server = HttpServer::new(&listener, ServerTimeouts::default());
+        let server = server::HttpServer::new(listener, server::ServerTimeouts::default());
 
         // 1024-byte scratch buffer for parsing incoming HTTP headers.
         // A single worker (context_id = 1) handles requests sequentially.
         server
-            .serve(HttpWorkerMemory::<1024>::new(), HelloWorldHandler, 1)
+            .serve(server::HttpWorkerMemory::<1024>::new(), HelloWorldHandler, 1)
             .await
     })
     .await

@@ -68,7 +68,7 @@ cyw43-pio = "0.8"
 # Firmware for CYW43 (Needed to include firmware binary for the CYW43 chip used in raspberry Pi Pico W)
 cyw43-firmware = { version = "0.1.0", features = ["wifi"] }
 
-heapless = { version = "0.8" }
+heapless = { version = "0.8", features = ["defmt-03"] }
 
 [build-dependencies]
 dotenvy = "0.15"

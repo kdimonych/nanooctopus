@@ -1,461 +1,293 @@
-[<img alt="github" src="https://img.shields.io/badge/github-rttfd/nanooctopus-37a8e0?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/rttfd/nanooctopus)
+[<img alt="github" src="https://img.shields.io/badge/github-kdimonych/nanooctopus-37a8e0?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/kdimonych/nanooctopus)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/nanooctopus.svg?style=for-the-badge&color=ff8b94&logo=rust" height="20">](https://crates.io/crates/nanooctopus)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-nanooctopus-bedc9c?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/nanooctopus)
 
-![Dall-E generated nanooctopus image](https://raw.githubusercontent.com/rttfd/static/refs/heads/main/nanooctopus/nanooctopus.png)
+![Nanooctopus](nanooctopus.jpg)
 
 # Nanooctopus
 
-A lightweight, `no_std` HTTP client and server for embedded systems built on Embassy networking with zero-copy response handling.
+Nanooctopus is a small async HTTP server crate aimed primarily at `no_std` and embedded targets.
+It is designed for environments such as RP2040-class MCUs with WiFi or other networking capabilities, while still being able to run on common desktop targets through a Tokio backend.
 
-Nanooctopus is designed for embedded systems with limited memory. It provides a simple HTTP client and server that works without heap allocation, making it suitable for microcontrollers and `IoT` devices. The library uses zero-copy response handling where response data is borrowed directly from user-provided buffers, keeping memory usage predictable and efficient.
+The project is server-focused. Its core idea is to keep the HTTP layer platform-agnostic and move platform-specific networking into socket abstractions. That lets the same handler code run in embedded firmware, host-side tests, and local emulators while keeping the architecture close to Embassy-style systems.
 
-## Key Features
+## Key Ideas
 
-- **Zero-Copy Response Handling** - Response data is borrowed directly from user-provided buffers with no copying
-- **User-Controlled Memory** - You provide the buffer and control exactly how much memory is used
-- **Configurable Buffer Sizes** - Compile-time buffer size configuration using const generics for optimal memory usage
-- **No Standard Library** - Full `no_std` compatibility with no heap allocations
-- **Embassy Integration** - Built on Embassy's async networking
-- **Complete HTTP Support** - All standard HTTP methods (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE, CONNECT)
-- **HTTP Server** - Built-in async server with customizable timeouts and request handling
-- **Smart Response Parsing** - Automatic text/binary detection based on Content-Type headers
-- **Easy Header Management** - Pre-defined constants and helper methods for common headers
-- **Optional TLS Support** - HTTPS client support with embedded-tls when enabled (server is HTTP-only)
-- **Timeout & Retry Support** - Built-in handling for network issues
-- **DNS Resolution** - Automatic hostname resolution
+- **Embedded-first HTTP server** for `no_std` environments
+- **Platform-agnostic socket abstraction** for portable handlers and host-side testing
+- **Embassy-oriented design** with a concrete Tokio backend for desktop development
+- **Worker-based request processing** so multiple server tasks can handle requests concurrently
+- **Socket-pool support** for keeping more TCP connections open than there are request workers
+- **Streaming response builder** that writes directly to the socket
+- **Optional WebSocket upgrade support** behind the `ws` feature
+- **No heap requirement on embedded targets** for the core request/response flow
 
-## Installation & Feature Flags
+## What Problem It Solves
 
-### Basic HTTP Support (Default)
+Modern browsers and network clients often open several connections in advance. On small MCUs, it is usually too expensive to dedicate a full request worker to every open TCP socket.
+
+Nanooctopus separates these concerns:
+
+- the **socket layer** can keep several connections alive
+- the **worker layer** can stay relatively small
+- the **HTTP handler** remains independent from the underlying runtime
+
+That makes it practical to serve HTTP on constrained devices without forcing the whole system into a one-socket-per-worker design.
+
+## Current Scope
+
+Nanooctopus currently provides:
+
+- an HTTP server
+- request parsing
+- a staged response builder for streaming replies
+- an Embassy socket-pool backend
+- a Tokio backend for desktop and host-side runs
+- optional WebSocket upgrade handling
+
+The crate does **not** currently document or position itself as an HTTP client library.
+
+## Installation
+
+### Embedded / Embassy
 
 ```toml
 [dependencies]
-nanooctopus = "0.9.1"
+nanooctopus = { version = "0.9.1", default-features = false, features = ["embassy_impl"] }
 ```
 
-### With TLS/HTTPS Support
+### Embedded / Embassy with WebSockets and `defmt`
 
 ```toml
 [dependencies]
-nanooctopus = { version = "0.9.1", features = ["tls"] }
+nanooctopus = { version = "0.9.1", default-features = false, features = ["embassy_impl", "ws", "defmt"] }
 ```
 
-### Available Features
+### Desktop / Host Testing with Tokio
 
-- **`tls`** - Enables HTTPS/TLS support via `embedded-tls`
-  - When disabled (default): Only HTTP requests are supported
-  - When enabled: Full HTTPS support with TLS 1.2/1.3
-
-## Zero-Copy Architecture
-
-Unlike traditional HTTP clients that copy response data multiple times, Nanooctopus uses a zero-copy approach:
-
-**Traditional HTTP Clients:**
-
-```shell
-Network → Internal Buffer (copy #1) → Response Struct (copy #2) → User Code (copy #3)
+```toml
+[dependencies]
+nanooctopus = { version = "0.9.1", features = ["tokio_impl", "log"] }
 ```
 
-**Nanooctopus Zero-Copy:**
+## Feature Flags
 
-```shell
-Network → YOUR Buffer (direct) → Zero-Copy References → User Code (no copies!)
-```
+- **`embassy_impl`**: enables the Embassy networking backend
+- **`tokio_impl`**: enables the Tokio backend and `std` support
+- **`ws`**: enables WebSocket upgrade and frame handling support
+- **`defmt`**: enables embedded logging with `defmt` and is intended for Embassy builds
+- **`log`**: enables logging for host-side and Tokio-based builds
+- **`proto-ipv6`**: forwards IPv6 support to the Embassy/socket stack
+- **`std`**: enabled automatically by `tokio_impl`; usually not needed directly
 
-### Benefits:
+`embassy_impl` and `tokio_impl` are mutually exclusive.
 
-- **Better Performance** - No memory copying overhead
-- **Memory Efficient** - Uses only the memory you provide
-- **Predictable** - No hidden allocations
-- **Embedded-Friendly** - Works well in resource-limited environments
+## Architecture
 
-______________________________________________________________________
+At a high level, Nanooctopus is split into three layers:
 
-# HTTP Client
+### 1. Socket backend
 
-## Quick Start
+The server depends on socket traits rather than directly on Embassy or Tokio types.
+This is what makes the crate portable across embedded and desktop runtimes.
 
-Here's a simple example showing how to use Nanooctopus:
+### 2. HTTP server core
+
+The core server:
+
+- accepts a connection from a listener or socket pool
+- parses the incoming HTTP request into `HttpRequest`
+- invokes your `HttpHandler`
+- streams the response back through `HttpResponseBuilder`
+
+### 3. Worker memory
+
+Each worker receives its own scratch buffer through `HttpWorkerMemory`.
+That memory is used for request parsing and related temporary data.
+You choose the size based on your request shape and device constraints.
+
+## Concurrency Model
+
+Nanooctopus is intended to run with multiple worker tasks.
+Each worker calls `HttpServer::serve(...)` with its own `HttpWorkerMemory` and context id.
+
+In the Embassy-oriented setup, a socket pool can keep more sockets available than the number of workers actively processing requests. This is useful for browsers that open several TCP connections before they are all needed.
+
+Typical pattern:
+
+- one socket-pool runner task manages TCP sockets
+- several HTTP worker tasks process requests
+- each worker has its own parsing memory
+- all workers share the same server instance
+
+## Basic Tokio Example
+
+The Tokio example is the fastest way to understand the current API.
 
 ```rust,ignore
-use Nanooctopus::{DefaultHttpClient, HttpHeader, ResponseBody, headers, mime_types};
-use embassy_net::Stack;
+use nanooctopus::{http_handler, server};
 
-async fn example(stack: &Stack<'_>) -> Result<(), Nanooctopus::Error> {
-    ...
-    // See crate docs for full async usage example
-}
+struct HelloWorldHandler;
 
-let client = DefaultHttpClient::new(unsafe { core::ptr::NonNull::dangling().as_ref() });
-let mut response_buffer = [0u8; 8192];
-let headers = [
-    HttpHeader::user_agent("Nanooctopus/0.9.1"),
-    HttpHeader::content_type(mime_types::JSON),
-    HttpHeader::authorization("Bearer token123"),
-];
-let custom_headers = [
-    HttpHeader { name: "X-Custom-Header", value: "custom-value" },
-    HttpHeader::new(headers::ACCEPT, mime_types::JSON),
-];
-let (response, bytes_read) = client.get(
-    "http://example.com/api/status",
-    &headers,
-    &mut response_buffer
-).await?;
-println!("Read {} bytes into buffer", bytes_read);
-```
-
-## Zero-Copy Benefits
-
-```rust,ignore
-// Traditional approach (copies data):
-// 1. Read from network → internal buffer (copy #1)
-// 2. Parse response → response struct (copy #2)
-// 3. User gets → copied data (copy #3)
-
-// Nanooctopus zero-copy approach:
-// 1. Read from network → YOUR buffer (direct)
-// 2. Parse response → references to YOUR buffer (zero-copy)
-// 3. User gets → direct references to YOUR buffer (zero-copy)
-
-let mut small_buffer = [0u8; 1024];    // For small responses
-let mut large_buffer = [0u8; 32768];   // For large responses
-
-// Same API, different memory usage - YOU decide!
-let (small_response, _) = client.get(url, &headers, &mut small_buffer).await?;
-let (large_response, _) = client.get(url, &headers, &mut large_buffer).await?;
-```
-
-## Header Convenience Features
-
-Nanooctopus provides helpful APIs for working with HTTP headers:
-
-### Pre-defined Header Constants
-
-```rust
-use nanooctopus::headers;
-
-// Common header names
-let content_type = headers::CONTENT_TYPE;     // "Content-Type"
-let authorization = headers::AUTHORIZATION;   // "Authorization"
-let user_agent = headers::USER_AGENT;         // "User-Agent"
-let accept = headers::ACCEPT;                 // "Accept"
-```
-
-### Pre-defined MIME Types
-
-```rust
-use nanooctopus::mime_types;
-
-// Common MIME types
-let json = mime_types::JSON;    // "application/json"
-let xml = mime_types::XML;      // "application/xml"
-let text = mime_types::TEXT;    // "text/plain"
-let html = mime_types::HTML;    // "text/html"
-```
-
-### Convenience Methods
-
-```rust
-use nanooctopus::{HttpHeader, mime_types};
-// Easy creation of common headers
-let headers = [
-    HttpHeader::content_type(mime_types::JSON),
-    HttpHeader::authorization("Bearer your-token"),
-    HttpHeader::user_agent("MyApp/1.0"),
-    HttpHeader::accept(mime_types::JSON),
-    HttpHeader::api_key("your-api-key"),
-];
-```
-
-## Response Handling
-
-nanooctopus automatically determines the appropriate response body type based on the Content-Type header:
-
-```rust,ignore
-use nanooctopus::ResponseBody;
-// The response body is automatically parsed based on content type
-match &response.body {
-    ResponseBody::Text(text) => {
-        println!("Text response: {}", text);
-    }
-    ResponseBody::Binary(bytes) => {
-        println!("Binary response: {} bytes", bytes.len());
-    }
-    ResponseBody::Empty => {
-        println!("Empty response");
+impl http_handler::HttpHandler for HelloWorldHandler {
+    async fn handle_request(
+        &mut self,
+        _allocator: &mut http_handler::HttpAllocator<'_>,
+        _request: &http_handler::HttpRequest<'_>,
+        http_socket: &mut impl http_handler::HttpSocketWrite,
+        _context_id: usize,
+    ) -> Result<http_handler::HttpResponse, http_handler::Error> {
+        http_handler::HttpResponseBuilder::new(http_socket)
+            .with_status(http_handler::StatusCode::Ok)
+            .await?
+            .with_header("Content-Type", "text/plain")
+            .await?
+            .with_body_from_str("Hello, World!")
+            .await
     }
 }
 
-if response.is_success() {
-    println!("Request successful! Status: {}", response.status_code);
-}
-if response.is_client_error() {
-    println!("Client error: {}", response.status_code);
-}
-if response.is_server_error() {
-    println!("Server error: {}", response.status_code);
-}
+#[tokio::main(flavor = "local")]
+async fn main() {
+    let listener = server::socket_listener::TokioTcpListener::new(
+        server::SocketEndpoint::new([127, 0, 0, 1].into(), 8080),
+    )
+    .await;
 
-// You can also check status directly on the status code:
-if response.status_code.is_success() {
-    println!("Success!");
-}
-if let Some(content_length) = response.content_length() {
-    println!("Content length: {} bytes", content_length);
+    let server = server::HttpServer::new(listener, server::ServerTimeouts::default());
+
+    server
+        .serve(server::HttpWorkerMemory::<1024>::new(), HelloWorldHandler, 1)
+        .await;
 }
 ```
 
-## HTTP Methods Support
+This example exists in:
 
-nanooctopus provides convenience methods for all standard HTTP verbs:
+- `examples/tokio_hello_world`
+
+## Embassy / RP2040 Example
+
+The Raspberry Pico W example shows the intended embedded deployment model:
+
+- initialize CYW43 WiFi
+- bring up Embassy networking
+- create a TCP socket pool
+- spawn the socket-pool runner
+- spawn several HTTP server workers
+
+The example is in:
+
+- `examples/rasberry_pico_w`
+
+The current example uses these fixed-size resources:
+
+- `SOCKETS = 5`
+- `HTTP_SERVER_WORKERS = 3`
+- `WORKER_MEMORY = 4096`
+
+That setup demonstrates the main idea of the crate: a device may keep more sockets open than the number of HTTP workers actively serving requests.
+
+## Writing a Handler
+
+Request handling is done by implementing `http_handler::HttpHandler`.
+
+The important method is:
 
 ```rust,ignore
-// All methods require a buffer and return (HttpResponse, bytes_read)
-let mut buffer = [0u8; 4096];
-
-// GET request
-let (response, bytes_read) = client.get(
-    "http://api.example.com/users",
-    &headers,
-    &mut buffer
-).await?;
-
-// POST request with JSON body
-let json_body = br#"{"name": "John", "email": "john@example.com"}"#;
-let post_headers = [
-    HttpHeader::content_type(mime_types::JSON),
-    HttpHeader::authorization("Bearer token123"),
-];
-let (response, bytes_read) = client.post(
-    "http://api.example.com/users",
-    &post_headers,
-    json_body,
-    &mut buffer
-).await?;
-
-// PUT request
-let (response, bytes_read) = client.put(
-    "http://api.example.com/users/123",
-    &headers,
-    update_data,
-    &mut buffer
-).await?;
-
-// DELETE request
-let (response, bytes_read) = client.delete(
-    "http://api.example.com/users/123",
-    &headers,
-    &mut buffer
-).await?;
-
-// Other HTTP methods
-let (response, _) = client.patch("http://api.example.com/users/123", &headers, patch_data, &mut buffer).await?;
-let (response, _) = client.head("http://api.example.com/status", &headers, &mut buffer).await?;
-let (response, _) = client.options("http://api.example.com", &headers, &mut buffer).await?;
-let (response, _) = client.trace("http://api.example.com", &headers, &mut buffer).await?;
-let (response, _) = client.connect("http://proxy.example.com", &headers, &mut buffer).await?;
+async fn handle_request(
+    &mut self,
+    allocator: &mut http_handler::HttpAllocator<'_>,
+    request: &http_handler::HttpRequest<'_>,
+    http_socket: &mut impl http_handler::HttpSocketWrite,
+    context_id: usize,
+) -> Result<http_handler::HttpResponse, http_handler::Error>
 ```
 
-All methods return a `Result<(HttpResponse, usize), Error>` where:
+Handler inputs:
 
-- `HttpResponse` contains zero-copy references to data in your buffer
-- `usize` is the number of bytes read into your buffer
+- `allocator`: scratch allocator for request-scoped temporary data
+- `request`: parsed HTTP request
+- `http_socket`: response sink used by `HttpResponseBuilder`
+- `context_id`: worker id, useful for diagnostics and per-worker behavior
 
-## Client Memory Configuration
+The parsed request currently exposes:
 
-Just like the server, you can choose different client sizes:
+- `method`
+- `path`
+- `version`
+- `headers`
+- `body`
+
+With the `ws` feature enabled, WebSocket upgrade information is also recognized and routed through `handle_websocket_connection`.
+
+## Building Responses
+
+Responses are streamed in stages. A typical flow is:
 
 ```rust,ignore
-use nanooctopus::{DefaultHttpClient, SmallHttpClient, HttpClient};
-
-// Default client (4KB buffers) - good for most use cases
-let client = DefaultHttpClient::new(stack);
-
-// Small client (1KB buffers) - for memory-constrained devices  
-let client = SmallHttpClient::new(stack);
-
-// Custom client with your own buffer sizes
-type CustomClient<'a> = HttpClient<'a, 2048, 2048, 8192, 8192, 2048>;
-//                              TCP_RX ↑    ↑ TCP_TX  ↑     ↑ TLS_WRITE ↑ REQUEST
-//                                           TLS_READ ↑
-let client = CustomClient::new(stack);
+http_handler::HttpResponseBuilder::new(http_socket)
+    .with_status(http_handler::StatusCode::Ok)
+    .await?
+    .with_header("Content-Type", "text/plain; charset=utf-8")
+    .await?
+    .with_body_from_str("hello")
+    .await
 ```
 
-### Buffer Size Parameters
+The response builder supports:
 
-- **`TCP_RX`**: TCP receive buffer size (default: 4096 bytes)
-- **`TCP_TX`**: TCP transmit buffer size (default: 4096 bytes)
-- **`TLS_READ`**: TLS read record buffer size (default: 4096 bytes)
-- **`TLS_WRITE`**: TLS write record buffer size (default: 4096 bytes)
-- **`RQ`**: HTTP request buffer size for building requests (default: 1024 bytes)
+- status line construction
+- incremental header writing
+- fixed-size body writing from `&str` or `&[u8]`
+- chunked transfer encoding
+- convenience helpers for plain text, HTML, compressed pages, and preflight responses
 
-Choose buffer sizes based on your memory constraints and expected payload sizes. The request buffer size determines the maximum size of HTTP requests that can be built, including headers and request line.
+## Timeouts
 
-## Memory Efficiency Examples
-
-Choose your buffer size based on your needs:
+The server exposes:
 
 ```rust,ignore
-// Scenario 1: Memory-constrained device (1KB buffer)
-let mut tiny_buffer = [0u8; 1024];
-let (response, _) = client.get(url, &headers, &mut tiny_buffer).await?;
-// Perfect for small API responses, status checks, etc.
-
-// Scenario 2: Streaming large data (32KB buffer)
-let mut large_buffer = [0u8; 32768];
-let (response, bytes_read) = client.get(large_url, &headers, &mut large_buffer).await?;
-// Handle larger responses, file downloads, etc.
-
-// Scenario 3: Reuse the same buffer for multiple requests
-let mut shared_buffer = [0u8; 8192];
-for url in urls {
-    let (response, _) = client.get(url, &headers, &mut shared_buffer).await?;
-    process_response(&response);
-    // Buffer is reused for each request - no allocations!
-}
+let timeouts = server::ServerTimeouts::new(read_timeout_secs, handler_timeout_secs);
 ```
 
-______________________________________________________________________
+Current defaults are:
 
-# HTTP Server
+- read timeout: `30s`
+- handler timeout: `60s`
 
-Nanooctopus includes a built-in HTTP server perfect for embedded systems and `IoT` devices. The server is async, lightweight, and has customizable timeouts.
+## WebSocket Support
 
-> **Important Note**: The server only supports plain HTTP connections, not HTTPS/TLS. While the nanooctopus client supports both HTTP and HTTPS, the server implementation is HTTP-only. For secure connections in production, use a reverse proxy (like nginx) or load balancer that handles TLS termination.
-
-### Basic Server Usage
+When the `ws` feature is enabled, Nanooctopus can detect WebSocket upgrade requests and hand the connection to:
 
 ```rust,ignore
-use nanooctopus::{DefaultHttpServer, HttpHandler, HttpRequest, HttpResponse, ResponseBody, StatusCode};
-use embassy_net::Stack;
-
-// Create a simple request handler
-struct MyHandler;
-
-impl HttpHandler for MyHandler {
-    async fn handle_request(&mut self, request: &HttpRequest<'_>) -> Result<HttpResponse<'_>, nanooctopus::Error> {
-        match request.path {
-            "/" => Ok(HttpResponse {
-                status_code: StatusCode::Ok,
-                headers: Vec::new(),
-                body: ResponseBody::Text("<h1>Hello World!</h1>"),
-            }),
-            "/api/status" => Ok(HttpResponse {
-                status_code: StatusCode::Ok,
-                headers: Vec::new(),
-                body: ResponseBody::Text("{\"status\":\"ok\"}"),
-            }),
-            _ => Ok(HttpResponse {
-                status_code: StatusCode::NotFound,
-                headers: Vec::new(),
-                body: ResponseBody::Text("Not Found"),
-            }),
-        }
-    }
-}
-
-async fn run_server(stack: Stack<'_>) -> Result<(), nanooctopus::Error> {
-    let mut server = DefaultHttpServer::new(80);  // Listen on port 80
-    let handler = MyHandler;
-
-    // This runs forever, handling requests
-    server.serve(stack, handler).await;
-}
+handle_websocket_connection(...)
 ```
 
-### Server Memory Configuration
+If you do not implement that method, incoming WebSocket connections are closed by default.
 
-Just like the client, you can choose different server sizes:
+## Limitations
 
-```rust,ignore
-use nanooctopus::{DefaultHttpServer, SmallHttpServer, HttpServer};
+- The library is currently centered on the HTTP server.
+- Server-side TLS termination is not provided by Nanooctopus itself.
+- On embedded targets, you are responsible for sizing socket buffers, worker count, and worker memory according to your traffic profile.
+- `embassy_impl` and `tokio_impl` cannot be enabled together.
 
-// Default server (4KB buffers) - good for most use cases
-let server = DefaultHttpServer::new(80);
+## Examples
 
-// Small server (1KB buffers) - for memory-constrained devices  
-let server = SmallHttpServer::new(80);
+- `examples/rasberry_pico_w`: Embassy + CYW43 + RP2040 + socket pool + multiple workers
+- `examples/tokio_hello_world`: minimal host-side Tokio server
 
-// Custom server with your own buffer sizes
-type MyServer = HttpServer<2048, 2048, 1024, 8192>;  // RX, TX, Request, Response buffer sizes
-let server = MyServer::new(80);
-```
+## Development Notes
 
-### Server Timeouts
+Nanooctopus is structured to make embedded development less painful:
 
-You can customize how long the server waits for different operations:
+- the Tokio backend helps run handlers on a normal OS during development
+- the platform abstraction helps with host-side tests and emulators
+- the Embassy-oriented architecture stays close to the intended MCU deployment model
 
-```rust,ignore
-use nanooctopus::{DefaultHttpServer, ServerTimeouts};
-
-// Default timeouts: 10s accept, 30s read, 60s handler
-let server = DefaultHttpServer::new(80);
-
-// Custom timeouts
-let timeouts = ServerTimeouts::new(
-    5,   // 5 seconds to accept new connections
-    15,  // 15 seconds to read request data
-    30   // 30 seconds for your handler to process requests
-);
-let server = DefaultHttpServer::with_timeouts(80, timeouts);
-```
-
-### Request Information
-
-Your handler receives detailed information about each request:
-
-```rust,ignore
-impl HttpHandler for MyHandler {
-    async fn handle_request(&mut self, request: &HttpRequest<'_>) -> Result<HttpResponse<'_>, nanooctopus::Error> {
-        // Check the HTTP method
-        match request.method {
-            HttpMethod::GET => { /* handle GET */ }
-            HttpMethod::POST => { /* handle POST */ }
-            _ => { /* handle other methods */ }
-        }
-
-        // Look at the request path
-        println!("Path: {}", request.path);
-
-        // Check headers
-        for header in &request.headers {
-            println!("Header: {}: {}", header.name, header.value);
-        }
-
-        // Access request body (for POST, PUT, etc.)
-        if !request.body.is_empty() {
-            println!("Body: {} bytes", request.body.len());
-        }
-
-        // Return your response...
-        Ok(HttpResponse { /* ... */ })
-    }
-}
-```
-
-### Simple Built-in Handler
-
-For quick testing, you can use the built-in `SimpleHandler`:
-
-```rust,ignore
-use nanooctopus::{DefaultHttpServer, SimpleHandler};
-
-async fn run_test_server(stack: Stack<'_>) {
-    let mut server = DefaultHttpServer::new(8080);
-    let handler = SimpleHandler;  // Serves "/" and "/health" endpoints
-
-    server.serve(stack, handler).await;
-}
-```
-
-The `SimpleHandler` provides:
-
-- `GET /` → HTML welcome page
-- `GET /health` → JSON status response
-- Everything else → 404 Not Found
+If you want to understand the current project state, start with the examples rather than older historical documentation.
 
 ## License
 
-[MIT](license)
+[MIT](LICENSE)
