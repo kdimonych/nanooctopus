@@ -15,6 +15,23 @@
 				"isDefault": true
 			},
 			"label": "rust: cargo build"
+		},
+		{
+			"type": "shell",
+			"label": "build: rasberry_pico_w (thumbv6m)",
+			"command": "cargo",
+			"args": [
+				"build",
+				"--target",
+				"thumbv6m-none-eabi"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/rasberry_pico_w"
+			},
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
 		}
 	]
 }
