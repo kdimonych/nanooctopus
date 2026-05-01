@@ -3,7 +3,7 @@
 The simplest possible HTTP server built with **nanooctopus** and a **Tokio** backend.\
 It binds to `127.0.0.1:8080` and replies to every request with:
 
-```
+```http
 HTTP/1.1 200 OK
 Content-Type: text/plain
 
@@ -33,7 +33,7 @@ Implements the `HttpHandler` trait.\
 The response is **streamed directly** to the socket in three stages using the
 type-state builder `HttpResponseBuilder`:
 
-```
+```text
 status line  →  headers  →  body
 ```
 
@@ -143,19 +143,19 @@ Set `RUST_LOG` to control log verbosity. The variable is read at startup by
 | `RUST_LOG=debug`            | Internal parser state, socket events, and timeouts |
 | `RUST_LOG=trace`            | All of the above plus low-level byte I/O           |
 
-**macOS / Linux**
+### macOS / Linux
 
 ```sh
 RUST_LOG=debug cargo run
 ```
 
-**Windows (PowerShell)**
+### Windows (PowerShell)
 
 ```powershell
 $env:RUST_LOG="debug"; cargo run
 ```
 
-**Windows (cmd)**
+### Windows (cmd)
 
 ```cmd
 set RUST_LOG=debug && cargo run

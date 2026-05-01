@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 #![no_std]
 #![no_main]
 #![allow(async_fn_in_trait)]

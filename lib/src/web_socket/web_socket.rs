@@ -56,7 +56,9 @@ impl<E: Debug> defmt::Format for WebSocketError<E> {
             WebSocketError::MalformedHeader => defmt::write!(f, "Invalid WebSocket header"),
             WebSocketError::BufferOverflow => defmt::write!(f, "WebSocket buffer overflow"),
             WebSocketError::Closed => defmt::write!(f, "WebSocket closed"),
-            WebSocketError::SocketError(e) => defmt::write!(f, "WebSocket socket error: {:?}", defmt::Debug2Format(e)),
+            WebSocketError::SocketError(e) => {
+                defmt::write!(f, "WebSocket socket error: {:?}", defmt::Debug2Format(e))
+            }
         }
     }
 }

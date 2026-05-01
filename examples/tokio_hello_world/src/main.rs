@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use nanooctopus::*;
 
 /// Request handler that responds to every HTTP request with "Hello, World!".

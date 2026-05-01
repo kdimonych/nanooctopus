@@ -164,7 +164,12 @@ async fn main() {
 
 This example exists in:
 
-- `examples/tokio_hello_world`
+- [`examples/tokio_hello_world`](examples/tokio_hello_world/README.md)
+- <a href="https://github.com/kdimonych/nanooctopus/tree/0.1.0/examples/tokio_hello_world">
+  examples/tokio_hello_world
+  <img alt="GitHub" src="https://github.githubassets.com/favicons/favicon.svg" height="14">
+
+</a>
 
 ## Embassy / RP2040 Example
 
@@ -178,7 +183,12 @@ The Raspberry Pico W example shows the intended embedded deployment model:
 
 The example is in:
 
-- `examples/rasberry_pico_w`
+- [`examples/rasberry_pico_w`](examples/rasberry_pico_w/README.md)
+- <a href="https://github.com/kdimonych/nanooctopus/tree/0.1.0/examples/rasberry_pico_w">
+  examples/rasberry_pico_w
+  <img alt="GitHub" src="https://github.githubassets.com/favicons/favicon.svg" height="14">
+
+</a>
 
 The current example uses these fixed-size resources:
 

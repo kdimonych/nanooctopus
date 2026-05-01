@@ -82,6 +82,3 @@ env_logger = "0.11"
 abstarct_socket = { path = "./abstarct_socket", default-features = false, features = [
     "mocks",
 ] }
-
-# Keep this example as a standalone crate when opened directly by rust-analyzer.
-[workspace]
