@@ -72,11 +72,11 @@ heapless = { version = "0.8", features = ["defmt-03"] }
 
 [build-dependencies]
 dotenvy = "0.15"
-build_log = { path = "./build_utils/build_log" }
-cargo_command = { path = "./build_utils/cargo_command" }
-file_operations = { path = "./build_utils/file_operations" }
+build_log = "0.1.0"
+build_script_directives = "0.1.0"
+memory_x_tools = "0.1.0"
 
 # Keep this example as a standalone crate when opened directly by rust-analyzer.
 [workspace]
 resolver = "3"
-exclude = ["./build_utils/*"]
+exclude = ["./build_script_toolkit/*"]

@@ -9,8 +9,8 @@
 //! new memory settings.
 
 use build_log as log;
-use cargo_command as cargo;
-use file_operations::copy_memory_x;
+use build_script_directives as cargo;
+use memory_x_tools::copy_memory_x;
 use std::env;
 
 fn forward_env_var() {
