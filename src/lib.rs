@@ -5,14 +5,17 @@
 #[cfg(all(feature = "tokio_impl", feature = "embassy_impl"))]
 compile_error!("features `tokio_impl` and `embassy_impl` are mutually exclusive");
 
-#[cfg(all(feature = "tokio_impl", feature = "defmt"))]
-compile_error!("feature `defmt` is only supported with `embassy_impl`");
+#[cfg(all(feature = "tokio_impl", any(feature = "defmt", feature = "proto-ipv6")))]
+compile_error!("the feature `tokio_impl` is not compatible with `defmt` or `proto-ipv6`");
 
-#[cfg(all(feature = "tokio_impl", feature = "proto-ipv6"))]
-compile_error!("feature `proto-ipv6` is only supported with `embassy_impl`");
+#[cfg(all(feature = "embassy_impl", any(feature = "log", feature = "mocks", feature = "std")))]
+compile_error!("the feature `embassy_impl` is not compatible with `log`, `mocks`, or `std`");
 
-#[cfg(all(feature = "embassy_impl", feature = "log"))]
-compile_error!("feature `log` is only supported with `tokio_impl`");
+#[cfg(all(
+    any(feature = "defmt", feature = "proto-ipv6"),
+    any(feature = "log", feature = "mocks", feature = "std")
+))]
+compile_error!("the features `defmt` and `proto-ipv6` are not compatible with `log`, `mocks`, or `std`");
 
 #[cfg(all(test, feature = "defmt"))]
 mod defmt_test_logger {
