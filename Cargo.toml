@@ -1,6 +1,6 @@
 [package]
 name = "nanooctopus"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "🐙 A lightweight, `no_std` HTTP server for embedded systems built on top of Embassy networking."
 documentation = "https://docs.rs/nanooctopus"
