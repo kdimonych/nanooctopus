@@ -38,6 +38,10 @@ impl<const BUFFER_SIZE: usize> Write for MockLoopbackSocket<BUFFER_SIZE> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, MockStreamError> {
         Ok(self.rb.push_slice(buf))
     }
+
+    async fn flush(&mut self) -> Result<(), MockStreamError> {
+        Ok(())
+    }
 }
 
 impl<const BUFFER_SIZE: usize> SocketWriteWith for MockLoopbackSocket<BUFFER_SIZE> {

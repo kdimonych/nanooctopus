@@ -11,6 +11,7 @@ use std::pin::Pin;
 pub type ResultFuture<T, E> = Pin<Box<dyn core::future::Future<Output = Result<T, E>>>>;
 type ReadCallback = dyn for<'a> FnMut(&'a mut [u8]) -> ResultFuture<usize, MockStreamError>;
 type WriteCallback = dyn for<'a> FnMut(&'a [u8]) -> ResultFuture<usize, MockStreamError>;
+type FlushCallback = dyn for<'a> FnMut() -> ResultFuture<(), MockStreamError>;
 type ReadyCallback = dyn FnMut() -> Result<bool, MockStreamError>;
 type CloseCallback = dyn FnMut() -> ResultFuture<(), MockStreamError>;
 type EndpointCallback = dyn Fn() -> Option<SocketEndpoint>;
@@ -23,6 +24,7 @@ type StateCallback = dyn Fn() -> State;
 pub struct MockSocket {
     on_read: Option<Box<ReadCallback>>,
     on_write: Option<Box<WriteCallback>>,
+    on_flush: Option<Box<FlushCallback>>,
     on_read_ready: Option<Box<ReadyCallback>>,
     on_write_ready: Option<Box<ReadyCallback>>,
     on_close: Option<Box<CloseCallback>>,
@@ -49,6 +51,7 @@ impl MockSocket {
         Self {
             on_read: None,
             on_write: None,
+            on_flush: None,
             on_read_ready: None,
             on_write_ready: None,
             on_close: None,
@@ -74,6 +77,15 @@ impl MockSocket {
         F: 'static + FnMut(&[u8]) -> ResultFuture<usize, MockStreamError>,
     {
         self.on_write = Some(Box::new(callback));
+    }
+
+    /// Set the callback for the flush operation. The callback should return Ok(()) if the flush was successful,
+    /// or an error if an error occurs while flushing the socket.
+    pub fn set_on_flush<F>(&mut self, callback: F)
+    where
+        F: 'static + FnMut() -> ResultFuture<(), MockStreamError>,
+    {
+        self.on_flush = Some(Box::new(callback));
     }
 
     /// Set the callback for the read readiness check. The callback should return true if the socket is ready to read,
@@ -215,6 +227,14 @@ impl Write for MockSocket {
             log::panic!("Write callback not set for MockSocket");
         }
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        if let Some(flush_callback) = &mut self.on_flush {
+            flush_callback().await
+        } else {
+            log::panic!("Flush callback not set for MockSocket");
+        }
+    }
 }
 
 impl WriteReady for MockSocket {
@@ -322,6 +342,13 @@ mod tests {
         let mut mock_socket = MockSocket::new();
         let write_data = b"Hello, World!";
         let _ = mock_socket.write(write_data).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Flush callback not set for MockSocket")]
+    async fn test_flush_should_panic_if_callback_not_set() {
+        let mut mock_socket = MockSocket::new();
+        let _ = mock_socket.flush().await;
     }
 
     #[tokio::test]
@@ -446,6 +473,24 @@ mod tests {
         let mut read_buf = [0u8; 10];
         let bytes_read = mock_socket.read(&mut read_buf).await.unwrap();
         assert_eq!(bytes_read, 0);
+    }
+
+    #[tokio::test]
+    async fn test_mock_socket_flush() {
+        let mut mock_socket = MockSocket::new();
+        mock_socket.set_on_flush(|| Box::pin(ready(Ok(()))));
+
+        let flush_result = mock_socket.flush().await;
+        assert!(flush_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mock_socket_flush_error_in_callback() {
+        let mut mock_socket = MockSocket::new();
+        mock_socket.set_on_flush(|| Box::pin(async move { Err(MockStreamError::ConnectionReset) }));
+
+        let flush_result = mock_socket.flush().await;
+        assert_eq!(flush_result, Err(MockStreamError::ConnectionReset));
     }
 
     #[tokio::test]

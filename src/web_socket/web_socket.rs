@@ -49,6 +49,8 @@ pub enum WebSocketError<E> {
     SocketError(E),
 }
 
+impl<E: Debug> core::error::Error for WebSocketError<E> {}
+
 #[cfg(feature = "defmt")]
 impl<E: Debug> defmt::Format for WebSocketError<E> {
     fn format(&self, f: defmt::Formatter<'_>) {
