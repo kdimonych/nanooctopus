@@ -33,17 +33,17 @@ critical-section = "1.2.0"
 static_cell = "2.1.1"
 
 # Embassy
-embassy-embedded-hal = { version = "0.5.0", features = ["defmt"] }
-embassy-executor = { version = "0.9", features = [
-  "arch-cortex-m",
-  "executor-thread",
+embassy-embedded-hal = { version = "0.6", features = ["defmt"] }
+embassy-executor = { version = "0.10", features = [
   "defmt",
+  "platform-cortex-m",
+  "executor-thread",
 ] }
 embassy-time = { version = "0.5", features = [
   "defmt-timestamp-uptime",
   "defmt",
 ] }
-embassy-rp = { version = "0.8", features = [
+embassy-rp = { version = "0.10", features = [
   "rp2040",
   "rt",
   "unstable-pac",
@@ -53,9 +53,9 @@ embassy-rp = { version = "0.8", features = [
   "defmt",
   "rom-v2-intrinsics",
 ] }
-embassy-sync = "0.7"
+embassy-sync = "0.8"
 embassy-futures = "0.1"
-embassy-net = { version = "0.7.1", features = [
+embassy-net = { version = "0.9", features = [
   "tcp",
   "udp",
   "dhcpv4",
@@ -64,12 +64,17 @@ embassy-net = { version = "0.7.1", features = [
 ] }
 
 # WiFi/bluetooth driver for the CYW43 chip on the Pico W
-cyw43 = "0.5.0"
-cyw43-pio = "0.8"
+cyw43 = "0.7.0"
+cyw43-pio = "0.10.0"
 # Firmware for CYW43 (Needed to include firmware binary for the CYW43 chip used in raspberry Pi Pico W)
-cyw43-firmware = { version = "0.1.0", features = ["wifi"] }
+# TODO: change to a published version of the firmware crate once it's available on crates.io
+# PR: https://api.github.com/repos/KizzyCode/cyw43-firmware-rust/pulls/1
+cyw43-firmware = { git = "https://github.com/kdimonych/cyw43-firmware-rust", branch = "nvram", features = [
+  "wifi",
+  "nvram",
+] }
 
-heapless = { version = "0.8", features = ["defmt-03"] }
+heapless = { version = "0.9", features = ["defmt"] }
 
 [build-dependencies]
 dotenvy = "0.15"

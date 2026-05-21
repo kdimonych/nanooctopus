@@ -10,7 +10,6 @@ use crate::socket::{
     SocketClose, SocketEndpoint, SocketErrorKind, SocketErrorType, SocketInfo, SocketRead, SocketReadReady,
     SocketReadWith, SocketWaitReadReady, SocketWaitWriteReady, SocketWrite, SocketWriteReady, SocketWriteWith,
 };
-
 /// Error type used by the Tokio adapters in this crate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TokioSocketError(pub embedded_io_async::ErrorKind);
@@ -30,6 +29,14 @@ pub enum TokioSocketState {
 pub struct TokioSocketWrapper {
     state: TokioSocketState,
 }
+
+impl core::fmt::Display for TokioSocketError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl core::error::Error for TokioSocketError {}
 
 impl TokioSocketWrapper {
     /// Creates a wrapper around a connected Tokio stream.
@@ -189,6 +196,13 @@ impl SocketWrite for TokioSocketWrapper {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match &mut self.state {
             TokioSocketState::Stream(stream) => stream.write(buf).await.map_err(Into::into),
+            TokioSocketState::Socket(_) => Err(invalid_input_error("Tokio socket is not connected").into()),
+        }
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        match &mut self.state {
+            TokioSocketState::Stream(stream) => stream.flush().await.map_err(Into::into),
             TokioSocketState::Socket(_) => Err(invalid_input_error("Tokio socket is not connected").into()),
         }
     }
@@ -391,6 +405,10 @@ impl SocketWrite for TokioSocketWriteHalfWrapper<'_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.0.write(buf).await.map_err(Into::into)
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await.map_err(Into::into)
+    }
 }
 
 impl SocketWriteReady for TokioSocketWriteHalfWrapper<'_> {
@@ -420,6 +438,10 @@ impl SocketErrorType for TokioSocketOwnedWriteHalfWrapper {
 impl SocketWrite for TokioSocketOwnedWriteHalfWrapper {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.0.write(buf).await.map_err(Into::into)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await.map_err(Into::into)
     }
 }
 
