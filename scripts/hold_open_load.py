@@ -40,6 +40,7 @@ REQUEST_TEMPLATE = (
     "GET {path} HTTP/1.1\r\n"
     "Host: {host}:{port}\r\n"
     "Connection: keep-alive\r\n"
+    "Content-Length: 0\r\n"
     "User-Agent: hold-open-load/1.0\r\n"
     "Accept: */*\r\n"
     "\r\n"
@@ -160,6 +161,7 @@ async def run_connection(
     stats: Stats,
     connect_timeout: float,
     request_timeout: float,
+    single_shot_connection: bool = False,
 ) -> None:
     """Open one TCP connection and send requests until test_end or remote drops it."""
     dropped_by_remote = False
@@ -205,6 +207,10 @@ async def run_connection(
                 await stats.on_request_lost()
                 break
 
+            # --- close ---
+            if single_shot_connection is True:
+                break
+
     finally:
         elapsed = time.perf_counter() - conn_start
         if requests_this_conn > 0 and elapsed > 0:
@@ -231,6 +237,7 @@ async def run_slot(
     connect_timeout: float,
     request_timeout: float,
     reconnect_delay: float,
+    single_shot_connection: bool = False
 ) -> None:
     """
     One concurrency slot.  After a connection ends it immediately opens a new
@@ -239,7 +246,7 @@ async def run_slot(
     """
     while time.perf_counter() < test_end:
         await run_connection(
-            request, host, port, test_end, stats, connect_timeout, request_timeout
+            request, host, port, test_end, stats, connect_timeout, request_timeout, single_shot_connection
         )
         # Brief pause before reconnecting so we don't spin on instant failures.
         if time.perf_counter() < test_end:
@@ -305,8 +312,12 @@ async def main() -> None:
         help="Per-request read timeout (seconds)",
     )
     p.add_argument(
-        "--reconnect-delay", type=float, default=0.05,
+        "--reconnect-delay", type=float, default=0.00,
         help="Pause between reconnect attempts within a slot (seconds)",
+    )
+    p.add_argument(
+        "--single-shot-connection", action="store_true",
+        help="Use a single-shot connection per request (no keep-alive)",
     )
     args = p.parse_args()
 
@@ -335,6 +346,7 @@ async def main() -> None:
                 args.connect_timeout,
                 args.request_timeout,
                 args.reconnect_delay,
+                args.single_shot_connection,
             )
         )
         for _ in range(args.connections)

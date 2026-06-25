@@ -122,53 +122,67 @@ Typical pattern:
 - each worker has its own parsing memory
 - all workers share the same server instance
 
-## Basic Tokio Example
-
-The Tokio example is the fastest way to understand the current API.
+## Basic Example
 
 ```rust,no_run
-use nanooctopus::*;
+use edge_nal::TcpBind;
+use nanooctopus_server::socket::*;
+use nanooctopus_server::*;
+use std::fmt::{Debug, Display};
 
-struct HelloWorldHandler;
+struct RootHandler;
+impl Handler for RootHandler {
+    type Error<E>
+        = IoError<E>
+    where
+        E: Debug;
 
-#[cfg(feature = "tokio_impl")]
-impl http_handler::HttpHandler for HelloWorldHandler {
-    async fn handle_request(
-        &mut self,
-        _allocator: &mut http_handler::HttpAllocator<'_>, // unused in this simple handler
-        request: &http_handler::HttpRequest<'_>,
-        http_socket: &mut impl http_handler::HttpSocketWrite,
-        context_id: usize,
-    ) -> Result<http_handler::HttpResponse, http_handler::Error> {
-        // Stream the response directly to the socket: status → headers → body.
-        http_handler::HttpResponseBuilder::new(http_socket)
-            .with_status(http_handler::StatusCode::Ok)
-            .await?
-            .with_header("Content-Type", "text/plain")
-            .await?
-            .with_body_from_slice(b"Hello, World!")
-            .await
+    async fn handle<S, const CN: usize>(
+        &self,
+        _task_id: impl Display + Copy,
+        conn: &mut Connection<'_, S, CN>,
+    ) -> Result<(), Self::Error<S::Error>>
+    where
+        S: SocketRead + SocketWrite + SocketSplit,
+    {
+        conn.initiate_response(200, Some("OK"), &[("Content-Type", "text/plain")])
+            .await?;
+
+        conn.write_all(b"Generic: Hello world!").await?;
+        conn.flush().await?;
+        conn.complete().await?;
+
+        Ok(())
     }
+}
+
+fn init_logging() {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init();
 }
 
 #[tokio::main(flavor = "local")]
 async fn main() {
+    init_logging();
+
     // `spawn_local` keeps everything on the current thread, matching the
     // single-threaded (`flavor = "local"`) Tokio runtime used here.
-    #[cfg(feature = "tokio_impl")]
     tokio::task::spawn_local(async move {
-        // Bind the TCP listener to localhost:8080.
-        let listener =
-            server::socket_listener::TokioTcpListener::new(server::SocketEndpoint::new([127, 0, 0, 1].into(), 8080))
-                .await;
+        let mut server = DefaultServer::new();
+        let config = Config {
+            keepalive_timeout_ms: None,
+        };
 
-        let server = server::HttpServer::new(listener, server::ServerTimeouts::default());
-
-        // 1024-byte scratch buffer for parsing incoming HTTP headers.
-        // A single worker (context_id = 1) handles requests sequentially.
-        server
-            .serve(server::HttpWorkerMemory::<1024>::new(), HelloWorldHandler, 1)
+        let acceptor = edge_nal_std::Stack::new()
+            .bind("127.0.0.1:8080".parse().unwrap())
             .await
+            .unwrap();
+
+        let h = map_handler!(
+            ("/", root: RootHandler = RootHandler {}),
+            ("/favicon.ico", fav: FaviconHandler<'static> = FaviconHandler::new(include_bytes!("favicon.ico")))
+        );
+
+        server.run::<_, _, 8>(config, acceptor, h).await.unwrap();
     })
     .await
     .unwrap();
@@ -177,8 +191,8 @@ async fn main() {
 
 This example exists in:
 
-- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.0/demos/tokio_hello_world">
-  demos/tokio_hello_world
+- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.0/examples/hello_world.rs">
+  examples/hello_world.rs
   <img alt="GitHub" src="https://github.githubassets.com/favicons/favicon.svg" height="14">
 
 </a>

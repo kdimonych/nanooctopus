@@ -1,0 +1,59 @@
+[package]
+name = "nanooctopus_server"
+version = "0.3.0"
+edition = "2024"
+description = "🐙 A lightweight, `no_std` HTTP server for embedded systems built on top of Embassy networking."
+documentation = "https://docs.rs/nanooctopus_server"
+repository = "https://github.com/kdimonych/nanooctopus"
+license = "MIT"
+keywords = ["no_std", "embedded", "async", "http_server", "websockets"]
+authors = ["kdimonych <k.dimonych@gmail.com>"]
+
+[features]
+default = []
+std = ["embedded-io-async/std", "edge-http/std", "edge-ws/std"]
+defmt = [
+    "dep:defmt",
+    "defmt-or-log/defmt",
+    "embedded-io-async/defmt",
+    "heapless/defmt",
+    "edge-http/defmt",
+    "edge-ws/defmt",
+]
+log = ["dep:log", "defmt-or-log/log", "edge-http/log", "edge-ws/log"]
+# The `bench_masker` feature is used to enable dependencies and features required for benchmarking,
+# such as Criterion and the optimized masking implementation.
+bench_masker = []
+
+[dependencies]
+edge-ws = { workspace = true }
+edge-nal = { workspace = true }
+edge-http = { workspace = true }
+embedded-io-async = { workspace = true }
+heapless = { workspace = true }
+defmt = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+defmt-or-log = { workspace = true }
+
+[dev-dependencies]
+# Provides a powerful and flexible framework for writing benchmarks and generating reports.
+criterion = { version = "0.8", features = ["html_reports"] }
+tokio = { version = "1", features = ["full"] }
+tokio-test = "0.4"
+mockall = "0.14"
+predicates-core = "1.0"
+env_logger = "0.11"
+static_assertions = "1.1"
+byte-unit = { workspace = true }
+embassy-time = { version = "0.5", features = ["std", "generic-queue-64"] }
+edge-nal-std = { version = "0.6", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal-std" }
+
+# [[test]]
+# name = "tokio_impl_tests"
+# path = "tests/tokio_impl_tests.rs"
+# required-features = ["tokio_impl"]
+
+[[bench]]
+name = "masking"
+harness = false
+required-features = ["bench_masker"]

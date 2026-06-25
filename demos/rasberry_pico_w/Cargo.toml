@@ -2,27 +2,29 @@
 [package]
 publish = false
 name = "rasberry_pico_w"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 # HTTP server
-nanooctopus = { path = "../..", default-features = false, features = [
-  "ws",
-  "embassy_impl",
+nanooctopus_server = { version = "0.3.0", default-features = false, path = "../../nanooctopus_server", package = "nanooctopus_server", features = [
   "defmt",
 ] }
+edge-nal = { version = "0.6", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal" }
+edge-nal-embassy = { version = "0.8.1", git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal-embassy" }
 
 #-----------------------------------------------------------------------------#
 # External dependencies
 #-----------------------------------------------------------------------------#
 cortex-m = "0.7"
 cortex-m-rt = { version = "0.7", features = ["set-sp"] }
-embedded-hal-async = "1.0"
+embedded-io-async = { version = "0.7", default-features = false, features = [
+  "defmt",
+] }
 embedded-hal = "1.0"
 
 # Debug logging
-defmt = { version = "1" }
+defmt = { version = "1", default-features = false }
 defmt-rtt = { version = "1" }
 panic-probe = { version = "1", features = ["print-defmt"] }
 panic-halt = "1.0"
@@ -67,14 +69,14 @@ embassy-net = { version = "0.9", features = [
 cyw43 = "0.7.0"
 cyw43-pio = "0.10.0"
 # Firmware for CYW43 (Needed to include firmware binary for the CYW43 chip used in raspberry Pi Pico W)
-# TODO: change to a published version of the firmware crate once it's available on crates.io
+# TODO: change to a published version of the cyw43-firmware crate once it became available on crates.io
 # PR: https://api.github.com/repos/KizzyCode/cyw43-firmware-rust/pulls/1
 cyw43-firmware = { git = "https://github.com/kdimonych/cyw43-firmware-rust", branch = "nvram", features = [
   "wifi",
   "nvram",
 ] }
 
-heapless = { version = "0.9", features = ["defmt"] }
+heapless = { version = "0.9", default-features = false, features = ["defmt"] }
 
 [build-dependencies]
 dotenvy = "0.15"
@@ -82,5 +84,5 @@ build_log = "0.1.0"
 build_script_directives = "0.1.0"
 memory_x_tools = "0.1.0"
 
-# Keep this example as a standalone crate when opened directly by rust-analyzer.
 [workspace]
+members = ["."]

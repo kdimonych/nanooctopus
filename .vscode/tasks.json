@@ -4,7 +4,7 @@
 		{
 			"type": "cargo",
 			"options": {
-				"cwd": "${workspaceFolder}/lib"
+				"cwd": "${workspaceFolder}"
 			},
 			"command": "build",
 			"problemMatcher": [
@@ -21,12 +21,25 @@
 			"label": "build: rasberry_pico_w (thumbv6m)",
 			"command": "cargo",
 			"args": [
-				"build",
-				"--target",
-				"thumbv6m-none-eabi"
+				"build_rasberry_pico_w",
 			],
 			"options": {
-				"cwd": "${workspaceFolder}/demos/rasberry_pico_w"
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"type": "shell",
+			"label": "run: rasberry_pico_w (thumbv6m)",
+			"command": "cargo",
+			"args": [
+				"run_rasberry_pico_w",
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
 			},
 			"problemMatcher": [
 				"$rustc"

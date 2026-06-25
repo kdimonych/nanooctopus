@@ -1,10 +1,11 @@
 [alias]
-build-embedded = "build --target thumbv6m-none-eabi"
-build-host = "build --features std"
-check-embedded = "check --target thumbv6m-none-eabi"
-run-embedded = "run --target thumbv6m-none-eabi"
-check-host = "check --features std"
-run-host-example = "run --example hello_world --features std"
+build_embedded = "build --target thumbv6m-none-eabi --features defmt"
+build_host = "build --features std --features log"
+check_embedded = "check --target thumbv6m-none-eabi  --features defmt"
+run_embedded = "run --target thumbv6m-none-eabi --features defmt"
+check_host = "check --features std --features log"
+build_hello_world_example = "build --package nanooctopus --example hello_world --features std --features log"
+run_hello_world_example = "run --package nanooctopus --example hello_world --features std --features log"
 
 # Examples
 run_rasberry_pico_w = "--config ./demos/rasberry_pico_w/.cargo/config.toml run --package rasberry_pico_w --target thumbv6m-none-eabi"

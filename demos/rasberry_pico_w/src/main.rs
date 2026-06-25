@@ -25,11 +25,15 @@ use cyw43::NetDriver;
 use cyw43_firmware::{CYW43_43439A0, CYW43_43439A0_CLM, NVRAM_RP2040};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 
+use core::fmt::{Debug, Display};
 use core::str::FromStr;
 use heapless::String;
 use static_cell::StaticCell;
 
-use nanooctopus::*;
+use edge_nal::TcpBind;
+use edge_nal_embassy::{Tcp, TcpBuffers};
+use nanooctopus_server::socket::*;
+use nanooctopus_server::*;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
@@ -41,17 +45,9 @@ const NETWORK_STACK_SOCKETS: usize = 20;
 static NETWORK_RESOURCES: StaticCell<StackResources<NETWORK_STACK_SOCKETS>> = StaticCell::new();
 static CY43_STATE: StaticCell<cyw43::State> = StaticCell::new();
 
-const SOCKETS: usize = 5; // Number of simultaneous sockets the server can accept and handle; adjust as needed
+const SOCKETS: usize = 8; // Number of simultaneous sockets the server can accept and handle; adjust as needed
 const RX_SIZE: usize = 256; // Size of the receive buffer for each socket; adjust as needed
 const TX_SIZE: usize = 256; // Size of the transmit buffer for each socket; adjust as needed
-const WORKER_MEMORY: usize = 4096; // Size of the worker memory buffer for parsing HTTP headers; adjust as needed
-const HTTP_SERVER_WORKERS: usize = 2; // Number of worker tasks for handling HTTP requests; adjust as needed
-const HTTP_SERVER_PORT: u16 = 8080; // Port for the HTTP server to listen on; adjust as needed
-
-static SOCKET_BUFFER: StaticCell<[u8; SOCKETS * (RX_SIZE + TX_SIZE)]> = StaticCell::new(); // Buffer for the socket pool; adjust size as needed
-static SOCKET_POOL_STATE: StaticCell<server::socket_pool::TcpSocketPoolState<'static, SOCKETS>> = StaticCell::new(); // State for the socket pool
-static SERVER_INSTANCE: StaticCell<server::HttpServer<server::socket_pool::TcpSocketPool<'static, SOCKETS>>> =
-    StaticCell::new(); // HTTP server instance
 
 type PioSpi0 = PioSpi<'static, PIO0, 0>;
 type SpiBus0 = cyw43::SpiBus<Output<'static>, PioSpi0>;
@@ -168,50 +164,34 @@ async fn main(spawner: Spawner) -> ! {
     // For embassy-net, the IP address is not used as it is determined by the network stack
     // configuration, but we still need to provide a valid SocketAddr.
     // We can use the wildcard address (0.0.0.0) to listen on all available interfaces or
-    //just use the assigned IP for consistency.
-    let local_endpoint = server::SocketEndpoint::new(core::net::IpAddr::V4(config.address.address()), HTTP_SERVER_PORT);
+    // just use the assigned IP for consistency.
 
-    // Initialize the buffer for the socket pool. It needs to be large enough to hold the RX and TX buffers for all sockets.
-    let buffer = SOCKET_BUFFER.init_with(|| [0u8; SOCKETS * (RX_SIZE + TX_SIZE)]);
+    let buffers = TcpBuffers::<SOCKETS, RX_SIZE, TX_SIZE>::new();
+    let tcp = Tcp::new(net_stack, &buffers);
+    let acceptor = tcp.bind("0.0.0.0:8080".parse().unwrap()).await.unwrap();
 
-    // Initialize the socket pool state with the network stack and local endpoint. This will be used by the TCP socket pool
-    // server to manage incoming connections.
-    let socket_pool_state = SOCKET_POOL_STATE.init_with(|| {
-        server::socket_pool::TcpSocketPoolState::new::<RX_SIZE, TX_SIZE>(net_stack, buffer, local_endpoint)
-    });
+    let mut server = DefaultServer::new();
+    let srv_config = Config {
+        keepalive_timeout_ms: None,
+    };
 
-    // Create the TCP socket pool, which will manage incoming TCP connections for the server. The socket pool will use the
-    // provided state to accept and manage sockets.
-    let (socket_pool, runner) = server::socket_pool::TcpSocketPool::new(socket_pool_state);
-
-    // Spawn the socket pool runner task. This task will continuously run in the background, accepting incoming TCP connections
-    // and managing the socket pool.
-    spawner.spawn(socket_pool_runner(runner).unwrap());
-
-    // Create the HTTP server with the socket pool and default timeouts. The server will use the socket pool to accept incoming
-    // connections and will manage the HTTP request handling.
-    let server = SERVER_INSTANCE.init_with(|| server::HttpServer::new(socket_pool, server::ServerTimeouts::default()));
-
-    // Spawn worker tasks for the HTTP server. Each worker will handle incoming HTTP requests concurrently.
-    // The number of workers can be adjusted based on the expected load and resource constraints of the device.
-    for worker_id in 0..HTTP_SERVER_WORKERS {
-        spawner.spawn(http_server_task(server, worker_id).unwrap());
-    }
+    let h = map_handler!(
+        ("/", root: RootHandler = RootHandler {}),
+        ("/favicon.ico", fav: FaviconHandler<'static> = FaviconHandler::new(include_bytes!("../favicon.ico")))
+    );
 
     defmt::info!("\n\nHTTP server is running and ready to accept requests.");
-    defmt::info!("Visit http://{}:{}/", config.address.address(), HTTP_SERVER_PORT);
+    defmt::info!("Visit http://{}:8080/", config.address.address());
 
     defmt::info!("To check the number of active connections the server can handle, run the script from project root:");
     defmt::info!(
-        "./scripts/hold_open_load.py -c {} --host {} --port {}\n\n",
+        "./scripts/hold_open_load.py --single-shot-connection -c {} --host {} --port 8080\n\n",
         SOCKETS,
         config.address.address(),
-        HTTP_SERVER_PORT
     );
 
-    loop {
-        embassy_futures::yield_now().await;
-    }
+    server.run::<_, _, SOCKETS>(srv_config, acceptor, h).await.unwrap();
+    unreachable!();
 }
 
 #[embassy_executor::task]
@@ -224,47 +204,35 @@ async fn wifi_network_runner(mut net_runner: NetStackRunner) -> ! {
     net_runner.run().await
 }
 
-#[embassy_executor::task]
-async fn socket_pool_runner(runner: server::socket_pool::TcpSocketPoolRunner<'static, SOCKETS>) -> ! {
-    runner.run().await
-}
+struct RootHandler;
+impl Handler for RootHandler {
+    type Error<E>
+        = IoError<E>
+    where
+        E: Debug;
 
-/// Request handler that responds to every HTTP request with "Hello, World!".
-struct HelloWorldHandler;
-
-impl http_handler::HttpHandler for HelloWorldHandler {
-    async fn handle_request(
-        &mut self,
-        _allocator: &mut http_handler::HttpAllocator<'_>, // unused in this simple handler
-        request: &http_handler::HttpRequest<'_>,
-        http_socket: &mut impl http_handler::HttpSocketWrite,
-        context_id: usize,
-    ) -> Result<http_handler::HttpResponse, http_handler::Error> {
-        defmt::debug!("HelloWorldHandler[{}]: Received request: {:?}", context_id, request);
-
-        let mut greetings: heapless::String<128> = heapless::String::new();
-        let _ = core::fmt::write(
-            &mut greetings,
-            format_args!("Hello, World from worker {}!\n", context_id),
+    async fn handle<S, const CN: usize>(
+        &self,
+        task_id: impl Display + Copy,
+        conn: &mut Connection<'_, S, CN>,
+    ) -> Result<(), Self::Error<S::Error>>
+    where
+        S: SocketRead + SocketWrite + SocketSplit,
+    {
+        defmt::info!(
+            "Hello World task {}: Handling request for root path '/'",
+            defmt::Display2Format(&task_id)
+        );
+        conn.initiate_response(200, Some("OK"), &[("Content-Type", "text/plain")])
+            .await?;
+        conn.write_all(b"Raspberry Pico W: Hello World!").await?;
+        conn.flush().await?;
+        conn.complete().await?;
+        defmt::info!(
+            "Hello World task {}: Completed request for root path '/'",
+            defmt::Display2Format(&task_id)
         );
 
-        // Stream the response directly to the socket: status → headers → body.
-        http_handler::HttpResponseBuilder::new(http_socket)
-            .with_status(http_handler::StatusCode::Ok)
-            .await?
-            .with_header("Content-Type", "text/plain")
-            .await?
-            .with_body_from_slice(greetings.as_bytes())
-            .await
+        Ok(())
     }
-}
-
-#[embassy_executor::task(pool_size = HTTP_SERVER_WORKERS)]
-async fn http_server_task(
-    server: &'static server::HttpServer<server::socket_pool::TcpSocketPool<'static, SOCKETS>>,
-    worker_id: usize,
-) -> ! {
-    let mut worker_memory_buf = [core::mem::MaybeUninit::<u8>::uninit(); WORKER_MEMORY];
-    let worker_memory = server::HttpWorkerMemory::new(&mut worker_memory_buf);
-    server.serve(worker_memory, HelloWorldHandler, worker_id).await
 }
