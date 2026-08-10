@@ -33,7 +33,7 @@ static_assertions = "1.1"
 edge-nal = { workspace = true }
 log = { workspace = true }
 embassy-time = { version = "0.5", features = ["std", "generic-queue-64"] }
-edge-nal-std = { version = "0.6", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal-std" }
+edge-nal-std = { version = "0.7", default-features = false }
 
 [[example]]
 name = "hello_world"
@@ -47,13 +47,9 @@ exclude = ["demos/rasberry_pico_w"]
 defmt = { version = "1", default-features = false, features = ["ip_in_core"] }
 log = { version = "0.4", default-features = false }
 defmt-or-log = { version = "0.2.3", default-features = false }
-edge-nal = { version = "0.6", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal" }
-edge-http = { version = "0.7", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-http", features = [
-    "io",
-] }
-edge-ws = { version = "0.7", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-ws", features = [
-    "io",
-] }
+edge-nal = { version = "0.7", default-features = false }
+edge-http = { version = "0.8", default-features = false, features = ["io"] }
+edge-ws = { version = "0.8", default-features = false, features = ["io"] }
 heapless = { version = "0.9", default-features = false }
 embedded-io-async = { version = "0.7", default-features = false }
 byte-unit = { version = "5.2", default-features = false, features = ["byte"] }

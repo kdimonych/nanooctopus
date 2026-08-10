@@ -10,8 +10,8 @@ edition = "2024"
 nanooctopus_server = { version = "0.3.0", default-features = false, path = "../../nanooctopus_server", package = "nanooctopus_server", features = [
   "defmt",
 ] }
-edge-nal = { version = "0.6", default-features = false, git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal" }
-edge-nal-embassy = { version = "0.8.1", git = "https://github.com/sysgrok/edge-net.git", branch = "master", package = "edge-nal-embassy" }
+edge-nal = { version = "0.7", default-features = false }
+edge-nal-embassy = { version = "0.9" }
 
 #-----------------------------------------------------------------------------#
 # External dependencies
