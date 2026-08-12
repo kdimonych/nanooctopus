@@ -40,6 +40,9 @@ bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => DmaInterruptHandler<DMA_CH0>;
 });
 
+// Get version from Cargo.toml at compile time
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 const NETWORK_STACK_SOCKETS: usize = 20;
 
 static NETWORK_RESOURCES: StaticCell<StackResources<NETWORK_STACK_SOCKETS>> = StaticCell::new();
@@ -177,6 +180,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let h = map_handler!(
         ("/", root: RootHandler = RootHandler {}),
+        ("/version", version: PlainTextHandler<'static> = PlainTextHandler::new(VERSION)),
         ("/favicon.ico", fav: FaviconHandler<'static> = FaviconHandler::new(include_bytes!("../favicon.ico")))
     );
 

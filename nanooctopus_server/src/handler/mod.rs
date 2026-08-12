@@ -11,6 +11,24 @@ pub use edge_http::io::Body;
 pub use edge_http::io::Error as IoError;
 pub use edge_http::io::server::{Connection, Handler};
 
+/// Content type header used in HTTP responses.
+pub const H_CONTENT_TYPE: &str = "Content-Type";
+/// Content length header for HTTP responses.
+pub const H_CONTENT_LENGTH: &str = "Content-Length";
+/// Cross-Origin Resource Policy header for HTTP responses.
+pub const H_CACHE_CONTROL: &str = "Cache-Control";
+/// Cross-Origin Resource Policy header for HTTP responses.
+pub const H_CROSS_ORIGIN_RESOURCE_POLICY: &str = "Cross-Origin-Resource-Policy";
+
+/// JSON content type used in HTTP responses.
+pub const CONTENT_TYPE_JSON: &str = "application/json";
+/// Plain text content type used in HTTP responses.
+pub const CONTENT_TYPE_TEXT_PLAIN: &str = "text/plain";
+/// HTML content type used in HTTP responses.
+pub const CONTENT_TYPE_HTML: &str = "text/html";
+/// image/x-icon content type used in HTTP responses.
+pub const CONTENT_TYPE_IMAGE_X_ICON: &str = "image/x-icon";
+
 /// An error type that represents possible errors that can occur while handling HTTP requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[defmt_or_log::maybe_derive_format]
@@ -47,8 +65,8 @@ impl Handler for DefaultRootResponse {
             200,
             Some("OK"),
             &[
-                ("Content-Type", "text/plain"),
-                ("Content-Length", content_length_str.as_str()),
+                (H_CONTENT_TYPE, CONTENT_TYPE_TEXT_PLAIN),
+                (H_CONTENT_LENGTH, content_length_str.as_str()),
             ],
         )
         .await?;
@@ -94,10 +112,10 @@ impl<'a> Handler for FaviconHandler<'a> {
             200,
             Some("OK"),
             &[
-                ("Content-Type", "image/x-icon"),
-                ("Content-Length", content_length_str.as_str()),
-                ("Cache-Control", "public, max-age=31536000, immutable"),
-                ("Cross-Origin-Resource-Policy", "same-origin"),
+                (H_CONTENT_TYPE, CONTENT_TYPE_IMAGE_X_ICON),
+                (H_CONTENT_LENGTH, content_length_str.as_str()),
+                (H_CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                (H_CROSS_ORIGIN_RESOURCE_POLICY, "same-origin"),
             ],
         )
         .await?;
@@ -124,5 +142,42 @@ impl<E> TryFrom<HandlerError<E>> for HdlError {
 impl<E> From<HdlError> for HandlerError<E> {
     fn from(value: HdlError) -> Self {
         HandlerError::Handler(value)
+    }
+}
+
+/// A handler that serves a plain text response with the given content.
+#[allow(unused)]
+pub struct PlainTextHandler<'a> {
+    content: &'a str,
+}
+
+impl<'a> PlainTextHandler<'a> {
+    /// Create a new `PlainTextHandler` with the given content.
+    pub const fn new(content: &'a str) -> Self {
+        Self { content }
+    }
+}
+
+impl<'a> Handler for PlainTextHandler<'a> {
+    type Error<E>
+        = IoError<E>
+    where
+        E: Debug;
+
+    async fn handle<S, const CN: usize>(
+        &self,
+        _task_id: impl Display + Copy,
+        conn: &mut Connection<'_, S, CN>,
+    ) -> Result<(), Self::Error<S::Error>>
+    where
+        S: SocketRead + SocketWrite + SocketSplit,
+    {
+        conn.initiate_response(200, Some("OK"), &[(H_CONTENT_TYPE, CONTENT_TYPE_TEXT_PLAIN)])
+            .await?;
+        conn.write_all(self.content.as_bytes()).await?;
+        conn.flush().await?;
+        conn.complete().await?;
+
+        Ok(())
     }
 }
