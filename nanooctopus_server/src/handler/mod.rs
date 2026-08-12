@@ -293,3 +293,47 @@ impl<'a> Handler for HtmlHandler<'a> {
         Ok(())
     }
 }
+
+/// A handler that serves a procedure with the given context.
+/// The procedure is a function that takes the context as an argument and returns a `Result<(), ()>`.
+#[allow(unused)]
+pub struct ProcedureHandler<Proc, Ctx> {
+    procedure: Proc,
+    ctx: Ctx,
+}
+//Proc: Fn(Ctx) -> Result<(), IoError<()>>
+impl<Proc, Ctx> ProcedureHandler<Proc, Ctx> {
+    /// Create a new `ProcedureHandler` with the given procedure and context.
+    pub const fn new(ctx: Ctx, procedure: Proc) -> Self {
+        Self { procedure, ctx }
+    }
+}
+
+impl<Proc, Ctx> Handler for ProcedureHandler<Proc, Ctx>
+where
+    Proc: Fn(Ctx) -> Result<(), ()>,
+    Ctx: Copy,
+{
+    type Error<E>
+        = IoError<E>
+    where
+        E: Debug;
+
+    async fn handle<S, const CN: usize>(
+        &self,
+        _task_id: impl Display + Copy,
+        conn: &mut Connection<'_, S, CN>,
+    ) -> Result<(), Self::Error<S::Error>>
+    where
+        S: SocketRead + SocketWrite + SocketSplit,
+    {
+        (self.procedure)(self.ctx).map_err(|_| IoError::<S::Error>::InvalidState)?;
+
+        conn.initiate_response(200, Some("OK"), &[(H_CONTENT_LENGTH, "0")])
+            .await?;
+        conn.flush().await?;
+        conn.complete().await?;
+
+        Ok(())
+    }
+}
