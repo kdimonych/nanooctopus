@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nanooctopus Demo</title>
+</head>
+
+<body>
+  <h1>Nanooctopus Demo</h1>
+  <p>Version: <span id="version">loading...</span></p>
+  <p><a href="/hello_world">Hello World</a></p>
+
+  <script>
+    (async function () {
+      try {
+        const response = await fetch('/version');
+        const version = await response.text();
+        document.getElementById('version').textContent = version;
+      } catch (_error) {
+        document.getElementById('version').textContent = 'unavailable';
+      }
+    })();
+  </script>
+</body>
+
+</html>

@@ -179,8 +179,9 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     let h = map_handler!(
-        ("/", root: RootHandler = RootHandler {}),
+        ("/", root: HtmlHandler<'static> = HtmlHandler::new(include_str!("../index.html"))),
         ("/version", version: PlainTextHandler<'static> = PlainTextHandler::new(VERSION)),
+        ("/hello_world", hw: RootHandler = RootHandler {}),
         ("/favicon.ico", fav: FaviconHandler<'static> = FaviconHandler::new(include_bytes!("../favicon.ico")))
     );
 
@@ -189,7 +190,7 @@ async fn main(spawner: Spawner) -> ! {
 
     defmt::info!("To check the number of active connections the server can handle, run the script from project root:");
     defmt::info!(
-        "./scripts/hold_open_load.py --single-shot-connection -c {} --host {} --port 8080\n\n",
+        "./scripts/hold_open_load.py --single-shot-connection -c {} --host {} --port 8080 --path /hello_world \n\n",
         SOCKETS,
         config.address.address(),
     );
