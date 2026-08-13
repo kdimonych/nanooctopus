@@ -301,10 +301,14 @@ pub struct ProcedureHandler<Proc, Ctx> {
     procedure: Proc,
     ctx: Ctx,
 }
-//Proc: Fn(Ctx) -> Result<(), IoError<()>>
+
 impl<Proc, Ctx> ProcedureHandler<Proc, Ctx> {
     /// Create a new `ProcedureHandler` with the given procedure and context.
-    pub const fn new(ctx: Ctx, procedure: Proc) -> Self {
+    pub const fn new(ctx: Ctx, procedure: Proc) -> Self
+    where
+        Proc: Fn(Ctx) -> Result<(), ()>,
+        Ctx: Copy,
+    {
         Self { procedure, ctx }
     }
 }

@@ -25,6 +25,7 @@ use cyw43::NetDriver;
 use cyw43_firmware::{CYW43_43439A0, CYW43_43439A0_CLM, NVRAM_RP2040};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 
+use core::fmt::Write;
 use core::fmt::{Debug, Display};
 use core::str::FromStr;
 use heapless::String;
@@ -44,6 +45,7 @@ bind_interrupts!(struct Irqs {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const NETWORK_STACK_SOCKETS: usize = 20;
+const CONNECTION_KEEPALIVE_TIMEOUT_MS: Option<u32> = Some(1000); // 1000 millisecond keepalive timeout; adjust as needed
 
 static NETWORK_RESOURCES: StaticCell<StackResources<NETWORK_STACK_SOCKETS>> = StaticCell::new();
 static CY43_STATE: StaticCell<cyw43::State> = StaticCell::new();
@@ -175,13 +177,13 @@ async fn main(spawner: Spawner) -> ! {
 
     let mut server = DefaultServer::new();
     let srv_config = Config {
-        keepalive_timeout_ms: None,
+        keepalive_timeout_ms: CONNECTION_KEEPALIVE_TIMEOUT_MS,
     };
 
     let h = map_handler!(
         ("/", root: HtmlHandler<'static> = HtmlHandler::new(include_str!("../index.html"))),
         ("/version", version: PlainTextHandler<'static> = PlainTextHandler::new(VERSION)),
-        ("/hello_world", hw: RootHandler = RootHandler {}),
+        ("/hello_world", hw: HelloWorldHandler = HelloWorldHandler {}),
         ("/favicon.ico", fav: FaviconHandler<'static> = FaviconHandler::new(include_bytes!("../favicon.ico")))
     );
 
@@ -189,11 +191,19 @@ async fn main(spawner: Spawner) -> ! {
     defmt::info!("Visit http://{}:8080/", config.address.address());
 
     defmt::info!("To check the number of active connections the server can handle, run the script from project root:");
-    defmt::info!(
-        "./scripts/hold_open_load.py --single-shot-connection -c {} --host {} --port 8080 --path /hello_world \n\n",
-        SOCKETS,
-        config.address.address(),
-    );
+    if CONNECTION_KEEPALIVE_TIMEOUT_MS.is_some() {
+        defmt::info!(
+            "  ./scripts/hold_open_load.py -c {} --host {} --port 8080 --path /hello_world",
+            SOCKETS,
+            config.address.address()
+        );
+    } else {
+        defmt::info!(
+            "  ./scripts/hold_open_load.py --single-shot-connection -c {} --host {} --port 8080 --path /hello_world",
+            SOCKETS,
+            config.address.address()
+        );
+    }
 
     server.run::<_, _, SOCKETS>(srv_config, acceptor, h).await.unwrap();
     unreachable!();
@@ -209,8 +219,8 @@ async fn wifi_network_runner(mut net_runner: NetStackRunner) -> ! {
     net_runner.run().await
 }
 
-struct RootHandler;
-impl Handler for RootHandler {
+struct HelloWorldHandler;
+impl Handler for HelloWorldHandler {
     type Error<E>
         = IoError<E>
     where
@@ -224,17 +234,28 @@ impl Handler for RootHandler {
     where
         S: SocketRead + SocketWrite + SocketSplit,
     {
+        const RESPONSE_BODY: &[u8] = b"Raspberry Pico W: Hello World!";
+        let mut content_length_str = heapless::String::<16>::new();
+        write!(&mut content_length_str, "{}", RESPONSE_BODY.len()).map_err(|_| IoError::InvalidState)?;
+
         defmt::info!(
-            "Hello World task {}: Handling request for root path '/'",
+            "Hello World task {}: Handling request for root path '/hello_world'",
             defmt::Display2Format(&task_id)
         );
-        conn.initiate_response(200, Some("OK"), &[("Content-Type", "text/plain")])
-            .await?;
-        conn.write_all(b"Raspberry Pico W: Hello World!").await?;
+        conn.initiate_response(
+            200,
+            Some("OK"),
+            &[
+                (H_CONTENT_TYPE, CONTENT_TYPE_TEXT_PLAIN),
+                (H_CONTENT_LENGTH, content_length_str.as_str()),
+            ],
+        )
+        .await?;
+        conn.write_all(RESPONSE_BODY).await?;
         conn.flush().await?;
         conn.complete().await?;
         defmt::info!(
-            "Hello World task {}: Completed request for root path '/'",
+            "Hello World task {}: Completed request for root path '/hello_world'",
             defmt::Display2Format(&task_id)
         );
 

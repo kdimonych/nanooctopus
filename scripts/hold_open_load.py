@@ -169,6 +169,10 @@ async def run_connection(
     conn_start = time.perf_counter()
     writer = None
 
+    if time.perf_counter() > test_end:
+        # No time left to even attempt a connection.
+        return
+
     try:
         try:
             reader, writer = await asyncio.wait_for(
@@ -188,7 +192,8 @@ async def run_connection(
                 await writer.drain()
             except OSError:
                 dropped_by_remote = True
-                await stats.on_request_lost()
+                if (single_shot_connection is False and requests_this_conn == 0) is False:
+                    await stats.on_request_lost()
                 break
 
             # --- receive ---
