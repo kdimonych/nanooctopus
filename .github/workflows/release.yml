@@ -28,6 +28,11 @@ jobs:
         id: get-tag
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            TAG_VERSION="${{ steps.get-version.outputs.version }}"
+          fi
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
           echo "Tag version: $TAG_VERSION"
       - name: ✅ Verify versions match
