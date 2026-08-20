@@ -42,14 +42,6 @@ macro_rules! map_handler {
                 let mut mem_buf = [const { core::mem::MaybeUninit::uninit() }; nanooctopus_server::DEFAULT_HEADLER_BUFFER];
                 let mut arena = PrefixArena::from_uninit(&mut mem_buf);
 
-                let method_not_supported = |conn: &mut Connection<'_, S, CN>| async move {
-                    conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
-                    conn.write_all(b"Method Not Allowed").await?;
-                    conn.flush().await?;
-                    conn.complete().await?;
-                    Ok(())
-                };
-
                 match h.path {
                     $( $key => {
                         if self.$name.supported_methods().contains(&h.method) {
@@ -57,7 +49,10 @@ macro_rules! map_handler {
                             self.$name.handle((), task_id, conn, arena.reborrow()).await?;
                         } else {
                             nanooctopus_server::log::debug!("Method not allowed for path: {}", $key);
-                            method_not_supported(conn).await?;
+                            conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
+                            conn.write_all(b"Method Not Allowed").await?;
+                            conn.flush().await?;
+                            conn.complete().await?;
                         }
                     } ),+,
                     _ => {
@@ -103,8 +98,16 @@ macro_rules! map_handler {
 
                 match h.path {
                     $( $key => {
-                        nanooctopus_server::log::debug!("Handling request for path: {}", $key);
-                        self.$name.handle(self.ctx, task_id, conn, arena.reborrow()).await?;
+                        if self.$name.supported_methods().contains(&h.method) {
+                            nanooctopus_server::log::debug!("Handling request for path: {}", $key);
+                            self.$name.handle((), task_id, conn, arena.reborrow()).await?;
+                        } else {
+                            nanooctopus_server::log::debug!("Method not allowed for path: {}", $key);
+                            conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
+                            conn.write_all(b"Method Not Allowed").await?;
+                            conn.flush().await?;
+                            conn.complete().await?;
+                        }
                     } ),+,
                     _ => {
                         nanooctopus_server::log::debug!("Request path not found: {}", h.path);

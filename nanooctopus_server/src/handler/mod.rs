@@ -62,7 +62,7 @@ impl EndpointHandler for DefaultRootResponse {
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
+    fn supported_methods(&self) -> &'static [Method] {
         &[Method::Get]
     }
 
@@ -116,7 +116,7 @@ impl<'a> EndpointHandler for FaviconHandler<'a> {
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
+    fn supported_methods(&self) -> &'static [Method] {
         &[Method::Get]
     }
 
@@ -189,7 +189,7 @@ impl<'a> EndpointHandler for PlainTextHandler<'a> {
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
+    fn supported_methods(&self) -> &'static [Method] {
         &[Method::Get]
     }
 
@@ -267,7 +267,7 @@ impl<'a> EndpointHandler for HtmlHandler<'a> {
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
+    fn supported_methods(&self) -> &'static [Method] {
         &[Method::Get]
     }
 

@@ -12,7 +12,7 @@ impl EndpointHandler for RootHandler {
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
+    fn supported_methods(&self) -> &'static [Method] {
         &[Method::Get]
     }
 

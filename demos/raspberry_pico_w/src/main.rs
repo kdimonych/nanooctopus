@@ -213,7 +213,7 @@ impl EndpointHandler for HelloWorldHandler {
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
+    fn supported_methods(&self) -> &'static [Method] {
         &[Method::Get]
     }
 

@@ -13,7 +13,7 @@ pub trait EndpointHandler {
         E: Debug;
 
     /// Returns methods that are supported by this endpoint handler
-    fn supported_methods() -> &'static [Method];
+    fn supported_methods(&self) -> &'static [Method];
 
     /// Handle an incoming HTTP request
     ///
@@ -40,8 +40,8 @@ where
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
-        H::supported_methods()
+    fn supported_methods(&self) -> &'static [Method] {
+        (**self).supported_methods()
     }
 
     async fn handle<T, const N: usize>(
@@ -67,8 +67,8 @@ where
     where
         E: Debug;
 
-    fn supported_methods() -> &'static [Method] {
-        H::supported_methods()
+    fn supported_methods(&self) -> &'static [Method] {
+        (**self).supported_methods()
     }
 
     async fn handle<T, const N: usize>(
