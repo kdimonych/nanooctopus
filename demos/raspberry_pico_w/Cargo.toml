@@ -1,13 +1,13 @@
 
 [package]
 publish = false
-name = "rasberry_pico_w"
-version = "0.2.0"
+name = "raspberry_pico_w"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
 # HTTP server
-nanooctopus_server = { version = "0.3.0", default-features = false, path = "../../nanooctopus_server", package = "nanooctopus_server", features = [
+nanooctopus_server = { version = "0.4.0", default-features = false, path = "../../nanooctopus_server", package = "nanooctopus_server", features = [
   "defmt",
 ] }
 edge-nal = { version = "0.7", default-features = false }
@@ -28,6 +28,9 @@ defmt = { version = "1", default-features = false }
 defmt-rtt = { version = "1" }
 panic-probe = { version = "1", features = ["print-defmt"] }
 panic-halt = "1.0"
+defmt-or-log = { version = "0.2.3", default-features = false, features = [
+  "defmt",
+] }
 
 # Critical section and atomics for embedded
 portable-atomic = { version = "1.11.1", features = ["critical-section"] }
@@ -86,3 +89,6 @@ memory_x_tools = "0.1.0"
 
 [workspace]
 members = ["."]
+
+[profile.release]
+debug = 2

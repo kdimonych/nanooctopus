@@ -73,11 +73,11 @@ case "${1:-all}" in
     ;;
   build)
     run_for_features FEATURE_SETS . build
-    simple_run ./demos/rasberry_pico_w build
+    simple_run ./demos/raspberry_pico_w build
     ;;
   clippy)
     run_for_features FEATURE_SETS . clippy --no-deps --workspace
-    simple_run ./demos/rasberry_pico_w clippy --no-deps
+    simple_run ./demos/raspberry_pico_w clippy --no-deps
     ;;
   test)
     run_for_features TESTABLE_FEATURE_SETS . test --workspace
@@ -88,10 +88,10 @@ case "${1:-all}" in
   all)
     #  build
     run_for_features FEATURE_SETS . build
-    simple_run ./demos/rasberry_pico_w build
+    simple_run ./demos/raspberry_pico_w build
     #  clippy
     run_for_features FEATURE_SETS . clippy --no-deps
-    simple_run ./demos/rasberry_pico_w clippy --no-deps
+    simple_run ./demos/raspberry_pico_w clippy --no-deps
     #  test
     run_for_features TESTABLE_FEATURE_SETS . test --workspace
     ;;

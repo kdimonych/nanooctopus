@@ -35,6 +35,9 @@ mod server;
 /// Handler trait and related types for processing HTTP requests.
 mod handler;
 
+/// The wrapper of defmt-or-log macros, which provides a unified logging interface for macro usage, allowing for flexible logging based on the selected feature flags.
+pub mod log;
+
 /// WebSocket handling implementation and related types.
 pub mod web_socket;
 

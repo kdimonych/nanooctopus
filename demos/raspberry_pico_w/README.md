@@ -1,4 +1,4 @@
-# rasberry_pico_w
+# raspberry_pico_w
 
 An embedded **nanooctopus** example for the **Raspberry Pi Pico W** using
 **Embassy**, **CYW43 Wi-Fi**, and the RP2040.
@@ -109,10 +109,10 @@ ______________________________________________________________________
 ## Wi-Fi setup
 
 All `cargo` commands for this example should be run from the
-`demos/rasberry_pico_w/` directory.
+`demos/raspberry_pico_w/` directory.
 
 ```sh
-cd demos/rasberry_pico_w
+cd demos/raspberry_pico_w
 ```
 
 Create a local `.env` file in that directory:
@@ -238,7 +238,7 @@ ______________________________________________________________________
 
 ### `WIFI_SSID` or `WIFI_PASSWORD` seems empty
 
-Make sure the `.env` file exists in `demos/rasberry_pico_w/` and rebuild.
+Make sure the `.env` file exists in `demos/raspberry_pico_w/` and rebuild.
 
 ### `cargo run` cannot talk to the board
 

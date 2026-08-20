@@ -6,16 +6,22 @@ use nanooctopus_server::*;
 use std::fmt::{Debug, Display};
 
 struct RootHandler;
-impl Handler for RootHandler {
+impl EndpointHandler for RootHandler {
     type Error<E>
         = IoError<E>
     where
         E: Debug;
 
+    fn supported_methods() -> &'static [Method] {
+        &[Method::Get]
+    }
+
     async fn handle<S, const CN: usize>(
         &self,
-        _task_id: impl Display + Copy,
+        _ctx: impl Copy,
+        task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
+        _allocator: PrefixArena<'_>,
     ) -> Result<(), Self::Error<S::Error>>
     where
         S: SocketRead + SocketWrite + SocketSplit,

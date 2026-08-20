@@ -209,8 +209,8 @@ The Raspberry Pico W example shows the intended embedded deployment model:
 
 The example is in:
 
-- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.0/demos/rasberry_pico_w">
-  demos/rasberry_pico_w
+- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.0/demos/raspberry_pico_w">
+  demos/raspberry_pico_w
   <img alt="GitHub" src="https://github.githubassets.com/favicons/favicon.svg" height="14">
 
 </a>
@@ -310,7 +310,7 @@ If you do not implement that method, incoming WebSocket connections are closed b
 
 ## Demos
 
-- `demos/rasberry_pico_w`: Embassy + CYW43 + RP2040 + socket pool + multiple workers
+- `demos/raspberry_pico_w`: Embassy + CYW43 + RP2040 + socket pool + multiple workers
 - `demos/tokio_hello_world`: minimal host-side Tokio server
 
 ## Development Notes

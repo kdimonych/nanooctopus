@@ -20,13 +20,11 @@
 #[macro_export]
 macro_rules! map_handler {
     ($( ($key:literal, $name:ident : $ty:ty = $h:expr) ),+) => {{
-
         struct MapHandlerImpl{
-             $( $name : $ty ),+
+            $( $name : $ty ),+
         }
 
-
-        impl Handler for MapHandlerImpl {
+        impl Handler for MapHandlerImpl{
             type Error<E>
                 = HandlerError<E>
             where
@@ -41,9 +39,29 @@ macro_rules! map_handler {
                 S: SocketRead + SocketWrite + SocketSplit,
             {
                 let h = conn.headers()?;
+                let mut mem_buf = [const { core::mem::MaybeUninit::uninit() }; nanooctopus_server::DEFAULT_HEADLER_BUFFER];
+                let mut arena = PrefixArena::from_uninit(&mut mem_buf);
+
+                let method_not_supported = |conn: &mut Connection<'_, S, CN>| async move {
+                    conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
+                    conn.write_all(b"Method Not Allowed").await?;
+                    conn.flush().await?;
+                    conn.complete().await?;
+                    Ok(())
+                };
+
                 match h.path {
-                    $( $key => {self.$name.handle(task_id, conn).await?;} ),+,
+                    $( $key => {
+                        if self.$name.supported_methods().contains(&h.method) {
+                            nanooctopus_server::log::debug!("Handling request for path: {}", $key);
+                            self.$name.handle((), task_id, conn, arena.reborrow()).await?;
+                        } else {
+                            nanooctopus_server::log::debug!("Method not allowed for path: {}", $key);
+                            method_not_supported(conn).await?;
+                        }
+                    } ),+,
                     _ => {
+                        nanooctopus_server::log::debug!("Request path not found: {}", h.path);
                         conn.initiate_response(404, Some("Not Found"), &[]).await?;
                         conn.write_all(b"Not Found").await?;
                         conn.flush().await?;
@@ -55,6 +73,53 @@ macro_rules! map_handler {
         }
 
         MapHandlerImpl{
+            $( $name: $h ),+
+        }
+    }};
+
+    ($buf_size:expr, $ctx:expr, $( ($key:literal, $name:ident : $ty:ty = $h:expr) ),+) => {{
+        struct MapHandlerImpl<Context>{
+            ctx: Context,
+            $( $name : $ty ),+
+        }
+
+        impl<Context: Copy> Handler for MapHandlerImpl<Context> {
+            type Error<E>
+                = HandlerError<E>
+            where
+                E: Debug;
+
+            async fn handle<S, const CN: usize>(
+                &self,
+                task_id: impl Display + Copy,
+                conn: &mut Connection<'_, S, CN>,
+            ) -> Result<(), Self::Error<S::Error>>
+            where
+                S: SocketRead + SocketWrite + SocketSplit,
+            {
+                let h = conn.headers()?;
+                let mut mem_buf = [const { core::mem::MaybeUninit::uninit() }; $buf_size];
+                let mut arena = PrefixArena::from_uninit(&mut mem_buf);
+
+                match h.path {
+                    $( $key => {
+                        nanooctopus_server::log::debug!("Handling request for path: {}", $key);
+                        self.$name.handle(self.ctx, task_id, conn, arena.reborrow()).await?;
+                    } ),+,
+                    _ => {
+                        nanooctopus_server::log::debug!("Request path not found: {}", h.path);
+                        conn.initiate_response(404, Some("Not Found"), &[]).await?;
+                        conn.write_all(b"Not Found").await?;
+                        conn.flush().await?;
+                        conn.complete().await?;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        MapHandlerImpl{
+            ctx: $ctx,
             $( $name: $h ),+
         }
     }};

@@ -1,6 +1,6 @@
 [package]
 name = "nanooctopus_server"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "🐙 A lightweight, `no_std` HTTP server for embedded systems built on top of Embassy networking."
 documentation = "https://docs.rs/nanooctopus_server"
@@ -34,6 +34,7 @@ heapless = { workspace = true }
 defmt = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 defmt-or-log = { workspace = true }
+prefix-arena = { workspace = true }
 
 [dev-dependencies]
 # Provides a powerful and flexible framework for writing benchmarks and generating reports.

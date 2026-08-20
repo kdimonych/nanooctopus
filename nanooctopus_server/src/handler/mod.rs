@@ -1,15 +1,18 @@
 #![allow(async_fn_in_trait)]
 
+mod endpoint_handler;
 /// This module contains some macros for conveniently creating handlers for the HTTP server.
 pub mod macros;
 
 use crate::socket::*;
 use core::fmt::Write;
 use core::fmt::{Debug, Display};
+pub use edge_http::Method;
 pub use edge_http::RequestHeaders;
 pub use edge_http::io::Body;
 pub use edge_http::io::Error as IoError;
 pub use edge_http::io::server::{Connection, Handler};
+pub use endpoint_handler::*;
 
 /// Content type header used in HTTP responses.
 pub const H_CONTENT_TYPE: &str = "Content-Type";
@@ -36,6 +39,9 @@ pub const CONTENT_TYPE_IMAGE_X_ICON: &str = "image/x-icon";
 /// Gzip content encoding used in HTTP responses.
 pub const CONTENT_ENCODING_GZIP: &str = "gzip";
 
+/// Default size of handler dedicated buffer.
+pub const DEFAULT_HEADLER_BUFFER: usize = 32;
+
 /// An error type that represents possible errors that can occur while handling HTTP requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[defmt_or_log::maybe_derive_format]
@@ -50,16 +56,22 @@ pub type HandlerError<E> = edge_http::io::server::HandlerError<E, HdlError>;
 /// A handler that serves a default response for the root path.
 pub struct DefaultRootResponse;
 
-impl Handler for DefaultRootResponse {
+impl EndpointHandler for DefaultRootResponse {
     type Error<E>
         = IoError<E>
     where
         E: Debug;
 
+    fn supported_methods() -> &'static [Method] {
+        &[Method::Get]
+    }
+
     async fn handle<S, const CN: usize>(
         &self,
+        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
+        _allocator: PrefixArena<'_>,
     ) -> Result<(), Self::Error<S::Error>>
     where
         S: SocketRead + SocketWrite + SocketSplit,
@@ -98,16 +110,22 @@ impl<'a> FaviconHandler<'a> {
     }
 }
 
-impl<'a> Handler for FaviconHandler<'a> {
+impl<'a> EndpointHandler for FaviconHandler<'a> {
     type Error<E>
         = IoError<E>
     where
         E: Debug;
 
+    fn supported_methods() -> &'static [Method] {
+        &[Method::Get]
+    }
+
     async fn handle<S, const CN: usize>(
         &self,
+        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
+        _allocator: PrefixArena<'_>,
     ) -> Result<(), Self::Error<S::Error>>
     where
         S: SocketRead + SocketWrite + SocketSplit,
@@ -165,16 +183,22 @@ impl<'a> PlainTextHandler<'a> {
     }
 }
 
-impl<'a> Handler for PlainTextHandler<'a> {
+impl<'a> EndpointHandler for PlainTextHandler<'a> {
     type Error<E>
         = IoError<E>
     where
         E: Debug;
 
+    fn supported_methods() -> &'static [Method] {
+        &[Method::Get]
+    }
+
     async fn handle<S, const CN: usize>(
         &self,
+        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
+        _allocator: PrefixArena<'_>,
     ) -> Result<(), Self::Error<S::Error>>
     where
         S: SocketRead + SocketWrite + SocketSplit,
@@ -237,16 +261,22 @@ impl<'a> HtmlHandler<'a> {
     }
 }
 
-impl<'a> Handler for HtmlHandler<'a> {
+impl<'a> EndpointHandler for HtmlHandler<'a> {
     type Error<E>
         = IoError<E>
     where
         E: Debug;
 
+    fn supported_methods() -> &'static [Method] {
+        &[Method::Get]
+    }
+
     async fn handle<S, const CN: usize>(
         &self,
+        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
+        _allocator: PrefixArena<'_>,
     ) -> Result<(), Self::Error<S::Error>>
     where
         S: SocketRead + SocketWrite + SocketSplit,
@@ -287,54 +317,6 @@ impl<'a> Handler for HtmlHandler<'a> {
             }
         }
         // The response has already been handled in the match above.
-        conn.flush().await?;
-        conn.complete().await?;
-
-        Ok(())
-    }
-}
-
-/// A handler that serves a procedure with the given context.
-/// The procedure is a function that takes the context as an argument and returns a `Result<(), ()>`.
-#[allow(unused)]
-pub struct ProcedureHandler<Proc, Ctx> {
-    procedure: Proc,
-    ctx: Ctx,
-}
-
-impl<Proc, Ctx> ProcedureHandler<Proc, Ctx> {
-    /// Create a new `ProcedureHandler` with the given procedure and context.
-    pub const fn new(ctx: Ctx, procedure: Proc) -> Self
-    where
-        Proc: Fn(Ctx) -> Result<(), ()>,
-        Ctx: Copy,
-    {
-        Self { procedure, ctx }
-    }
-}
-
-impl<Proc, Ctx> Handler for ProcedureHandler<Proc, Ctx>
-where
-    Proc: Fn(Ctx) -> Result<(), ()>,
-    Ctx: Copy,
-{
-    type Error<E>
-        = IoError<E>
-    where
-        E: Debug;
-
-    async fn handle<S, const CN: usize>(
-        &self,
-        _task_id: impl Display + Copy,
-        conn: &mut Connection<'_, S, CN>,
-    ) -> Result<(), Self::Error<S::Error>>
-    where
-        S: SocketRead + SocketWrite + SocketSplit,
-    {
-        (self.procedure)(self.ctx).map_err(|_| IoError::<S::Error>::InvalidState)?;
-
-        conn.initiate_response(200, Some("OK"), &[(H_CONTENT_LENGTH, "0")])
-            .await?;
         conn.flush().await?;
         conn.complete().await?;
 

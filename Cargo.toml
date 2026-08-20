@@ -1,6 +1,6 @@
 [package]
 name = "nanooctopus"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "🐙 A lightweight, `no_std` HTTP server for embedded systems built on top of Embassy networking."
 documentation = "https://docs.rs/nanooctopus"
@@ -41,7 +41,7 @@ required-features = ["std", "log"]
 
 [workspace]
 members = [".", "nanooctopus_server"]
-exclude = ["demos/rasberry_pico_w"]
+exclude = ["demos/raspberry_pico_w"]
 
 [workspace.dependencies]
 defmt = { version = "1", default-features = false, features = ["ip_in_core"] }
@@ -53,5 +53,6 @@ edge-ws = { version = "0.8", default-features = false, features = ["io"] }
 heapless = { version = "0.9", default-features = false }
 embedded-io-async = { version = "0.7", default-features = false }
 byte-unit = { version = "5.2", default-features = false, features = ["byte"] }
+prefix-arena = "0.2.1"
 
-nanooctopus_server = { version = "0.3.0", path = "nanooctopus_server", default-features = false }
+nanooctopus_server = { version = "0.4.0", path = "nanooctopus_server", default-features = false }

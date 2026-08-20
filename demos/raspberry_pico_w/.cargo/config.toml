@@ -1,3 +1,7 @@
+[alias]
+demo_run = "run --package raspberry_pico_w --bin raspberry_pico_w --release"
+demo_build = "build --package raspberry_pico_w --bin raspberry_pico_w --release"
+
 [build]
 target = "thumbv6m-none-eabi"
 
@@ -10,4 +14,4 @@ rustflags = ["-C", "no-vectorize-loops"]
 DEFMT_LOG = "debug"
 # Enables debug printing of build scripts, which can be helpful for troubleshooting build issues.
 # "1" - enables debug printing, "0" - disables it. By default, it's disabled.
-DBG_PRINT = "0"
+DBG_PRINT = "1"

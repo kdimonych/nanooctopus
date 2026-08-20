@@ -2,7 +2,6 @@
 
 use crate::socket::*;
 
-pub use edge_http::Method;
 pub use edge_http::io::Error as IoError;
 pub use edge_http::io::server::Handler;
 use edge_http::io::server::Server as EdgeServer;

@@ -4,16 +4,14 @@
     "rust-analyzer.cargo.allTargets": false,
     //"rust-analyzer.cargo.noDefaultFeatures": true,
     "rust-analyzer.runnables.extraTestBinaryArgs": [
-        "--nocapture",
+        "--nocapture"
     ],
-    // "rust-analyzer.linkedProjects": [
-    //     "Cargo.toml",
-    //     "demos/rasberry_pico_w/Cargo.toml",
-    //     "demos/tokio_hello_world/Cargo.toml"
-    // ],
+    "rust-analyzer.cargo.extraArgs": [
+        "--release"
+    ],
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
-        "demos/rasberry_pico_w/Cargo.toml"
+        "demos/raspberry_pico_w/Cargo.toml"
     ],
     // "rust-analyzer.cargo.features": [
     //     "embassy_impl",

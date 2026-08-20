@@ -18,13 +18,15 @@
 		},
 		{
 			"type": "shell",
-			"label": "build: rasberry_pico_w (thumbv6m)",
+			"label": "build: raspberry_pico_w (thumbv6m)",
 			"command": "cargo",
 			"args": [
-				"build_rasberry_pico_w",
+				"build",
+				"--target",
+				"thumbv6m-none-eabi",
 			],
 			"options": {
-				"cwd": "${workspaceFolder}"
+				"cwd": "${workspaceFolder}/demos/raspberry_pico_w"
 			},
 			"problemMatcher": [
 				"$rustc"
@@ -33,13 +35,16 @@
 		},
 		{
 			"type": "shell",
-			"label": "run: rasberry_pico_w (thumbv6m)",
+			"label": "run: raspberry_pico_w (thumbv6m)",
 			"command": "cargo",
 			"args": [
-				"run_rasberry_pico_w",
+				"run",
+				"--target",
+				"--release",
+				"thumbv6m-none-eabi",
 			],
 			"options": {
-				"cwd": "${workspaceFolder}"
+				"cwd": "${workspaceFolder}/demos/raspberry_pico_w"
 			},
 			"problemMatcher": [
 				"$rustc"

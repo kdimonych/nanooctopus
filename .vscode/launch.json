@@ -15,7 +15,7 @@
       "coreConfigs": [
         {
           "coreIndex": 0,
-          "programBinary": "target/thumbv6m-none-eabi/debug/rasberry_pico_w",
+          "programBinary": "demos/raspberry_pico_w/target/thumbv6m-none-eabi/debug/raspberry_pico_w",
           "rttEnabled": true,
           "rttChannelFormats": [
             {
@@ -27,7 +27,7 @@
           "catchHardfault": true
         }
       ],
-      "preLaunchTask": "build: rasberry_pico_w (thumbv6m)"
+      "preLaunchTask": "build: raspberry_pico_w (thumbv6m)"
     }
   ]
 }
