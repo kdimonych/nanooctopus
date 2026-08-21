@@ -6,9 +6,6 @@
     "rust-analyzer.runnables.extraTestBinaryArgs": [
         "--nocapture"
     ],
-    "rust-analyzer.cargo.extraArgs": [
-        "--release"
-    ],
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
         "demos/raspberry_pico_w/Cargo.toml"

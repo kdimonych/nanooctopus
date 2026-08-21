@@ -38,6 +38,7 @@ macro_rules! map_handler {
             where
                 S: SocketRead + SocketWrite + SocketSplit,
             {
+                use macros::macro_helpers::*;
                 let h = conn.headers()?;
                 let mut mem_buf = [const { core::mem::MaybeUninit::uninit() }; nanooctopus_server::DEFAULT_HEADLER_BUFFER];
                 let mut arena = PrefixArena::from_uninit(&mut mem_buf);
@@ -45,10 +46,10 @@ macro_rules! map_handler {
                 match h.path {
                     $( $key => {
                         if self.$name.supported_methods().contains(&h.method) {
-                            nanooctopus_server::log::debug!("Handling request for path: {}", $key);
+                            _log_handling_request_for_path($key);
                             self.$name.handle((), task_id, conn, arena.reborrow()).await?;
                         } else {
-                            nanooctopus_server::log::debug!("Method not allowed for path: {}", $key);
+                            _log_method_not_allowed_for_path($key);
                             conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
                             conn.write_all(b"Method Not Allowed").await?;
                             conn.flush().await?;
@@ -56,7 +57,7 @@ macro_rules! map_handler {
                         }
                     } ),+,
                     _ => {
-                        nanooctopus_server::log::debug!("Request path not found: {}", h.path);
+                        _log_request_path_not_found(h.path);
                         conn.initiate_response(404, Some("Not Found"), &[]).await?;
                         conn.write_all(b"Not Found").await?;
                         conn.flush().await?;
@@ -92,6 +93,7 @@ macro_rules! map_handler {
             where
                 S: SocketRead + SocketWrite + SocketSplit,
             {
+                use macros::macro_helpers::*;
                 let h = conn.headers()?;
                 let mut mem_buf = [const { core::mem::MaybeUninit::uninit() }; $buf_size];
                 let mut arena = PrefixArena::from_uninit(&mut mem_buf);
@@ -99,10 +101,10 @@ macro_rules! map_handler {
                 match h.path {
                     $( $key => {
                         if self.$name.supported_methods().contains(&h.method) {
-                            nanooctopus_server::log::debug!("Handling request for path: {}", $key);
+                            _log_handling_request_for_path($key);
                             self.$name.handle((), task_id, conn, arena.reborrow()).await?;
                         } else {
-                            nanooctopus_server::log::debug!("Method not allowed for path: {}", $key);
+                            _log_method_not_allowed_for_path($key);
                             conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
                             conn.write_all(b"Method Not Allowed").await?;
                             conn.flush().await?;
@@ -110,7 +112,7 @@ macro_rules! map_handler {
                         }
                     } ),+,
                     _ => {
-                        nanooctopus_server::log::debug!("Request path not found: {}", h.path);
+                        _log_request_path_not_found(h.path);
                         conn.initiate_response(404, Some("Not Found"), &[]).await?;
                         conn.write_all(b"Not Found").await?;
                         conn.flush().await?;
@@ -126,4 +128,26 @@ macro_rules! map_handler {
             $( $name: $h ),+
         }
     }};
+}
+
+/// A module containing helper functions for logging within the `map_handler!` macro.
+pub mod macro_helpers {
+    use defmt_or_log::*;
+    /// A helper function to log the handling of a request for a specific path.
+    #[inline(always)]
+    pub fn _log_handling_request_for_path(path: &str) {
+        debug!("Handling request for path: {}", path);
+    }
+
+    /// A helper function to log when a request method is not allowed for a specific path.
+    #[inline(always)]
+    pub fn _log_method_not_allowed_for_path(path: &str) {
+        debug!("Method not allowed for path: {}", path);
+    }
+
+    /// A helper function to log when a request path is not found.
+    #[inline(always)]
+    pub fn _log_request_path_not_found(path: &str) {
+        debug!("Request path not found: {}", path);
+    }
 }

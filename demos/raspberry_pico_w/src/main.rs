@@ -104,7 +104,7 @@ fn debug_memory_layout(name: &'static str) {
     let stack_size = stack_start - stack_end;
     let stack_usage = stack_start - msp;
 
-    log::info!("=== Memory Layout: {} ===", name);
+    defmt::info!("=== Memory Layout: {} ===", name);
     unsafe {
         let sp = core::ptr::read_volatile(0x10000100 as *const u32);
         let reset = core::ptr::read_volatile(0x10000104 as *const u32);
@@ -113,14 +113,14 @@ fn debug_memory_layout(name: &'static str) {
         defmt::info!("Reset vec = 0x{:08x}", reset);
     }
 
-    log::info!("RAM Start:    0x{:08x}", ram_start);
-    log::info!("RAM End:      0x{:08x}", ram_end);
-    log::info!("Stack Start:  0x{:08x}", stack_start);
-    log::info!("Stack End:    0x{:08x}", stack_end);
-    log::info!("Stack Size:   0x{:08x} ({}) bytes", stack_size, stack_size);
-    log::info!("Stack Usage:   0x{:08x} ({}) bytes", stack_usage, stack_usage);
-    log::info!("Current MSP:   0x{:08x}", msp);
-    log::info!("Current PSP:   0x{:08x}", psp);
+    defmt::info!("RAM Start:    0x{:08x}", ram_start);
+    defmt::info!("RAM End:      0x{:08x}", ram_end);
+    defmt::info!("Stack Start:  0x{:08x}", stack_start);
+    defmt::info!("Stack End:    0x{:08x}", stack_end);
+    defmt::info!("Stack Size:   0x{:08x} ({}) bytes", stack_size, stack_size);
+    defmt::info!("Stack Usage:   0x{:08x} ({}) bytes", stack_usage, stack_usage);
+    defmt::info!("Current MSP:   0x{:08x}", msp);
+    defmt::info!("Current PSP:   0x{:08x}", psp);
 }
 
 static EXECUTOR0: StaticCell<embassy_executor::Executor> = StaticCell::new();
