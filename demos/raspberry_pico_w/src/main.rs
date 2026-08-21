@@ -183,7 +183,7 @@ async fn run_server_task(net_stack: Stack<'static>, ip_address: embassy_net::Ipv
         );
     }
 
-    let h = map_handler!(HANDLER_BUFFER, (),
+    let h = map_handler!(HANDLER_BUFFER,
         ("/", root: HtmlHandler<'static> = HtmlHandler::new(include_str!("../index.html"))),
         ("/version", version: PlainTextHandler<'static> = PlainTextHandler::new(VERSION)),
         ("/hello_world", hw: HelloWorldHandler = HelloWorldHandler {}),
@@ -219,7 +219,6 @@ impl EndpointHandler for HelloWorldHandler {
 
     async fn handle<S, const CN: usize>(
         &self,
-        _ctx: impl Copy,
         task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
         _allocator: PrefixArena<'_>,

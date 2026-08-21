@@ -47,7 +47,7 @@ macro_rules! map_handler {
                     $( $key => {
                         if self.$name.supported_methods().contains(&h.method) {
                             _log_handling_request_for_path($key);
-                            self.$name.handle((), task_id, conn, arena.reborrow()).await?;
+                            self.$name.handle(task_id, conn, arena.reborrow()).await?;
                         } else {
                             _log_method_not_allowed_for_path($key);
                             conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
@@ -73,13 +73,12 @@ macro_rules! map_handler {
         }
     }};
 
-    ($buf_size:expr, $ctx:expr, $( ($key:literal, $name:ident : $ty:ty = $h:expr) ),+) => {{
-        struct MapHandlerImpl<Context>{
-            ctx: Context,
+    ($buf_size:expr, $( ($key:literal, $name:ident : $ty:ty = $h:expr) ),+) => {{
+        struct MapHandlerImpl{
             $( $name : $ty ),+
         }
 
-        impl<Context: Copy> Handler for MapHandlerImpl<Context> {
+        impl Handler for MapHandlerImpl {
             type Error<E>
                 = HandlerError<E>
             where
@@ -102,7 +101,7 @@ macro_rules! map_handler {
                     $( $key => {
                         if self.$name.supported_methods().contains(&h.method) {
                             _log_handling_request_for_path($key);
-                            self.$name.handle((), task_id, conn, arena.reborrow()).await?;
+                            self.$name.handle(task_id, conn, arena.reborrow()).await?;
                         } else {
                             _log_method_not_allowed_for_path($key);
                             conn.initiate_response(405, Some("Method Not Allowed"), &[]).await?;
@@ -124,7 +123,6 @@ macro_rules! map_handler {
         }
 
         MapHandlerImpl{
-            ctx: $ctx,
             $( $name: $h ),+
         }
     }};

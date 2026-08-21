@@ -22,7 +22,6 @@ pub trait EndpointHandler {
     /// - `connection`: A connection state machine for the request-response cycle
     async fn handle<T, const N: usize>(
         &self,
-        ctx: impl Copy,
         task_id: impl Display + Copy,
         connection: &mut Connection<'_, T, N>,
         allocator: PrefixArena<'_>,
@@ -46,7 +45,6 @@ where
 
     async fn handle<T, const N: usize>(
         &self,
-        ctx: impl Copy,
         task_id: impl Display + Copy,
         connection: &mut Connection<'_, T, N>,
         allocator: PrefixArena<'_>,
@@ -54,7 +52,7 @@ where
     where
         T: SocketRead + SocketWrite + SocketSplit,
     {
-        (**self).handle(ctx, task_id, connection, allocator).await
+        (**self).handle(task_id, connection, allocator).await
     }
 }
 
@@ -73,7 +71,6 @@ where
 
     async fn handle<T, const N: usize>(
         &self,
-        ctx: impl Copy,
         task_id: impl Display + Copy,
         connection: &mut Connection<'_, T, N>,
         allocator: PrefixArena<'_>,
@@ -81,6 +78,6 @@ where
     where
         T: SocketRead + SocketWrite + SocketSplit,
     {
-        (**self).handle(ctx, task_id, connection, allocator).await
+        (**self).handle(task_id, connection, allocator).await
     }
 }

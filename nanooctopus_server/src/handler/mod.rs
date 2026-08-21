@@ -68,7 +68,6 @@ impl EndpointHandler for DefaultRootResponse {
 
     async fn handle<S, const CN: usize>(
         &self,
-        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
         _allocator: PrefixArena<'_>,
@@ -122,7 +121,6 @@ impl<'a> EndpointHandler for FaviconHandler<'a> {
 
     async fn handle<S, const CN: usize>(
         &self,
-        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
         _allocator: PrefixArena<'_>,
@@ -195,7 +193,6 @@ impl<'a> EndpointHandler for PlainTextHandler<'a> {
 
     async fn handle<S, const CN: usize>(
         &self,
-        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
         _allocator: PrefixArena<'_>,
@@ -273,7 +270,6 @@ impl<'a> EndpointHandler for HtmlHandler<'a> {
 
     async fn handle<S, const CN: usize>(
         &self,
-        _ctx: impl Copy,
         _task_id: impl Display + Copy,
         conn: &mut Connection<'_, S, CN>,
         _allocator: PrefixArena<'_>,

@@ -53,21 +53,21 @@ The crate does **not** currently document or position itself as an HTTP client l
 
 ```toml
 [dependencies]
-nanooctopus = { version = "0.3.0", default-features = false, features = ["embassy_impl"] }
+nanooctopus = { version = "0.3.3", default-features = false, features = ["embassy_impl"] }
 ```
 
 ### Embedded / Embassy with WebSockets and `defmt`
 
 ```toml
 [dependencies]
-nanooctopus = { version = "0.3.0", default-features = false, features = ["embassy_impl", "ws", "defmt"] }
+nanooctopus = { version = "0.3.3", default-features = false, features = ["embassy_impl", "ws", "defmt"] }
 ```
 
 ### Desktop / Host Testing with Tokio
 
 ```toml
 [dependencies]
-nanooctopus = { version = "0.3.0", features = ["tokio_impl", "log"] }
+nanooctopus = { version = "0.3.3", features = ["tokio_impl", "log"] }
 ```
 
 ## Feature Flags
@@ -191,7 +191,7 @@ async fn main() {
 
 This example exists in:
 
-- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.0/examples/hello_world.rs">
+- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.3/examples/hello_world.rs">
   examples/hello_world.rs
   <img alt="GitHub" src="https://github.githubassets.com/favicons/favicon.svg" height="14">
 
@@ -209,7 +209,7 @@ The Raspberry Pico W example shows the intended embedded deployment model:
 
 The example is in:
 
-- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.0/demos/raspberry_pico_w">
+- <a href="https://github.com/kdimonych/nanooctopus/tree/v0.3.3/demos/raspberry_pico_w">
   demos/raspberry_pico_w
   <img alt="GitHub" src="https://github.githubassets.com/favicons/favicon.svg" height="14">
 

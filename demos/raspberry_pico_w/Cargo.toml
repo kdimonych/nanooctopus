@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 # HTTP server
-nanooctopus_server = { version = "0.4.2", default-features = false, path = "../../nanooctopus_server", package = "nanooctopus_server", features = [
+nanooctopus_server = { version = "0.3.3", default-features = false, path = "../../nanooctopus_server", package = "nanooctopus_server", features = [
   "defmt",
 ] }
 edge-nal = { version = "0.7", default-features = false }
